@@ -23,77 +23,6 @@ class Optimiser(Reconstructor):
         self.slope_upper_bound = slope_upper_bound
         self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
 
-    # def optim_coeff(self, init_loss, coeff, verbose=True):
-    #     coeff_name = "扭转系数" if coeff == 'slopes' else "应变权重"
-    #     i = 0
-    #     current_loss = init_loss
-    #     best_loss = init_loss
-    #     converge = False
-    #     diverge = False
-
-    #     if self.method == 'Powell':
-    #         max_evals, xtol, ftol = self.hyper_params
-    #         options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose)}
-
-    #     start = time.time()
-    #     print(f"-------------------- {coeff_name}优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
-
-    #     while i < self.max_iter:
-    #         # 备份上一轮最优变量
-    #         prev_weights = copy.deepcopy(self.weights[self.direct])
-    #         prev_slopes = copy.deepcopy(self.slopes[self.direct])
-    #         prev_loss = best_loss
-
-    #         slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
-    #         slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
-    #         slopes_normalised = slopes_flattened / slope_upper_bound
-
-    #         new_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
-
-    #         if new_loss > best_loss:
-    #             # 发散：回滚到上一轮最优变量
-    #             self.weights[self.direct] = prev_weights
-    #             self.slopes[self.direct] = prev_slopes
-    #             current_loss = prev_loss
-    #             diverge = True
-    #             break
-
-    #         current_loss = new_loss
-    #         best_loss = new_loss
-
-    #         if 0 < prev_loss - current_loss <= self.min_loss_diff:
-    #             converge = True
-    #             break
-
-    #         i += 1
-
-    #     if converge:
-    #         print(f"{coeff_name}优化已收敛")
-    #     elif diverge:
-    #         print(f"{coeff_name}优化发散，已回滚到上一轮最优变量")
-    #     else:
-    #         print(f"{coeff_name}优化已达最大轮数")
-
-    #     end = time.time()
-    #     print(f"优化耗时: {end - start}")
-    #     print(f"-------------------- {coeff_name}优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
-    #     print()
-
-    #     rs = {}
-    #     for calib_shape in self.calib_shapes:
-    #         r_results_postrot, interp_dist = self.reconstruct_shapes(
-    #             calib_shape=calib_shape,
-    #             direct=self.direct,
-    #             verbose=False
-    #         )
-    #         rs[calib_shape] = r_results_postrot
-
-    #     self._compute_error(interp_dist=interp_dist, rs=rs)
-    #     print(f"当前最优应变权重: {self.weights[self.direct].tolist()}")
-    #     print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
-    #     print(f"最小误差: {current_loss}")
-    #     self._print_errors()  
-
     def optim_coeff(self, init_loss, coeff="slopes", verbose=True):
         """
         交替优化 slopes 和 weights。
@@ -131,8 +60,8 @@ class Optimiser(Reconstructor):
                 current_loss = new_loss
 
                 if status == "diverge":
-                    print(f"{c} 优化发散，已回滚到上一轮最优变量")
-                    break
+                    print(f"{c} 优化发散，已回滚到上一轮最优变量，进入另一个参数优化")
+                    continue
 
             improvement = loss_before_outer - best_loss
 
