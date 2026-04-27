@@ -1,0 +1,7 @@
+numpy
+scipy
+pandas
+matplotlib
+pySerial
+PyQt5
+vtk
