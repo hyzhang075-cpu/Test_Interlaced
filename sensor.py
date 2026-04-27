@@ -100,24 +100,30 @@ class Sensor:
     def generate_samp_dist(self, start_value, samp_dist_preset):
         """
         根据当前解调仪类型生成采样距离数组，并更新实例成员。
+
         步骤：
-        1. 若 self.interrogator == 'LUNA'，则按 self.min_len 与 self.ss 直接生成等间距 self.samp_dist。
+        1. 若 self.interrogator == 'LUNA'，则按 self.min_len 与 self.ss 直接生成等间距的 self.samp_dist。
         2. 否则，对 samp_dist_preset 做差分并倒序，以 start_value 为起点逐步累加生成 self.samp_dist。
-        3. 若 self.zero_init=True，则在开头插入 0，得到 self.ad_samp_dist；否则 self.ad_samp_dist 与 self.samp_dist 相同。
+        3. 若 self.zero_init=True，则在 self.samp_dist 开头额外插入 0，得到 self.ad_samp_dist；否则 self.ad_samp_dist 与 self.samp_dist 相同。
+        4. 检查生成结果是否为有限值，且 self.ad_samp_dist 是否严格递增。
+
         输入：
         - start_value: 固定件到第一个有效采样点的距离
         - samp_dist_preset: 原始光栅位置数组或预设距离数组
+
         输出：
         - 无显式返回
         - 更新以下成员：
-            - self.samp_dist: 不含零点的采样距离数组，单位为 m
-            - self.ad_samp_dist: 若 self.zero_init=True 则在开头补 0，否则与 self.samp_dist 相同
+            - self.samp_dist: 主采样距离数组，单位为 m
+            - self.ad_samp_dist: 若 self.zero_init=True 则在开头额外补 0，否则与 self.samp_dist 相同
+
         异常：
-        - 当生成结果包含 NaN / inf 时抛出 ValueError
+        - 当 self.samp_dist 包含 NaN / inf 时抛出 ValueError
         - 当 self.ad_samp_dist 不是严格递增数组时抛出 ValueError
 
         说明：
         - LUNA 模式下不使用 samp_dist_preset 的差分结果，而是直接按空间采样间隔生成
+        - self.samp_dist 本身可以包含 0；zero_init 只决定是否在 self.ad_samp_dist 中额外插入一个起始 0
         """
         if self.interrogator == 'LUNA':
             self.samp_dist = np.arange(self.min_len) * self.ss
@@ -139,6 +145,59 @@ class Sensor:
     
     # -------------------- FBG数据处理 --------------------
     def read_data_FBG(self, folder_path):
+        """
+        从 FBG 静态标定数据文件夹中读取各类子文件夹下的通道数据，清洗后整理为统一结构，并更新 self.Data。
+
+        支持的子文件夹命名格式：
+        1. x-y
+        -> 保存到 self.Data["circ"][x][y]
+        2. x-y-S
+        -> 保存到 self.Data["S"][x][y]
+        3. x-y-z
+        -> 保存到 self.Data["end"][x][y][z]
+        4. x-y-z-R0
+        -> 保存到 self.Data["rot0"][x][y][z]
+        5. x-y-z-up
+        -> 保存到 self.Data["up"][x][y][z]
+        6. x-y-z-down
+        -> 保存到 self.Data["down"][x][y][z]
+
+        步骤：
+        1. 初始化 self.Data 为包含 circ、S、end、rot0、up、down 六类数据的空字典。
+        2. 遍历 folder_path 下的各个子文件夹，并根据命名格式解析出 x、y、z 与 folder_type。
+        3. 对每个子文件夹中的各个 channel 文件：
+            - 根据解调仪类型匹配文件名；
+            - 读取 csv；
+            - 忽略只有表头没有数据行的空文件；
+            - 检查列数是否一致；
+            - 去除含缺数据的行；
+            - 使用 build_valid_row_mask 去除 outlier 行；
+            - 对剩余有效行按列求均值。
+        4. 若某个 channel 清洗后无有效行，则跳过该 channel。
+        5. 若整个 subfolder 最终没有任何有效 channel，则跳过该 subfolder，并调用 _edit_radii 撤销对应半径项。
+        6. 若 active_channels 所要求的任意必需 channel 缺失，则同样跳过该 subfolder，并调用 _edit_radii 撤销对应半径项。
+        7. 将保留下来的各必需 channel 均值向量按 active_channels 的输入顺序组装为 data_matrix，并做 1e-6 单位缩放。
+        8. 按 folder_type 将 data_matrix 写入 self.Data 的对应层级。
+        9. 对各层字典按半径键做降序排序，其中 0 被视为最大值参与排序。
+
+        输入：
+        - folder_path: 标定数据总目录路径
+
+        输出：
+        - 无显式返回
+        - 更新以下成员：
+            - self.Data:
+                - circ / S 结构为 self.Data[shape][x][y]
+                - end / rot0 / up / down 结构为 self.Data[shape][x][y][z]
+                - 各叶子节点的值为形状为 (num_points, num_channels) 的 numpy 数组
+
+        说明：
+        - 当前实现中，不仅当整个 subfolder 没有任何有效 channel 时会撤销 self.radii，
+        当构建 data_matrix 所需的必需 channel 缺失时也会撤销。
+        - 缺失非必需 channel 不影响当前 subfolder 保留。
+        - 最终 data_matrix 的列顺序由 active_channels 的输入顺序决定。
+        - 当前实现若同一 channel 匹配到多个文件，只取第一个文件。
+        """
         self.Data = {"circ": {}, "S": {}, "end": {}, "rot0": {}, "up": {}, "down": {}}
 
         for subfolder in os.listdir(folder_path):
@@ -147,12 +206,10 @@ class Sensor:
                 continue
 
             x, y, z, folder_type = self._classify_folder(subfolder=subfolder)
-            
-            # 增加空值校验：如果解析失败，则跳过当前文件夹
             if folder_type is None:
                 continue
 
-            # 改成 dict：key 是真实 channel 编号，value 是该 channel 的均值向量
+            # key 是真实读取时使用的 channel 编号，value 是该 channel 的均值向量
             channel_data = {}
             valid_subfolder = True
             num_columns = None
@@ -171,7 +228,7 @@ class Sensor:
                 if not matched_files:
                     continue
 
-                # 这里默认每个 channel 对应一个文件；如果有多个，就取第一个
+                # 默认每个 channel 对应一个文件；如果有多个，只取第一个
                 file_path = matched_files[0]
 
                 try:
@@ -180,14 +237,10 @@ class Sensor:
                     logging.warning(f"文件 {file_path} 读取失败，跳过该 channel。error={e}")
                     continue
 
-                # -------------------- 新增：一开始就忽略只有 headings 的空 csv --------------------
+                # 一开始就忽略只有 headings 的空 csv
                 if df.empty:
-                    logging.info(
-                        f"文件 {file_path} 只有表头没有数据行，视为未连接通道，"
-                        f"已跳过 channel {channel}。"
-                    )
+                    logging.info(f"文件 {file_path} 只有表头没有数据行，视为未连接通道，已跳过 channel {channel}。")
                     continue
-                # ------------------------------------------------------------------------------
 
                 current_num_cols = df.shape[1]
 
@@ -203,7 +256,7 @@ class Sensor:
                         valid_subfolder = False
                         break
 
-                # -------------------- 清洗outlier --------------------
+                # -------------------- 清洗 outlier --------------------
                 fbg_cols = list(enumerate(df.columns[col_start:col_end]))
                 fbg_col_names = [col for _, col in fbg_cols]
 
@@ -231,46 +284,43 @@ class Sensor:
                 cleaned_df = df.loc[valid_rows].copy()
 
                 if cleaned_df.empty:
-                    logging.warning(
-                        f"文件 {file_path} 在缺数据 / outlier 清洗后已无有效行，"
-                        f"该 channel 将被跳过。"
-                    )
+                    logging.warning(f"文件 {file_path} 在缺数据 / outlier 清洗后已无有效行，该 channel 将被跳过。")
                     continue
 
                 data_slice = cleaned_df.iloc[:, col_start:col_end].apply(pd.to_numeric, errors="coerce")
                 channel_avg = data_slice.mean(axis=0).to_numpy()
 
-                # 用真实 channel 编号存起来
                 channel_data[channel] = channel_avg
 
             if not valid_subfolder:
                 continue
 
-            # 如果整个 subfolder 一个有效 channel 都没有，才撤销 radii
+            # 整个 subfolder 没有任何有效 channel
             if len(channel_data) == 0:
-                logging.error(
-                    f"严重错误：subfolder {subfolder} 中没有任何有效 channel，"
-                    f"当前 subfolder 将被跳过，并从 self.radii 中撤销对应项。"
-                )
+                logging.error(f"严重错误：subfolder {subfolder} 中没有任何有效 channel，当前 subfolder 将被跳过，并从 self.radii 中撤销对应项。")
                 self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
-            # ------------------------------------------------------------------
-            # 这里分两种情况：
-            # A. 如果 self.ch_order 存的是“真实 channel 编号”，用下面这段
-            # ordered_channels = [ch for ch in self.ch_order if ch in channel_data]
+            # 根据 active_channels 构造“必需 channel 列表”
+            if self.interrogator == 'Hippo':
+                required_channels = [phy_ch - 1 for phy_ch in self.active_channels]
+                missing_channels = [ch for ch in required_channels if ch not in channel_data]
+                missing_display_channels = [ch + 1 for ch in missing_channels]
+            elif self.interrogator == 'FiberTecc':
+                required_channels = list(self.active_channels)
+                missing_channels = [ch for ch in required_channels if ch not in channel_data]
+                missing_display_channels = missing_channels
+            else:
+                logging.error(f"Unsupported interrogator type: {self.interrogator}")
+                continue
 
-            # if len(ordered_channels) == 0:
-            #     logging.error(
-            #         f"严重错误：subfolder {subfolder} 中虽有有效 channel，"
-            #         f"但没有任何 channel 落在 self.ch_order={self.ch_order} 中，已跳过。"
-            #     )
-            #     self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
-            #     continue
+            # 只要缺少任一必需 channel，就撤销对应 radii
+            if missing_channels:
+                logging.error(f"严重错误：subfolder {subfolder} 缺少构建 data_matrix 所需的必需通道{missing_display_channels}，当前 subfolder 将被跳过，并从 self.radii 中撤销对应项。")
+                self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                continue
 
-            # data_matrix = np.column_stack([channel_data[ch] for ch in ordered_channels]) * 1e-6
-            data_matrix = np.column_stack([channel_data[phy_ch-1] for phy_ch in self.active_channels]) * 1e-6
-            # ------------------------------------------------------------------
+            data_matrix = np.column_stack([channel_data[ch] for ch in required_channels]) * 1e-6
 
             if folder_type in ("circ", "S"):
                 self.Data[folder_type].setdefault(x, {})
@@ -350,10 +400,29 @@ class Sensor:
 
     def _edit_radii(self, folder_type, x, y, z):
         """
-        当某个 subfolder 因为某个 matched_file 清洗后为空而作废时，
-        同步从 self.radii 中撤销对应的半径项。
-        """
+        当某个 subfolder 最终没有任何有效 channel、因此被整体判定为无效时，
+        同步从 self.radii 中撤销该 subfolder 对应的半径配置。
 
+        步骤：
+        1. 根据 folder_type 判断当前 subfolder 对应的是二级还是三级半径结构。
+        2. 若 folder_type 为 "circ" 或 "S"，则从 self.radii[x][folder_type] 中移除 y。
+        3. 若 folder_type 为 "end"、"rot0"、"up" 或 "down"，则从 self.radii[x][folder_type][y] 中移除 z。
+        4. 若三级结构中的某个 y 对应容器在删除后为空，则进一步删除该 y 键。
+
+        输入：
+        - folder_type: 子文件夹对应的数据类型，可为 "circ"、"S"、"end"、"rot0"、"up" 或 "down"
+        - x: 实验方向，对应 self.radii 的一级 key
+        - y: 二级半径键或半径值
+        - z: 三级结构中的末级半径值；对 "circ" 与 "S" 类型可为 None
+
+        输出：
+        - 无显式返回
+        - 原地修改 self.radii
+
+        说明：
+        - 本方法只在调用者已决定“整个 subfolder 无效”时执行撤销
+        - 本方法支持 self.radii 中相关容器为 list 或 set
+        """
         def _remove_from_container(container, value):
             if isinstance(container, set):
                 container.discard(value)
@@ -385,19 +454,21 @@ class Sensor:
 
     def _process_centreData(self, data):
         """
-        将包含中心光纤与外围光纤的通道数据拆分并做中心补偿。
+        将包含中心光纤与外围光纤的通道数据拆分，并生成中心补偿后的结果。
+
+        步骤：
+        1. 若输入为字典，则递归处理其各级 value，并保持原有嵌套结构不变。
+        2. 若输入为 numpy 数组，则默认最后一个维度的第 1 列为中心光纤通道，其余列为外围光纤通道。
+        3. 对数组输入：
+            - 取第 1 列作为 centre_Data；
+            - 取其余列作为 outer_Data；
+            - 计算 processed_Data = outer_Data - centre_Data；
+            - 构造 plot_Data = [centre_Data, outer_Data] 的列拼接结果。
 
         输入：
         - data:
-            - 若为字典，则递归处理其各级 value，并保持原有嵌套结构；
-            - 若为 numpy 数组，则默认第 1 列为中心光纤通道，其余列为外围光纤通道。
-
-        处理方式：
-        - 对数组输入：
-            1. 取第 1 列作为 centre_Data；
-            2. 取其余列作为 outer_Data；
-            3. 计算 processed_Data = outer_Data - centre_Data；
-            4. 构造 plot_Data = [centre_Data, processed_Data] 的列拼接结果。
+            - 若为字典，则其叶子节点应为 numpy 数组；
+            - 若为 numpy 数组，则默认第 1 列为中心光纤通道，其余列为外围光纤通道
 
         输出：
         - 若输入为字典，返回：
@@ -406,14 +477,14 @@ class Sensor:
             - processed_Data_dict
             - plot_Data_dict
         - 若输入为 numpy 数组，返回：
-            - centre_Data: 形状为 (num_points, 1) 的中心光纤数据
-            - outer_Data: 形状为 (num_points, num_outer_channels) 的外围光纤数据
+            - centre_Data: 形状为 (..., 1) 的中心光纤数据
+            - outer_Data: 形状为 (..., num_outer_channels) 的外围光纤数据
             - processed_Data: 中心补偿后的外围光纤数据
-            - plot_Data: 由 centre_Data 与 processed_Data 按列拼接得到的数据
+            - plot_Data: 由 centre_Data 与 outer_Data 按最后一个维度拼接得到的数据
 
         说明：
         - 本方法不修改输入 data，而是返回拆分及补偿后的结果
-        - 当前实现默认输入数组的第 1 列为中心光纤通道
+        - 当前实现使用第 1 列作为中心光纤通道
         """
         if isinstance(data, dict):
             centre_Data_dict = {}
@@ -438,42 +509,48 @@ class Sensor:
         从 LUNA/ODiSI 导出的多方向静态标定数据中读取、分组、预处理并重组通道数据。
 
         约定：
-        - 数据目录按方向划分，即 folder_path 下包含多个以 direct 命名的子目录。
-        - 每个方向目录中存放若干 `_full.tsv` 文件。
+        - 数据目录按方向划分，即 folder_path 下包含多个以 direct 命名的子目录
+        - 每个方向目录中存放若干 `_full.tsv` 文件
         - 文件名格式应匹配：
         ODiSI_xxxx_YYYY-MM-DD_HH-MM-SS_chX_full.tsv
         或
         ODiSI_xxxx_YYYY-MM-DD_HH-MM-SS_chX_gages_full.tsv
-        - 同一时间戳下的多个通道文件视为同一组实验数据。
+        - 同一时间戳下的多个通道文件视为同一组实验数据
 
-        处理流程：
+        步骤：
         1. 遍历每个实验方向 direct 对应的子目录。
         2. 按文件名中的时间戳对 tsv 文件分组，每组对应一次采集。
-        3. 从文件名直接解析物理通道号 phy_ch。
-        4. 对每个物理通道：
-        - 选取 NaN 最少的前 N 行求列均值；
-        - 对缺失值做线性插值；
-        - 去除局部突变异常值。
-        5. 根据 self.sensing_ranges（以物理通道号为 key）提取各通道统一长度的有效传感区间。
-        6. 对提取后的曲线执行平滑计算，但当前版本不将平滑结果写入 self.Data。
-        7. 先按物理通道升序组织成矩阵，再用 self.ch_order 重排，
-        从而与 read_data_FBG 的最终列顺序语义保持一致。
-        8. 最终写入 self.Data["circ"][direct][radius]，其中 radius 由排序后的时间戳顺序映射到 self.radii['circ']。
+        3. 从文件名解析物理通道号 phy_ch，并只保留激活通道对应的文件。
+        4. 对每个物理通道、每个时间组：
+            - 读取 tsv 数据；
+            - 选取 NaN 最少的前 self.N 行求列均值；
+            - 对缺失值做线性插值；
+            - 用倍率阈值法修正局部突变点。
+        5. 根据 self.sensing_ranges 提取各通道统一长度的有效传感区间。
+        6. 对提取后的曲线执行平滑计算；当前版本仅计算平滑结果，不将其写入 self.Data。
+        7. 先按物理通道升序组织成矩阵，再用 self.ch_order 重排到 active_channels 的输入顺序。
+        8. 将排序后的时间戳依次映射到当前方向下的实验半径列表 self.radii[direct]['circ']。
+        9. 最终写入 self.Data["circ"][direct][radius]。
 
         输入：
         - folder_path: LUNA 数据总目录路径，其下应包含以方向命名的子目录
 
         输出：
-            - 无显式返回
-            - 更新以下成员：
-                - self.Data["circ"][direct][radius]
-                - 值：形状为 (num_points, self.num_channels) 的 numpy 数组，单位缩放为 1e-6
+        - 无显式返回
+        - 更新以下成员：
+            - self.Data["circ"][direct][radius]
+            - 值为形状为 (num_points, self.num_channels) 的 numpy 数组，单位缩放为 1e-6
 
         异常：
         - 当某个方向目录不存在时抛出 FileNotFoundError
-        - 当时间戳无法映射到实验半径时抛出 KeyError
-        - 当某个物理通道缺少 OFDR 文件、缺少 sensing_ranges 配置、数组长度不足以切片，
-          或时间组数超过预设半径数时抛出 ValueError
+        - 当某个物理通道缺少 OFDR 文件时抛出 ValueError
+        - 当某物理通道缺少 sensing_ranges 配置时抛出 ValueError
+        - 当某时间戳对应数组长度不足以完成切片时抛出 ValueError
+        - 当某方向的时间组数超过当前方向预设半径数时抛出 ValueError
+
+        说明：
+        - 当前实现会计算 smoothed_data，但最终写入 self.Data 的仍是未平滑的 selected_interp_data
+        - 最终列顺序语义与 read_data_FBG 保持一致
         """
         self.Data = {'circ': {}}
 
@@ -628,14 +705,25 @@ class Sensor:
     
     def _remove_outliers_by_ratio(self, array, ratio_threshold=5):
         """
-        去除数组中与相邻值相差超过指定倍数的突变点。
+        按与相邻值的相对倍率关系修正一维数组中的局部突变点。
 
-        参数:
+        步骤：
+        1. 创建输入数组的副本作为输出数组。
+        2. 遍历数组中除首尾之外的各个位置。
+        3. 若当前位置与前后相邻值的差值都超过 ratio_threshold 倍的相邻值绝对值，
+        则将该位置视为局部突变点。
+        4. 将突变点替换为前后相邻值的均值。
+
+        输入：
         - array: 输入的一维数组
-        - ratio_threshold: 突变点的倍数阈值（与相邻值的最大允许倍数差，例如 5 表示相差超过 5 倍）
+        - ratio_threshold: 判定局部突变点的倍率阈值；例如 5 表示差值超过相邻值绝对值的 5 倍时判为异常
 
-        返回:
-        - 修正后的数组（突变点替换为相邻值的均值）
+        输出：
+        - corrected_array: 修正后的一维数组，长度与输入相同
+
+        说明：
+        - 本方法不会删除数组元素，只会对满足条件的内部点做替换修正
+        - 首尾两个元素不会被处理
         """
         corrected_array = array.copy()  # 创建副本以进行修改
 
@@ -653,15 +741,25 @@ class Sensor:
     
     def _extract_sensing_ranges(self, interp_data):
         """
-        从 interp_data 中按 self.sensing_ranges 指定的区间提取切片，并存储到新的二级字典中。
+        从 interp_data 中按 self.sensing_ranges 指定的区间提取切片，并返回相同层级结构的新字典。
 
-        参数:
-        - interp_data: 字典的字典，一级 key 为物理通道号，
-                    二级 key 为时间戳 (形如 "05-37-36")，值为一维数组。
+        步骤：
+        1. 遍历 interp_data 中的每个物理通道。
+        2. 根据 self.sensing_ranges[channel] 读取该通道对应的 start 与 end。
+        3. 对该通道下的每个时间戳对应数组执行切片 array[start:end]。
+        4. 将切片结果写入新的二级字典中并返回。
 
-        返回:
-        - result: 新的二级字典，提取的切片存储为新的字典。
-                结构与 interp_data 相同，一级 key 仍为物理通道号，值为提取后的数组。
+        输入：
+        - interp_data: 二级字典
+            - 一级 key: 物理通道号
+            - 二级 key: 时间戳（如 "05-37-36"）
+            - value: 一维数组
+
+        输出：
+        - result: 与 interp_data 具有相同层级结构的二级字典
+            - 一级 key: 物理通道号
+            - 二级 key: 时间戳
+            - value: 提取后的数组切片
 
         异常：
         - 当某物理通道在 self.sensing_ranges 中缺少配置时抛出 ValueError
@@ -973,8 +1071,7 @@ class Sensor:
                 continue
 
             # data_received = {ch: wave8x16[i] for i, ch in enumerate(self.active_channels)}
-            # 直接通过物理通道号 ch 获取对应行的数据
-            data_received = {ch: wave8x16[ch-1] for ch in self.active_channels}
+            data_received = {phy_ch: wave8x16[phy_ch-1] for phy_ch in self.active_channels}
 
             for ch in self.active_channels:
                 if self.zero_points[ch][0] is None:
@@ -982,8 +1079,8 @@ class Sensor:
                     print(f"通道{ch}归零基准已设置")
 
             data = np.empty((1, 16, self.num_channels))
-            for i, ch in enumerate(self.active_channels):
-                data[0, :, i] = (data_received[ch] - self.zero_points[ch]) * 1000
+            for phy_ch, i in self.active_channels:
+                data[0, :, i] = (data_received[phy_ch] - self.zero_points[phy_ch]) * 1000
 
             if self.data_queue.full():
                 self.data_queue.get()

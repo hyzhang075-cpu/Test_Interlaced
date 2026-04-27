@@ -30,63 +30,266 @@ class Visualisor:
         self.global_fit_direct = recon.global_fit_direct
         self.individual_fits_direct = recon.individual_fits_direct
 
+        self.zero_init = recon.zero_init
+        self._segment_data = recon._segment_data
+
         self._calculate_segments = recon._calculate_segments
         self._construct_ideals = recon._construct_ideals
 
+    # def init_visualise(self, direct):
+    #     """
+    #     生成初始化阶段相关的可视化结果并保存到目录。
+
+    #     步骤：
+    #     1. 创建当前方向与 segmentation 对应的初始化图像目录。
+    #     2. 对当前对象中记录的各 calib_shape 绘制应变曲线图。
+    #     3. 若存在 S 形标定数据，则绘制其原始角度与 unwrap 后角度的对比图。
+    #     4. 基于 circ 标定数据的 unwrap 后角度结果，进一步绘制：
+    #         - 多半径角度曲线图；
+    #         - 整体线性拟合图；
+    #         - 分段全局拟合与单半径拟合对比图。
+
+    #     输入：
+    #     - direct: 当前实验方向
+
+    #     输出：
+    #     - 无显式返回
+    #     - 副作用：
+    #         - 在 self.sensor_id/.../init_plots/ 目录下保存多张初始化阶段图像
+
+    #     说明：
+    #     - 当前实现会对所有存在的 calib_shape 绘制应变曲线；
+    #     - 若存在 S 形标定数据，则额外使用
+    #     self.angle_results_raw['S'][direct] 与 self.angle_results_unwrap['S'][direct] 绘制角度对比图；
+    #     - circ 相关拟合图使用的是 self.angle_results_unwrap['circ'][direct]，
+    #     以及 self.global_fit_direct[direct]、self.individual_fits_direct[direct]。
+    #     """
+    #     init_dir = os.path.join(self.sensor_id, str(self.active_channels.keys()), str(self.segmentation), str(direct), "init_plots")
+    #     os.makedirs(init_dir, exist_ok=True)
+    #     for calib_shape in self.calib_shapes:
+    #         if calib_shape == 'S':
+    #             self._ang_curve(angle=self.angle_results_raw['S'][direct], angle_unwrap=self.angle_results_unwrap['S'][direct], save_dir=init_dir)
+    #         self._strain_curve(direct=direct, calib_shape=calib_shape, save_dir=init_dir)
+    #     fit_slope, fit_intercept, combined_x, _ = self._linear_fit_processor(angle_data=self.angle_results_unwrap['circ'][direct]) # 不考虑分段做线性拟合
+    #     self._dict_curves(direct=direct, dict_data=self.angle_results_unwrap['circ'][direct], save_dir=init_dir) # 画角度点
+    #     self._visualisation_engine(angle_data=self.angle_results_unwrap['circ'][direct], slope=fit_slope, intercept=fit_intercept, merged_x=combined_x, save_dir=init_dir) # 画角度曲线
+    #     self._visualise_ensemble_fit(angle_data=self.angle_results_unwrap['circ'][direct], global_fit=self.global_fit_direct[direct], individual_fits=self.individual_fits_direct[direct], save_dir=init_dir) # 画曲线+拟合线
+
     def init_visualise(self, direct):
-        """
-        生成初始化阶段相关的可视化结果并保存到目录。
-
-        处理流程：
-        1. 创建当前方向与 segmentation 对应的初始化图像目录。
-        2. 对当前对象中记录的各 calib_shape 绘制应变曲线图。
-        3. 使用保存下来的角度结果绘制原始角度/unwrap 角度对比图。
-        4. 基于 circ 标定数据做整体线性拟合，并绘制：
-        - 原始角度散点图
-        - 整体线性拟合图
-        - 分段全局拟合与单半径拟合对比图
-
-        输入：
-        - direct: 当前实验方向
-
-        输出：
-        - 无显式返回
-        - 副作用：
-        - 在 self.sensor_id/init_plots/... 目录下保存多张初始化阶段图像
-
-        说明：
-        - 当前实现默认会使用 self.angle_results_raw['S'][direct]、
-        self.angle_results_unwrap['S'][direct] 以及 self.angle_results_unwrap['circ'][direct]
-        """
         init_dir = os.path.join(self.sensor_id, str(self.active_channels.keys()), str(self.segmentation), str(direct), "init_plots")
         os.makedirs(init_dir, exist_ok=True)
+
         for calib_shape in self.calib_shapes:
-            if calib_shape == 'S':
+            if calib_shape == 'S' and 'S' in self.angle_results_raw and direct in self.angle_results_raw['S']:
                 self._ang_curve(angle=self.angle_results_raw['S'][direct], angle_unwrap=self.angle_results_unwrap['S'][direct], save_dir=init_dir)
             self._strain_curve(direct=direct, calib_shape=calib_shape, save_dir=init_dir)
-        fit_slope, fit_intercept, combined_x, _ = self._linear_fit_processor(angle_data=self.angle_results_unwrap['circ'][direct]) # 不考虑分段做线性拟合
-        self._dict_curves(direct=direct, dict_data=self.angle_results_unwrap['circ'][direct], save_dir=init_dir) # 画角度点
-        self._visualisation_engine(angle_data=self.angle_results_unwrap['circ'][direct], slope=fit_slope, intercept=fit_intercept, merged_x=combined_x, save_dir=init_dir) # 画角度曲线
-        self._visualise_ensemble_fit(angle_data=self.angle_results_unwrap['circ'][direct], global_fit=self.global_fit_direct[direct], individual_fits=self.individual_fits_direct[direct], save_dir=init_dir) # 画曲线+拟合线
-    
+
+        # 新的统一图
+        self._visualise_all_shapes_unwrap_and_fit(direct=direct, save_dir=init_dir)
+        
+    def _visualise_all_shapes_unwrap_and_fit(self, direct, save_dir):
+        """
+        在一张图中画出：
+        1) 所有 shape 的 unwrap 曲线
+        2) 所有可参与拟合的 shape 的 global fit
+        3) 所有可参与拟合的 shape 的 individual fits
+        """
+
+        # ---------- 收集当前 direct 下所有 unwrap 数据 ----------
+        angle_data_by_shape = {}
+        for shape, direct_dict in self.angle_results_unwrap.items():
+            if direct in direct_dict:
+                angle_data_by_shape[shape] = direct_dict[direct]
+
+        # ---------- 收集当前 direct 下所有 individual fits ----------
+        fit_data_by_shape = self.individual_fits_direct.get(direct, {})
+
+        # 当前 joint global fit（这是联合 circ/S/rot0 算出来的）
+        global_fit = self.global_fit_direct.get(direct, None)
+
+        # ---------- 拉平所有曲线 ----------
+        curve_items = []   # [(shape, path, angles), ...]
+        curve_map = {}     # {(shape, *path): angles}
+
+        for shape, tree in angle_data_by_shape.items():
+            for path, angles in self._flatten_tree_leaves(tree):
+                angles = np.asarray(angles, dtype=float).reshape(-1)
+                key = (shape,) + path
+                curve_items.append((shape, path, angles))
+                curve_map[key] = angles
+
+        # ---------- 为 global fit 重新构造 combined_x 与 merged_segments ----------
+        # 注意：这里要尽量模仿 Initialiser._compute_global_fit 的拼接逻辑
+        pooled_x = [[] for _ in range(len(self.segmentation))]
+
+        for shape in fit_data_by_shape.keys():   # 只对有 fit 的 shape 做 global fit 可视化
+            if shape not in angle_data_by_shape:
+                continue
+
+            for path, angles in self._flatten_tree_leaves(angle_data_by_shape[shape]):
+                x_data, y_data, segments = self._segment_data(np.asarray(angles, dtype=float))
+
+                for idx, (start, end) in enumerate(segments):
+                    if idx >= len(pooled_x):
+                        break
+                    pooled_x[idx].extend(np.asarray(x_data[start:end], dtype=float).tolist())
+
+        combined_x = []
+        merged_segments = []
+        current = 0
+        for xs in pooled_x:
+            if len(xs) == 0:
+                continue
+            combined_x.extend(xs)
+            merged_segments.append((current, current + len(xs)))
+            current += len(xs)
+
+        combined_x = np.asarray(combined_x, dtype=float)
+
+        # ---------- 开始画图 ----------
+        fig, axes = plt.subplots(3, 1, figsize=(16, 20), squeeze=False)
+        ax_raw, ax_global, ax_ind = axes.flatten()
+
+        # ====== 1) 所有 unwrap 曲线 ======
+        for shape, path, angles in curve_items:
+            x, y = self._prepare_curve_xy(angles)
+            if len(x) == 0:
+                continue
+            label = self._leaf_label(shape, path)
+            ax_raw.plot(x, y, 'o-', markersize=3, alpha=0.8, label=label)
+
+        ax_raw.set_title(f"All Unwrapped Angle Curves (direct={direct})")
+        ax_raw.set_xlabel("Sample Distance (m)")
+        ax_raw.set_ylabel("Angle (rad)")
+        ax_raw.grid(alpha=0.3)
+        ax_raw.legend(fontsize=8, ncol=2)
+
+        # ====== 2) 所有曲线 + global fit ======
+        for shape, path, angles in curve_items:
+            x, y = self._prepare_curve_xy(angles)
+            if len(x) == 0:
+                continue
+            label = self._leaf_label(shape, path)
+            ax_global.plot(x, y, 'o', markersize=3, alpha=0.35, label=label)
+
+        if global_fit is not None and len(combined_x) > 0:
+            for idx, ((slope, intercept), (start, end)) in enumerate(zip(global_fit, merged_segments)):
+                if np.isnan(slope) or np.isnan(intercept):
+                    continue
+                x_seg = combined_x[start:end]
+                y_fit = slope * x_seg + intercept
+                ax_global.plot(
+                    x_seg, y_fit,
+                    'k--', lw=3,
+                    label='Global Fit' if idx == 0 else None
+                )
+
+        ax_global.set_title(f"All Curves + Joint Global Fit (direct={direct})")
+        ax_global.set_xlabel("Sample Distance (m)")
+        ax_global.set_ylabel("Angle (rad)")
+        ax_global.grid(alpha=0.3)
+        ax_global.legend(fontsize=8, ncol=2)
+
+        # ====== 3) 所有曲线 + individual fits ======
+        for shape, path, angles in curve_items:
+            x, y = self._prepare_curve_xy(angles)
+            if len(x) == 0:
+                continue
+            label = self._leaf_label(shape, path)
+            ax_ind.plot(x, y, 'o', markersize=3, alpha=0.25, label=label)
+
+        for shape, fit_tree in fit_data_by_shape.items():
+            for path, fit_list in self._flatten_tree_leaves(fit_tree):
+                key = (shape,) + path
+                if key not in curve_map:
+                    continue
+
+                angles = curve_map[key]
+                x_data, y_data, segments = self._segment_data(angles)
+
+                first_seg = True
+                for (slope, intercept), (start, end) in zip(fit_list, segments):
+                    if np.isnan(slope) or np.isnan(intercept):
+                        continue
+
+                    x_seg = np.asarray(x_data[start:end], dtype=float)
+                    y_fit = slope * x_seg + intercept
+
+                    ax_ind.plot(
+                        x_seg, y_fit, lw=2,
+                        label=f"{self._leaf_label(shape, path)} Fit" if first_seg else None
+                    )
+                    first_seg = False
+
+        ax_ind.set_title(f"All Curves + Individual Fits (direct={direct})")
+        ax_ind.set_xlabel("Sample Distance (m)")
+        ax_ind.set_ylabel("Angle (rad)")
+        ax_ind.grid(alpha=0.3)
+        ax_ind.legend(fontsize=8, ncol=2)
+
+        plt.tight_layout()
+
+        save_path = os.path.join(save_dir, "All_Shapes_Unwrap_and_Fits.png")
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def _flatten_tree_leaves(self, obj, prefix=()):
+        """
+        将嵌套字典拉平成 [(path_tuple, leaf_value), ...]
+        """
+        items = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                items.extend(self._flatten_tree_leaves(v, prefix + (k,)))
+        else:
+            items.append((prefix, obj))
+        return items
+
+
+    def _prepare_curve_xy(self, angles):
+        """
+        将单条角度曲线整理成与拟合时一致的 x / y。
+        """
+        angles = np.asarray(angles, dtype=float).reshape(-1)
+        valid_length = min(len(angles), len(self.samp_dist))
+
+        if self.zero_init:
+            x = np.asarray(self.samp_dist[:valid_length], dtype=float)
+            y = angles[:valid_length]
+        else:
+            x = np.asarray(self.samp_dist[1:valid_length], dtype=float)
+            y = angles[1:valid_length]
+
+        return x, y
+
+
+    def _leaf_label(self, shape, path):
+        """
+        给每条曲线生成图例标签。
+        """
+        if len(path) == 0:
+            return str(shape)
+        return f"{shape}|" + "-".join(str(p) for p in path)
+
     def _strain_curve(self, direct, calib_shape, save_dir):
         """
         绘制指定标定形状与方向下的各通道应变曲线并保存。
 
         输入：
         - direct: 当前方向
-        - calib_shape: 标定形状类型，如 'circ'、'S' 或 'end'
+        - calib_shape: 标定形状类型，如 'circ'、'S'、'end'、'rot0'、'up' 或 'down'
         - save_dir: 图像保存目录
 
         输出：
         - 无显式返回
         - 副作用：
-        - 在 save_dir 下保存名为 "Strain_Data_{calib_shape}.png" 的图像文件
+            - 在 save_dir 下保存名为 "Strain_Data_{calib_shape}.png" 的图像文件
 
         说明：
-        - 每个激活通道对应一个子图
-        - 对 circ / S，按半径绘制曲线
-        - 对 end，按 (radius, end_radius) 组合绘制曲线
+        - 每个激活通道对应一个子图；
+        - 对 circ / S，按单层半径键绘制曲线；
+        - 对 end / rot0 / up / down，按两层键组合绘制曲线；
+        - 图例标签对嵌套形状使用 "一级键-二级键" 的形式。
         """
         title = f"Strain Data {calib_shape}"
         # 创建图形
@@ -290,7 +493,7 @@ class Visualisor:
         plt.close()
 
     def _visualise_ensemble_fit(self, angle_data, global_fit, individual_fits, save_dir):
-        '''
+        """
         可视化多半径分段全局拟合与单半径分段拟合结果对比。
 
         输入：
@@ -302,14 +505,15 @@ class Visualisor:
         输出：
         - 无显式返回
         - 副作用：
-        - 在 save_dir 下保存名为
+            - 在 save_dir 下保存名为
             "Multi-Radius_Segmented_Linear_Fitting.png" 的图像文件
 
         说明：
-        - 原始数据散点会跳过半径为 0 的情况
-        - 全局拟合线基于所有非零半径曲线拼接后的 combined_x 绘制
-        - 单半径拟合线只取 individual_fits 中的第一个半径作为示例进行绘制
-        '''
+        - 原始数据散点会跳过半径为 0 的情况；
+        - 对每条非零半径曲线，当前实现绘制散点时会跳过第一个采样点；
+        - 全局拟合线基于所有非零半径曲线拼接后的 combined_x 绘制；
+        - 单半径拟合线只取 individual_fits 中的第一个半径作为示例进行绘制。
+        """
         # ----------- 创建保存路径 -----------
         title = "Multi-Radius Segmented Linear Fitting"
 
@@ -341,7 +545,6 @@ class Visualisor:
 
         # ----------- 单半径拟合线 -----------
         sample_radius = next(iter(individual_fits))
-
         for (slope, intercept), (start, end) in zip(individual_fits[sample_radius], self._calculate_segments(total_points=len(self.samp_dist))):
 
             if not np.isnan(slope):
@@ -365,6 +568,27 @@ class Visualisor:
         plt.close()
 
     def show_reconstruction(self, direct, rs, interp_dist, showanime=False):
+        """
+        将各标定形状的三维重构结果与理论曲线进行可视化，并保存旋转动画。
+
+        步骤：
+        1. 创建当前方向与旋转角度对应的重构结果保存目录。
+        2. 对 rs 中的每个标定形状构造对应的理想曲线 ideals。
+        3. 调用 _plot_reconstruction() 在三维坐标系中绘制重构曲线与理想曲线。
+        4. 使用 matplotlib.animation.FuncAnimation 生成旋转视角动画并保存为 mp4 文件。
+        5. 若 showanime=True，则额外弹出静态三维图进行显示。
+
+        输入：
+        - direct: 当前实验方向
+        - rs: 按标定形状组织的重构结果字典
+        - interp_dist: 当前重构使用的插值采样距离数组
+        - showanime: 是否在保存动画之外额外显示静态图
+
+        输出：
+        - 无显式返回
+        - 副作用：
+            - 在 self.sensor_id/.../recon_plots/... 目录下保存各形状的 mp4 动画文件
+        """
         base_save_dir = os.path.join(self.sensor_id, str(self.active_channels.keys()), str(self.segmentation), str(direct), "recon_plots", str(self.rot_ang))
         os.makedirs(base_save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -396,6 +620,25 @@ class Visualisor:
                 plt.close(fig_show)
 
     def _plot_reconstruction(self, ax, results, ideals):
+        """
+        在给定三维坐标轴上绘制重构曲线与对应的理论曲线。
+
+        步骤：
+        1. 递归获取 results 中所有叶子路径。
+        2. 遍历每条路径，分别提取对应的重构曲线与理想曲线。
+        3. 使用不同颜色与标记绘制重构结果，并以同色虚线绘制理论曲线。
+        4. 根据所有重构点的范围统一设置三维坐标轴比例与显示范围。
+
+        输入：
+        - ax: matplotlib 的 3D 坐标轴对象
+        - results: 重构结果字典
+        - ideals: 与 results 结构对应的理想曲线字典
+
+        输出：
+        - 无显式返回
+        - 副作用：
+            - 直接在 ax 上完成绘图与坐标轴设置
+        """
         colors = ['r', 'g', 'b', 'c', 'm', 'y', 'k']
         markers = ['o', '^', 's', 'D', 'x', '*', 'v']
 

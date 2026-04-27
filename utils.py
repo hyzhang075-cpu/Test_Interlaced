@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import bisect
 
 def dict_recur_operate(d1, d2, f):
     if isinstance(d1, dict) and isinstance(d2, dict):
@@ -12,6 +13,31 @@ def dict_recur_extract(d, f, path=()):
         return {k: dict_recur_extract(v, f, path + (k,)) for k, v in d.items()}
     else:
         return f(d)
+    
+def dict_recur_extract_path(d, f, path=()):
+    if isinstance(d, dict):
+        return {k: dict_recur_extract_path(v, f, path + (k,)) for k, v in d.items()}
+    else:
+        return f(d, path)
+
+def dict_recur_flatten(d, path=()):
+    flat = {}
+    for k, v in d.items():
+        new_path = path + (k,)
+        if isinstance(v, dict):
+            flat.update(dict_recur_flatten(v, new_path))
+        else:
+            flat[new_path] = v
+    return flat
+
+def dict_recur_unflatten(flat_dict):
+    nested = {}
+    for path, value in flat_dict.items():
+        cur = nested
+        for k in path[:-1]:
+            cur = cur.setdefault(k, {})
+        cur[path[-1]] = value
+    return nested
     
 def dict_recur_value(d):
     vals = []

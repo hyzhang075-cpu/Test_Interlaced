@@ -3,131 +3,124 @@ from scipy import stats
 
 from sensor import Sensor
 
+from utils import dict_recur_extract_path, dict_recur_flatten, dict_recur_unflatten
+
 class Initialiser(Sensor):
     """
     形状重构的初始化模块
     """
-    def __init__(self, segmentation,  global_phases_set=0.0, *args, **kwargs):
+    def __init__(self, segmentation,  global_phases_set=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.segmentation = segmentation # 对应原本的segments
+        self.num_segments = len(segmentation)
         self.global_phases_set = global_phases_set
-        if self.global_phases_set == 0.0:
+        if not self.global_phases_set:
+            self.global_phases_set = 0.0
             self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
 
     def rot_seg_fit(self, verbose, update_phase):
-        '''
-        初始化全局相位与初始分段扭转系数。
+        """
+        初始化全局相位，并基于 circ / S / rot0 标定数据联合估计初始分段扭转系数。
 
         步骤：
-        1. 在初始化模式下生成各通道沿传感距离的动态角度，作为曲率方向计算时的通道角度基准。
-        2. 遍历可用的标定形状（当前支持按存在性处理 'circ'、'S' 与 'rot0'）以及各实验方向：
-        - 对每组标定数据计算曲率方向角；
-        - 对角度做 unwrap；
-        - 保存原始角度与 unwrap 后角度。
-        3. 当 calib_shape == 'circ' 且 direct == 0 且 update_phase=True 时，
-        使用当前 circ 标定数据中除第一个半径外各半径的初始角度均值估计全局相位补偿。
-        4. 当 calib_shape == 'circ' 时：
-        - 对各半径角度-距离曲线做分段全局拟合；
-        - 对各半径分别做分段个体拟合；
-        - 将全局拟合得到的各段斜率取负，作为该方向的初始扭转系数 self.slopes_init[direct]。
+        1. 在初始化模式下生成动态角度基准 theta_dynamic。
+        2. 对所有存在的标定形状递归计算 angle raw / unwrap / init。
+        3. 将 circ / S / rot0 中的初始角度递归汇总，用于全局相位估计。
+        4. 将 circ / S / rot0 中的 unwrap 角度曲线递归拉平后联合做：
+        - 全局分段拟合
+        - 个体分段拟合
+        5. 将全局拟合得到的各段斜率取负，作为初始扭转系数 self.slopes_init[direct]。
+        """
 
-        输入：
-        - verbose: 是否打印初始化过程中的关键信息
-        - update_phase: 是否在 circ 的 0 度方向数据上更新全局相位
+        fit_shapes = {'circ', 'S', 'rot0'}
 
-        输出：
-        - 无显式返回
-        - 更新以下成员：
-        - self.global_phases_set
-        - self.slopes_init
-        - self.angle_results_raw
-        - self.angle_results_unwrap
-        - 当存在 'circ' 标定数据时，进一步更新：
-            - self.global_fit_direct
-            - self.individual_fits_direct
-
-        说明：
-        - 所有存在的标定形状都会计算并保存角度结果；
-        - 只有 'circ' 标定数据会进一步用于分段拟合和初始扭转系数估计。
-        '''
-        # ---------- 初始准备 ----------
         theta_dynamic = self._calculate_dynamic_angles(mode='init', segments=None, seg_slopes=None)
+
         self.slopes_init = {}
         self.angle_results_raw = {}
         self.angle_results_unwrap = {}
         self.global_fit_direct = {}
         self.individual_fits_direct = {}
 
-        for calib_shape in ['circ', 'S', 'rot0']:
+        for calib_shape in ['circ', 'S', 'rot0', 'end']:
             if calib_shape in self.calib_shapes:
                 self.angle_results_raw[calib_shape] = {}
                 self.angle_results_unwrap[calib_shape] = {}
 
-                for direct in self.exp_directs:
-                    if direct not in self.processed_Data[calib_shape]:
-                        continue
+        for direct in self.exp_directs:
+            phase_pool = []
+            fit_angle_data_flat = {}
 
-                    calib_Data = self.processed_Data[calib_shape][direct]
-                    angle_raw = {}
-                    angle_results = {}
-                    init_angle = {}
+            if verbose:
+                print(f"-------------------- {direct}方向初始化开始 --------------------")
 
-                    # ---------- circ / S: {radius: ndarray(num_points, num_channels)} ----------
-                    if calib_shape in ['circ', 'S']:
-                        for radius in self.radii[direct][calib_shape]:
-                            if radius not in calib_Data:
-                                continue
+            for calib_shape in ['circ', 'S', 'rot0', 'end']:
+                if calib_shape not in self.calib_shapes:
+                    continue
+                if direct not in self.processed_Data[calib_shape]:
+                    continue
 
-                            strain_data = np.asarray(calib_Data[radius]).T
-                            _, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
-                            angle_unwrap = np.unwrap(angle)
+                calib_data = self.processed_Data[calib_shape][direct]
+                if calib_shape in ['circ', 'S']:
+                    target_data = {radius: calib_data[radius] for radius in self.radii[direct][calib_shape] if radius in calib_data}
+                else:
+                    target_data = calib_data
 
-                            angle_raw[radius] = angle
-                            angle_results[radius] = angle_unwrap
-                            init_angle[radius] = angle_unwrap[0]
+                bundled_tree = dict_recur_extract_path(target_data,
+                    lambda leaf, path: (
+                        lambda strain_data: (
+                            lambda angle: (angle, np.unwrap(angle), np.unwrap(angle)[0])
+                        )(self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)[1])
+                    )(np.asarray(leaf).T))
+                angle_raw = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[0])
+                angle_unwrap = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[1])
+                init_angle = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[2])
 
-                    # ---------- rot0: {x: {y: ndarray(num_points, num_channels)}} ----------
-                    elif calib_shape == 'rot0':
-                        for key1 in calib_Data:
-                            angle_raw[key1] = {}
-                            angle_results[key1] = {}
-                            init_angle[key1] = {}
+                self.angle_results_raw[calib_shape][direct] = angle_raw
+                self.angle_results_unwrap[calib_shape][direct] = angle_unwrap
 
-                            for key2 in calib_Data[key1]:
-                                strain_data = np.asarray(calib_Data[key1][key2]).T
-                                _, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
-                                angle_unwrap = np.unwrap(angle)
+                # ---------- circ / S / rot0 联合参与 phase 与 fit ----------
+                if calib_shape in fit_shapes:
+                    flat_init = dict_recur_flatten(init_angle)
+                    for path, val in flat_init.items():
+                        # ---------- inline _phase_leaf_ok ----------
+                        use_for_phase = True
+                        if calib_shape in ['circ', 'S']:
+                            radius = path[0]
+                            if radius == 0:
+                                use_for_phase = False
 
-                                angle_raw[key1][key2] = angle
-                                angle_results[key1][key2] = angle_unwrap
-                                init_angle[key1][key2] = angle_unwrap[0]
+                        if use_for_phase:
+                            phase_pool.append(val)
 
-                    self.angle_results_raw[calib_shape][direct] = angle_raw
-                    self.angle_results_unwrap[calib_shape][direct] = angle_results
+                    flat_unwrap = dict_recur_flatten(angle_unwrap)
+                    for path, curve in flat_unwrap.items():
+                        fit_key = (calib_shape,) + path
+                        fit_angle_data_flat[fit_key] = curve
 
-                    # ---------- 仅 circ 用于全局相位与初始分段扭转系数 ----------
-                    if calib_shape == 'circ':
-                        if direct == 0 and update_phase:
-                            self.global_phases_set = -np.array(list(init_angle.values()))[1:].mean()
+                if verbose:
+                    print(f"calib_shape: {calib_shape}")
+                    print(f"initial angle: {init_angle}")
 
-                        global_fit = self._compute_global_fit(angle_data=angle_results)
-                        individual_fits = self._compute_individual_fits(angle_data=angle_results)
-                        self.global_fit_direct[direct] = global_fit
-                        self.individual_fits_direct[direct] = individual_fits
+            # ---------- 联合更新全局相位 ----------
+            if direct == 0 and update_phase and len(phase_pool) > 0:
+                self.global_phases_set = -np.mean(phase_pool)
 
-                        self.slopes_init[direct] = [-tup[0] for tup in global_fit]
-                        result = {key: [group[0] for group in groups] for key, groups in individual_fits.items()}
+            # ---------- 联合做全局 / 个体分段拟合 ----------
+            if len(fit_angle_data_flat) > 0:
+                global_fit = self._compute_global_fit(angle_data=fit_angle_data_flat)
+                individual_fits_flat = self._compute_individual_fits(angle_data=fit_angle_data_flat)
 
-                    if verbose:
-                        print(f"-------------------- {direct}方向初始化开始 --------------------")
-                        print(f"calib_shape: {calib_shape}")
-                        print(f"global phase: {self.global_phases_set}")
-                        print(f"initial angle: {init_angle}")
+                self.global_fit_direct[direct] = global_fit
+                self.individual_fits_direct[direct] = dict_recur_unflatten(individual_fits_flat)
+                self.slopes_init[direct] = [-group[0] for group in global_fit]
 
-                        if calib_shape == 'circ':
-                            print(f"segment fit: {global_fit}")
-                            print(f"slopes: {result}")
+                if verbose:
+                    print(f"global phase: {self.global_phases_set}")
+                    print(f"segment fit: {global_fit}")
+                    slopes_detail = dict_recur_extract_path(self.individual_fits_direct[direct], lambda groups, path: [group[0] for group in groups])
+                    print(f"slopes: {slopes_detail}")
 
     def _directional_unwrap(self, angles):
         """
@@ -168,24 +161,35 @@ class Initialiser(Sensor):
         return unwrapped
 
     def _calculate_dynamic_angles(self, mode, segments, seg_slopes):
-        '''
-        计算随传感距离变化的各通道动态角度。
-        若无特殊说明，默认用来重构的外围通道排布时均匀的（active_angles=None）。
+        """
+        计算随传感距离变化的各重构通道动态角度。
 
-        说明：
-        - 在 init 模式下，仅使用全局相位与各方向基准角，认为沿全段不存在额外自扭转累积。
-        - 在 recon 模式下，根据给定分段与各段扭转系数，逐段累积角度变化，得到整条光纤上的动态角度分布。
+        若无特殊说明，默认认为用于重构的外围通道在圆周上均匀分布（active_angles=None）。
+
+        步骤：
+        1. 根据 active_angles 或默认均匀分布方式，构造各重构通道的初始角度 theta_0，
+        并叠加全局相位 self.global_phases_set。
+        2. 若 mode == 'init'，则整条光纤上各点的动态角度恒等于 theta_0。
+        3. 若 mode == 'recon'，则根据给定分段 segments 与各段扭转系数 seg_slopes，
+        沿传感距离逐段累积相位变化，得到整条光纤上的动态角度分布。
+        4. 对越界分段会直接跳过，不参与累积计算。
 
         输入：
         - mode: 计算模式
-          - 'init': 初始化模式，动态角度恒等于全局相位补偿后的通道角度
-          - 'recon': 重构模式，根据分段扭转系数逐段累积
+            - 'init': 初始化模式，动态角度恒等于全局相位补偿后的通道角度
+            - 'recon': 重构模式，根据分段扭转系数逐段累积
         - segments: 分段列表，格式为 [(start, end), ...]，每段为索引区间
         - seg_slopes: 各分段对应的扭转系数列表
 
         输出：
-        - theta_dynamic: 各通道在各采样点处的动态角度，形状为 (self.num_channels, len(self.samp_dist))
-        '''
+        - theta_dynamic: 各重构通道在各采样点处的动态角度，
+        形状为 (self.num_channels_recon, len(self.samp_dist))
+
+        说明：
+        - 当 active_angles 为 None 或长度与 self.num_channels_recon 不一致时，
+        使用均匀分布的默认通道角度；
+        - 本方法只计算参与重构的通道角度，不包含被 centre fibre 补偿后剔除的通道。
+        """
         # 获取 active_angles 参数，如果不存在则为 None
         active_angles = self.active_angles
         
@@ -261,67 +265,57 @@ class Initialiser(Sensor):
 
         return curvature_magnitude, curvature_angle
     
-        
     def _compute_global_fit(self, angle_data):
-        '''
-        对多个标定半径的自扭转角度-距离数据进行分段全局线性拟合。
+        """
+        对多个标定数据的自扭转角度-距离曲线进行分段全局线性拟合。
+        支持任意段数 self.num_segments。
+        """
+        pooled_x = [[] for _ in range(self.num_segments)]
+        pooled_y = [[] for _ in range(self.num_segments)]
 
-        说明：
-        - 仅使用半径不在 {0, 200, 300} 中的数据参与全局拟合。
-        - 对每条曲线先根据当前 segmentation 进行分段。
-        - 将所有半径的第 1 段、第 2 段、第 3 段数据分别聚合，再重建为一个整体数据序列进行分段线性回归。
-        - 这样得到的是“各分段共享”的全局拟合结果，而不是单个半径的局部结果。
+        for key, angles in angle_data.items():
+            # 兼容 fit_key = (calib_shape,) + path 的情况
+            radius = key[1] if isinstance(key, tuple) and len(key) > 1 else key
 
-        输入：
-        - angle_data: 各半径对应的角度数据字典，键为半径，值为角度数组
-
-        输出:
-        - 全局分段线性拟合结果，格式为 list of tuples
-        - 每个元素为 (斜率, 截距)
-        '''
-        global_head_x, global_head_y = [], []
-        global_mid_x, global_mid_y = [], []
-        global_tail_x, global_tail_y = [], []
-
-        for radius, angles in angle_data.items():
             if radius in {0, 200, 300}:
                 continue
 
             x_data, y_data, segments = self._segment_data(angles)
 
             for idx, (start, end) in enumerate(segments):
-                if idx == 0:
-                    global_head_x.extend(x_data[start:end])
-                    global_head_y.extend(y_data[start:end])
-                elif idx == 1:
-                    global_mid_x.extend(x_data[start:end])
-                    global_mid_y.extend(y_data[start:end])
-                elif idx == 2:
-                    global_tail_x.extend(x_data[start:end])
-                    global_tail_y.extend(y_data[start:end])
+                if idx >= self.num_segments:
+                    break
+                pooled_x[idx].extend(x_data[start:end])
+                pooled_y[idx].extend(y_data[start:end])
 
-        combined_x = np.concatenate([global_head_x, global_mid_x, global_tail_x])
-        combined_y = np.concatenate([global_head_y, global_mid_y, global_tail_y])
-
-        # 重建全局segments
-        segments = []
+        combined_x = []
+        combined_y = []
+        merged_segments = []
         current = 0
 
-        head_len = len(global_head_x)
-        if head_len > 0:
-            segments.append((current, current + head_len))
-            current += head_len
+        for xs, ys in zip(pooled_x, pooled_y):
+            if len(xs) == 0:
+                continue
+            seg_len = len(xs)
+            combined_x.extend(xs)
+            combined_y.extend(ys)
+            merged_segments.append((current, current + seg_len))
+            current += seg_len
 
-        mid_len = len(global_mid_x)
-        if mid_len > 0:
-            segments.append((current, current + mid_len))
-            current += mid_len
+        if len(combined_x) == 0:
+            return [(np.nan, np.nan)] * self.num_segments
 
-        tail_len = len(global_tail_x)
-        if tail_len > 0:
-            segments.append((current, current + tail_len))
+        fit_results = self._piecewise_linear_fit(
+            y_data=np.asarray(combined_y, dtype=float),
+            x_data=np.asarray(combined_x, dtype=float),
+            segments=merged_segments
+        )
 
-        return self._piecewise_linear_fit(combined_y, combined_x, segments)
+        # 若某些段完全没有数据，可补齐到固定长度
+        if len(fit_results) < self.num_segments:
+            fit_results += [(np.nan, np.nan)] * (self.num_segments - len(fit_results))
+
+        return fit_results
     
     def _compute_individual_fits(self, angle_data):
         '''
@@ -377,124 +371,125 @@ class Initialiser(Sensor):
         return results
     
     def _segment_data(self, angles):
-        '''
+        """
         对单条自扭转角度-距离曲线生成带重叠的拟合分段结构。
 
-        步骤：
-        - 先对角度进行 unwrap 处理，避免 2π 跳变影响线性拟合。
-        - 再根据 zero_init 决定是否跳过第一个采样点。
-        - segmentation = [head_len, tail_len]：
-          - 头段取前 head_len 个点
-          - 尾段取后 tail_len 个点
-          - 中间段与头尾段各保留 1 个点的重叠，用于拟合过渡更平滑
+        新版 segmentation 规则：
+        - self.segmentation = [n1, n2, ..., nk]
+        - 列表长度 k 直接表示段数；
+        - 每个元素 ni 表示对应分段的点数。
 
-        输入:
+        步骤：
+        1. 先对角度进行 unwrap，避免 2π 跳变影响拟合。
+        2. 再根据 zero_init 决定是否跳过第一个采样点。
+        3. 先调用 _calculate_segments(total_points) 生成不重叠分段。
+        4. 再将每个分段（除最后一段外）向右扩展 1 个点，形成带 1 点重叠的拟合分段。
+
+        输入：
         - angles: 单个半径对应的角度数组
 
-        输出:
+        输出：
         - x_data: 对应采样距离数组
         - y_data: unwrap 后的角度数组
         - segments: 带重叠的分段索引区间列表，格式为 [(start, end), ...]
-        '''
-        unwrapped = np.unwrap(angles)
-        valid_length = min(len(unwrapped), len(self.samp_dist))
-
-        if self.zero_init:
-            x_data = self.samp_dist[:valid_length]
-            y_data = unwrapped[:valid_length]
-        else:
-            x_data = self.samp_dist[1:valid_length]
-            y_data = unwrapped[1:valid_length]
-            valid_length -= 1
-
-        head = self.segmentation[0] if len(self.segmentation) > 0 else 0
-        tail = self.segmentation[1] if len(self.segmentation) > 1 else 0
-
-        head_end = min(head, valid_length)
-        tail_start = max(valid_length - tail, head_end)
-
-        segments = []
-
-        # 头段
-        if head_end > 0:
-            segments.append((0, head_end))
-
-        # 中间段（带重叠）
-        mid_start = max(0, head_end - 1)
-        mid_end = min(tail_start + 1, valid_length)
-        if mid_end > mid_start:
-            segments.append((mid_start, mid_end))
-
-        # 尾段
-        if tail_start < valid_length:
-            segments.append((tail_start, valid_length))
-
-        return x_data, y_data, segments
-    
-    def _calculate_segments(self, total_points):
-        '''
-        根据 segmentation 生成最终用于重构的不重叠分段结构。
 
         说明：
-        - 与 _segment_data() 不同，这里生成的是“不重叠”的最终分段。
-        - 该方法更适合在重构阶段或参数应用阶段使用。
-        - segmentation 通常为 [head_len, tail_len]：
-          - 头段从 0 开始
-          - 尾段位于末尾
-          - 中间段自动作为剩余过渡区域
-        - 若配置非法或 total_points 无效，则退化为单段 [(0, total_points)]。
+        - 返回的 segments 采用左闭右开区间；
+        - 相邻拟合段之间保留 1 个点重叠；
+        - 若 segmentation 非法，则退化为单段；
+        - 若 segmentation 总长度与 total_points 不一致，则由 _calculate_segments() 负责处理。
+        """
+        unwrapped = np.unwrap(angles)
+        raw_valid_length = min(len(unwrapped), len(self.samp_dist))
 
-        输入:
+        if self.zero_init:
+            x_data = self.samp_dist[:raw_valid_length]
+            y_data = unwrapped[:raw_valid_length]
+        else:
+            x_data = self.samp_dist[1:raw_valid_length]
+            y_data = unwrapped[1:raw_valid_length]
+
+        total_points = min(len(x_data), len(y_data))
+        x_data = x_data[:total_points]
+        y_data = y_data[:total_points]
+
+        if total_points <= 0:
+            return x_data, y_data, []
+
+        segments = self._calculate_segments(total_points)
+
+        return x_data, y_data, segments
+
+
+    def _calculate_segments(self, total_points):
+        """
+        根据 segmentation 生成最终用于重构的不重叠分段结构。
+
+        新版 segmentation 规则：
+        - self.segmentation = [n1, n2, ..., nk]
+        - 列表长度 k 直接表示段数；
+        - 每个元素 ni 表示对应分段的点数。
+
+        步骤：
+        1. 检查 total_points 是否合法；若 total_points <= 0，则返回 []。
+        2. 检查 segmentation 是否为合法的非负整数列表。
+        3. 若 segmentation 非法、为空或全为 0，则退化为单段 [(0, total_points)]。
+        4. 按 segmentation 从头到尾依次生成不重叠分段。
+        5. 若 segmentation 总长度小于 total_points，则将剩余点并入最后一段。
+        6. 若 segmentation 总长度大于 total_points，则在 total_points 处截断。
+
+        输入：
         - total_points: 当前数据总点数
 
-        输出:
+        输出：
         - segments: 不重叠的分段区间列表，格式为 [(start, end), ...]
-        '''
-        # --- 输入验证 ---
+
+        说明：
+        - 返回的 segments 采用左闭右开区间；
+        - 分段个数通常与 len(self.segmentation) 一致；
+        - 若总长度不足，则最后一段自动吸收剩余点，避免有点未被覆盖；
+        - 若总长度超出，则自动裁剪到 total_points。
+        """
         if total_points <= 0:
             return []
-        if not isinstance(self.segmentation, list) or len(self.segmentation) < 2 or self.segmentation[0] < 0 or self.segmentation[1] < 0:
-            return [(0, total_points)]
-        
-        head_len = self.segmentation[0]
-        tail_len = self.segmentation[1]
 
-        # 处理 config 全为0或无效的情况
-        if head_len == 0 and tail_len == 0:
+        seg_cfg = self.segmentation
+
+        # segmentation 必须是非空 list / tuple
+        if not isinstance(seg_cfg, (list, tuple)) or len(seg_cfg) == 0:
             return [(0, total_points)]
 
-        # --- 核心逻辑：根据简化规则确定所有断点 ---
-        
-        breakpoints = {0, total_points}
+        # 尝试转成整数列表
+        try:
+            lengths = [int(x) for x in seg_cfg]
+        except (TypeError, ValueError):
+            return [(0, total_points)]
 
-        # 计算尾部区域的理论起始点
-        tail_start_point = total_points - tail_len
+        # 不允许负数
+        if any(x < 0 for x in lengths):
+            return [(0, total_points)]
 
-        # 断点1: 头段结束点 / 过渡段开始点
-        # 这是头段的结束点，也是合并后的过渡段的开始点
-        transition_start_point = min(head_len, tail_start_point)
-        
-        # 只有当 tail_len > 0 时，才有过渡段和尾段
-        if tail_len > 0:
-            breakpoints.add(transition_start_point)
-            
-            # 断点2: 过渡段结束点 / 尾段开始点
-            # 只有当尾部不止一个点时，才有独立的尾段
-            if tail_len > 1:
-                tail_start_point_new = tail_start_point + 1
-                breakpoints.add(tail_start_point_new)
-        else: # tail_len == 0, 只有头段
-            breakpoints.add(head_len)
+        # 去掉 0 长度段；如果全为 0，则退化为单段
+        lengths = [x for x in lengths if x > 0]
+        if len(lengths) == 0:
+            return [(0, total_points)]
 
-
-        # --- 从断点生成最终分段 ---
-        sorted_points = sorted(list(p for p in breakpoints if 0 <= p <= total_points))
-        
         segments = []
-        last_point = sorted_points[0]
-        for point in sorted_points[1:]:
-            if point > last_point:  # 确保不创建空分段
-                segments.append((last_point, point))
-            last_point = point
-                
-        return segments
+        start = 0
+
+        for i, seg_len in enumerate(lengths):
+            if start >= total_points:
+                break
+
+            # 最后一段吸收所有剩余点，避免尾部漏点
+            if i == len(lengths) - 1:
+                end = total_points
+            else:
+                end = min(start + seg_len, total_points)
+
+            if end > start:
+                segments.append((start, end))
+
+            start = end
+
+        return segments if segments else [(0, total_points)]

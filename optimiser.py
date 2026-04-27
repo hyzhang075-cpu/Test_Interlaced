@@ -1,223 +1,274 @@
 import numpy as np
 import time
+import bisect
+import copy
 from scipy.optimize import minimize
 
 from reconstructor import Reconstructor
 
-from utils import dict_recur_operate, dict_recur_extract, dict_recur_value
+from utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path
 
 class Optimiser(Reconstructor):
-    def __init__(self, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k=0.0, weight_bounds=(0.5, 1.0), slope_bounds=(-20.0, 20.0), *args, **kwargs):
+    def __init__(self, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.direct = 0
+        self.end_len = end_len
         self.max_iter = max_iter
         self.min_loss_diff = min_loss_diff
         self.hyper_params = hyper_params
         self.method = method
-        self.k = k
-        self.weight_bounds = [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)] * self.num_levels if not self.end_weights else [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)] * self.num_levels * 2
-        self.slope_bounds = [slope_bounds] * (3 * self.num_levels)
+        self.k_end = k_end
+        self.k_pitch = k_pitch
+        self.weight_bounds = [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)]
+        self.slope_upper_bound = slope_upper_bound
+        self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
 
-    def optim_coeff(self, init_loss, verbose=True):
+    # def optim_coeff(self, init_loss, coeff, verbose=True):
+    #     coeff_name = "扭转系数" if coeff == 'slopes' else "应变权重"
+    #     i = 0
+    #     current_loss = init_loss
+    #     best_loss = init_loss
+    #     converge = False
+    #     diverge = False
+
+    #     if self.method == 'Powell':
+    #         max_evals, xtol, ftol = self.hyper_params
+    #         options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose)}
+
+    #     start = time.time()
+    #     print(f"-------------------- {coeff_name}优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
+
+    #     while i < self.max_iter:
+    #         # 备份上一轮最优变量
+    #         prev_weights = copy.deepcopy(self.weights[self.direct])
+    #         prev_slopes = copy.deepcopy(self.slopes[self.direct])
+    #         prev_loss = best_loss
+
+    #         slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
+    #         slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
+    #         slopes_normalised = slopes_flattened / slope_upper_bound
+
+    #         new_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
+
+    #         if new_loss > best_loss:
+    #             # 发散：回滚到上一轮最优变量
+    #             self.weights[self.direct] = prev_weights
+    #             self.slopes[self.direct] = prev_slopes
+    #             current_loss = prev_loss
+    #             diverge = True
+    #             break
+
+    #         current_loss = new_loss
+    #         best_loss = new_loss
+
+    #         if 0 < prev_loss - current_loss <= self.min_loss_diff:
+    #             converge = True
+    #             break
+
+    #         i += 1
+
+    #     if converge:
+    #         print(f"{coeff_name}优化已收敛")
+    #     elif diverge:
+    #         print(f"{coeff_name}优化发散，已回滚到上一轮最优变量")
+    #     else:
+    #         print(f"{coeff_name}优化已达最大轮数")
+
+    #     end = time.time()
+    #     print(f"优化耗时: {end - start}")
+    #     print(f"-------------------- {coeff_name}优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
+    #     print()
+
+    #     rs = {}
+    #     for calib_shape in self.calib_shapes:
+    #         r_results_postrot, interp_dist = self.reconstruct_shapes(
+    #             calib_shape=calib_shape,
+    #             direct=self.direct,
+    #             verbose=False
+    #         )
+    #         rs[calib_shape] = r_results_postrot
+
+    #     self._compute_error(interp_dist=interp_dist, rs=rs)
+    #     print(f"当前最优应变权重: {self.weights[self.direct].tolist()}")
+    #     print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
+    #     print(f"最小误差: {current_loss}")
+    #     self._print_errors()  
+
+    def optim_coeff(self, init_loss, coeff="slopes", verbose=True):
         """
-        对当前方向的扭转系数与应变权重进行交替迭代优化。
-
-        步骤：
-        1. 以当前误差 init_loss 作为初始损失。
-        2. 在每一轮外层优化开始时，将当前扭转系数直接展平为一维向量（不做归一化）。
-        3. 根据当前优化方法构建 scipy.optimize.minimize 所需的选项与边界。
-        4. 固定当前权重，先优化扭转系数 slopes。
-        5. 固定新的扭转系数，再优化应变权重 weights。
-        6. 根据本轮总损失下降幅度判断整体交替优化是否收敛；若未收敛，则进入下一轮。
-        7. 优化结束后，使用最终参数对所有标定形状重新进行形状重构并计算完整误差。
-
-        输入：
-        - init_loss: 初始损失值
-        - verbose: 是否将 scipy 优化器的内部输出打开
-
-        使用的实例成员：
-        - self.max_iter: 最大外层/内层迭代轮数上限
-        - self.min_loss_diff: 判定收敛所需的最小损失改进量
-
-        输出：
-        - 无显式返回
-        - 更新以下成员：
-        - self.weights[self.direct]
-        - self.slopes[self.direct]
-        - 与误差统计相关的类成员（由 _compute_error() 更新）
+        交替优化 slopes 和 weights。
+        coeff 决定先优化哪个参数：
+            coeff == "slopes": slopes -> weights -> slopes -> weights ...
+            coeff == "weights": weights -> slopes -> weights -> slopes ...
         """
-        i = 0
-        prev_loss = init_loss
+
+        if coeff not in ("slopes", "weights"):
+            raise ValueError("coeff must be 'slopes' or 'weights'")
+
+        if self.method == 'Powell':
+            max_evals, xtol, ftol = self.hyper_params
+            options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose),}
+        else:
+            options = None
+
+        order = ["slopes", "weights"] if coeff == "slopes" else ["weights", "slopes"]
+
         current_loss = init_loss
-        converge = False
+        best_loss = init_loss
+
         start = time.time()
+        print(f"-------------------- 交替优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 先优化: {coeff} --------------------")
 
-        while i < self.max_iter:
-            print(f"-------------------- [第{i}轮优化开始] 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
-            start_iter = time.time()
+        for outer_i in range(self.max_iter):
+            print(f"========== 第{outer_i}轮交替优化开始 ==========")
 
-            # 直接展平原始 slopes，不做归一化
-            slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
-            weights = self.weights[self.direct]
+            loss_before_outer = best_loss
 
-            # ---------- 初始化搜索 ----------
-            if self.method == 'Powell':
-                max_evals, xtol, ftol = self.hyper_params
-                options = {
-                    "maxiter": int(max_evals),
-                    "xtol": float(xtol),
-                    "ftol": float(ftol),
-                    "disp": bool(verbose)
-                }
+            for c in order:
+                new_loss, status = self._optim_one_coeff_until_stop(coeff=c, init_loss=best_loss, options=options, verbose=verbose,)
 
-            # 可选：检查 bounds 长度是否与优化变量一致
-            if len(self.slope_bounds) != len(slopes_flattened):
-                raise ValueError(
-                    f"slope_bounds 长度({len(self.slope_bounds)})与 slopes_flattened 长度({len(slopes_flattened)})不一致"
-                )
+                best_loss = new_loss
+                current_loss = new_loss
 
-            # =========================================================
-            # 1) 先优化扭转系数 slopes
-            # =========================================================
-            slopes_start = time.time()
-            print("---------- 扭转系数优化开始 ----------")
-
-            j = 0
-            converge_slope = False
-            current_loss_slope = prev_loss
-
-            while j < self.max_iter:
-                slopes_j_start = time.time()
-                print(f"---------- 第{j}轮扭转系数优化开始 ----------")
-
-                res_slopes = minimize(lambda slopes: self._loss_fn(self.rot_ang, self.weights[self.direct], slopes, None), x0=slopes_flattened, method=self.method, options=options, bounds=self.slope_bounds)
-
-                # 不再乘 slope_scales，直接使用原始优化结果
-                slopes = res_slopes.x
-                self.slopes[self.direct] = slopes.reshape(self.num_levels, int(len(slopes) / self.num_levels))
-
-                slopes_j_end = time.time()
-                current_loss_j = res_slopes.fun
-                loss_diff_j = current_loss_slope - current_loss_j
-
-                print(f"第{j}轮扭转系数优化耗时: {slopes_j_end - slopes_j_start}")
-                print(f"当前最小误差: {res_slopes.fun}")
-                print(f"提升幅度: {loss_diff_j}")
-                print(f"---------- 第{j}轮扭转系数优化结束 ----------")
-                print()
-
-                if loss_diff_j <= self.min_loss_diff:
-                    converge_slope = True
-                    current_loss_slope = current_loss_j
+                if status == "diverge":
+                    print(f"{c} 优化发散，已回滚到上一轮最优变量")
                     break
-                else:
-                    j += 1
-                    current_loss_slope = current_loss_j
-                    # 重新展平最新的原始 slopes，仍然不做归一化
-                    slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
 
-            if converge_slope:
-                print("扭转系数优化已收敛")
-            else:
-                print("扭转系数优化已达最大轮数")
+            improvement = loss_before_outer - best_loss
 
-            # 用最新 slopes 重新展平，供后续 weights 优化使用
-            slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
+            print(f"第{outer_i}轮交替优化整体提升: {improvement}")
 
-            slopes_end = time.time()
-            print(f"扭转系数优化耗时: {slopes_end - slopes_start}")
-            print(f"最优扭转系数: {self.slopes[self.direct].tolist()}")
-            print(f"最小误差: {res_slopes.fun}")
-            print("---------- 扭转系数优化结束 ----------")
-            print()
-
-            # =========================================================
-            # 2) 再优化应变权重 weights
-            # =========================================================
-            weights_start = time.time()
-            print("---------- 应变权重优化开始 ----------")
-
-            res_weights = minimize(lambda weights: self._loss_fn(self.rot_ang, weights, slopes_flattened, None), x0=weights, method=self.method, options=options, bounds=self.weight_bounds)
-            self.weights[self.direct] = res_weights.x
-
-            current_loss = res_weights.fun
-
-            weights_end = time.time()
-            print(f"应变权重优化耗时: {weights_end - weights_start}")
-            print(f"最优应变权重: {self.weights[self.direct].tolist()}")
-            print(f"最小误差: {res_weights.fun}")
-            print("---------- 应变权重优化结束 ----------")
-            print()
-
-            # =========================================================
-            # 3) 外层收敛判断
-            # =========================================================
-            loss_diff = prev_loss - current_loss
-            end_iter = time.time()
-            print(f"本轮提升幅度: {loss_diff}")
-            print(f"本轮优化耗时: {end_iter - start_iter}")
-            print()
-
-            if loss_diff <= self.min_loss_diff:
-                converge = True
+            if improvement < 0:
+                print("整体优化发生发散，停止")
                 break
-            else:
-                i += 1
-                prev_loss = current_loss
+
+            if 0 <= improvement <= self.min_loss_diff:
+                print("整体交替优化已收敛")
+                break
+
+            print(f"========== 第{outer_i}轮交替优化结束 ==========")
+            print()
+
+        else:
+            print("交替优化已达最大轮数")
 
         end = time.time()
-        if converge:
-            print("优化已收敛")
-        else:
-            print("优化已达最大轮数")
         print(f"优化耗时: {end - start}")
-        print(f"-------------------- [应变权重与扭转系数优化结束] 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
+        print(f"-------------------- 交替优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
         print()
 
         rs = {}
         for calib_shape in self.calib_shapes:
-            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False)
+            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False,)
             rs[calib_shape] = r_results_postrot
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
-        print(f"最优应变权重: {self.weights[self.direct].tolist()}")
-        print(f"最优扭转系数: {self.slopes[self.direct].tolist()}")
+
+        print(f"当前最优应变权重: {self.weights[self.direct].tolist()}")
+        print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
         print(f"最小误差: {current_loss}")
-        self._print_errors()
+        self._print_errors()      
 
-    def _flatten_params(self, params):
+    def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True):
         """
-        将参数矩阵展平，并按元素尺度做归一化，方便优化器进行参数搜索。
-
-        输入：
-        - params: 待处理的参数数组，通常为二维数组
-
-        输出：
-        - params_flattend: 展平并归一化后的参数数组
-        - param_scales: 与各参数对应的尺度数组，用于后续恢复原始量级
+        对单一参数 coeff 循环优化，直到该参数收敛、发散或达到最大轮数。
         """
-        params_flattend = params.flatten()
-        param_scales = np.array([np.abs(param) if np.abs(param) > 1.0 else 1.0 for param in params_flattend])
-        params_flattend /= param_scales
-        return params_flattend, param_scales
+
+        coeff_name = "扭转系数" if coeff == "slopes" else "应变权重"
+
+        current_loss = init_loss
+        best_loss = init_loss
+
+        print(f"-------------------- {coeff_name}连续优化开始 --------------------")
+
+        for i in range(self.max_iter):
+            prev_weights = copy.deepcopy(self.weights[self.direct])
+            prev_slopes = copy.deepcopy(self.slopes[self.direct])
+            prev_loss = best_loss
+
+            slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
+            slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
+            slopes_normalised = slopes_flattened / slope_upper_bound
+
+            new_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
+
+            if new_loss > best_loss:
+                self.weights[self.direct] = prev_weights
+                self.slopes[self.direct] = prev_slopes
+                current_loss = prev_loss
+
+                print(f"{coeff_name}优化发散，已回滚")
+                return current_loss, "diverge"
+
+            current_loss = new_loss
+            best_loss = new_loss
+
+            improvement = prev_loss - current_loss
+
+            if 0 <= improvement <= self.min_loss_diff:
+                print(f"{coeff_name}优化已收敛")
+                return current_loss, "converge"
+
+        print(f"{coeff_name}优化已达最大轮数")
+        return current_loss, "max_iter"     
+    
+    def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound, options):
+        print(f"---------- 第{i}轮优化开始 ----------")
+        start = time.time()
+
+        if coeff == "slopes":
+            loss_fn = lambda slopes: self._loss_fn(self.rot_ang, self.weights[self.direct], slopes, slope_upper_bound)
+            x0 = slopes_normalised
+            coeff_bounds = [(-1.0, 1.0)] * len(x0)       
+        elif coeff == "weights":
+            loss_fn = lambda weights: self._loss_fn(self.rot_ang, weights, slopes_normalised, slope_upper_bound)
+            x0 = self.weights[self.direct]
+            coeff_bounds = self.weight_bounds * len(x0)
+
+        if len(coeff_bounds) != len(x0):
+            raise ValueError(f"bounds 长度({len(coeff_bounds)})与{coeff}长度({len(x0)})不一致")
+
+        res = minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
+        current_loss = res.fun
+        if coeff == "slopes":
+            self.slopes[self.direct] = (res.x * slope_upper_bound).reshape(self.slopes_shape)
+            best_param = self.slopes[self.direct]
+        elif coeff == "weights":
+            self.weights[self.direct] = res.x
+            best_param = self.weights[self.direct]
+
+        end = time.time()
+        print(f"第{i}轮优化耗时: {end - start}")
+        print(f"当前最优: {best_param}")
+        print(f"当前最小误差: {current_loss}")
+        print(f"提升幅度: {init_loss - current_loss}")
+        print(f"---------- 第{i}轮优化结束 ----------")
+        print()
+
+        return current_loss
 
     def _print_errors(self):
         """
         打印当前保存的各类重构误差统计结果。
 
         打印内容包括：
-        - self.point_errors_avg: 各标定形状内部各半径（及 end 形状下各 radius_end）的平均逐点误差
-        - self.end_errors: 各标定形状内部各半径（及 end 形状下各 radius_end）的末端误差
-        - self.avg_point_err: 各标定形状的平均逐点误差，以及键 'all' 对应的总体平均逐点误差
-        - self.avg_end_err: 各标定形状的平均末端误差，以及键 'all' 对应的总体平均末端误差
+        - self.point_errors_avg: 各标定形状内部各半径（及嵌套形状下各二级参数）的平均逐点误差
+        - self.end_errors: 各标定形状内部各半径（及嵌套形状下各二级参数）的末端误差
+        - self.avg_point_err: 各标定形状的平均逐点误差，以及键 'calib' 对应的校准形状总体平均逐点误差
+        - self.avg_end_err: 各标定形状的平均末端误差，以及键 'calib' 对应的校准形状总体平均末端误差
+
+        说明：
+        - 当前实现中的 'calib' 仅汇总 circ、S、rot0 三类形状
         """
         print(f"各标定形状初始平均误差: {self.point_errors_avg}")
         print(f"各标定形状末端误差: {self.end_errors}")
+        print(f"各零螺距标定形状螺距误差: {self.rot0_pitch_errors}")
         print(f"每点误差: {self.avg_point_err}")
         print(f"末端误差: {self.avg_end_err}")    
+        print(f"螺距误差: {self.avg_pitch_err}")
         print()
 
-    def _loss_fn(self, rot_ang, weights, slopes_flattened, slope_scales=None):
+    def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound):
         """
         给定当前参数，计算优化器使用的损失函数值。
 
@@ -225,10 +276,10 @@ class Optimiser(Reconstructor):
         1. 将输入参数写回当前对象状态，包括旋转角、应变权重和扭转系数。
         2. 若提供 slope_scales，则将展平后的扭转系数恢复到原始量级；
         否则直接将输入视为原始扭转系数。
-        3. 使用当前参数执行一次形状重构。
-        4. 计算对应的重构误差。
-        5. 返回总损失：
-        avg_point_err + self.k * avg_end_err
+        3. 使用当前参数对所有可用标定形状执行一次形状重构。
+        4. 调用 _compute_error() 计算对应的重构误差统计量。
+        5. 返回当前损失：
+        self.avg_point_err['calib'] + self.k * self.avg_end_err['calib']
 
         输入：
         - rot_ang: 当前旋转角补偿
@@ -238,20 +289,15 @@ class Optimiser(Reconstructor):
 
         输出：
         - loss: 当前参数下的标量损失值
+
+        说明：
+        - 当前实现的损失只基于校准形状集合 'calib' 计算；
+        - 'calib' 由 circ、S、rot0 三类形状的误差汇总得到。
         """
         # ---------- unpack parameters ----------
         self.rot_ang = rot_ang
         self.weights[self.direct] = weights
-
-        slopes_flattened = np.asarray(slopes_flattened, dtype=float)
-
-        if slope_scales is not None:
-            slopes = slopes_flattened * slope_scales
-        else:
-            slopes = slopes_flattened
-
-        self.slopes[self.direct] = slopes.reshape(self.num_levels, int(len(slopes) / self.num_levels))
-
+        self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape)
         # ---------- 计算误差 ----------
         rs = {}
         for calib_shape in self.calib_shapes:
@@ -260,36 +306,41 @@ class Optimiser(Reconstructor):
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
 
-        return self.avg_point_err['calib'] + self.k * self.avg_end_err['calib']
-
+        return self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err
 
     def _compute_error(self, interp_dist, rs):
         """
         计算各类标定形状下的重构结果相对于理论标定曲线的误差。
 
-        说明：
-        - 对每个标定形状分别遍历其对应的半径配置；
-        - 对 circ / S 形状，直接读取 rs[calib_shape][radius]；
-        - 对 end 形状，进一步遍历 radius_end，读取 rs['end'][radius][radius_end]。
-        - 每组重构曲线都会调用 _compute_error_shape() 逐点计算误差，并得到对应末端误差。
-        - 最终分别汇总：
-        - 每个标定形状内部的平均逐点误差与平均末端误差
-        - 所有标定形状整体的平均逐点误差与平均末端误差
+        步骤：
+        1. 根据 interp_dist 与当前 calib_shape 构造对应的理想标定曲线 ideals。
+        2. 对每个标定形状，使用递归字典操作对重构结果与理想曲线逐点计算欧氏距离误差，并按 val_len 归一化。
+        3. 从逐点误差中进一步提取：
+            - 每组曲线的末端误差
+            - 每组曲线的平均逐点误差
+        4. 对每个标定形状分别汇总其内部所有曲线的平均逐点误差与平均末端误差。
+        5. 进一步对 circ、S、rot0 三类校准形状汇总，得到键 'calib' 对应的整体平均逐点误差与平均末端误差。
 
         输入：
         - interp_dist: 插值后的弧长坐标数组
         - rs: 按标定形状组织的重构结果字典，结构为：
-        - circ / S: {calib_shape: {radius: 轨迹数组}}
-        - end: {calib_shape: {radius: {radius_end: 轨迹数组}}}
+            - circ / S: {calib_shape: {radius: 轨迹数组}}
+            - end / rot0 / up / down: {calib_shape: {key1: {key2: 轨迹数组}}}
 
         输出：
         - 无显式返回
         - 更新以下成员：
-        - self.point_errors
-        - self.point_errors_avg
-        - self.end_errors
-        - self.avg_point_err（包含各标定形状以及键 'all' 的总体平均误差）
-        - self.avg_end_err（包含各标定形状以及键 'all' 的总体平均误差）
+            - self.point_errors
+            - self.point_errors_avg
+            - self.end_errors
+            - self.avg_point_err
+            - self.avg_end_err
+
+        说明：
+        - 当前实现不再调用单独的 _compute_error_shape()，而是通过 dict_recur_operate、
+        dict_recur_extract 与 dict_recur_value 递归完成误差计算与汇总；
+        - self.avg_point_err 与 self.avg_end_err 中额外包含的聚合键为 'calib'，而不是 'all'；
+        - 'calib' 当前仅汇总 circ、S、rot0、end 三类形状。
         """
         self.point_errors = {}
         self.point_errors_avg = {}
@@ -297,32 +348,45 @@ class Optimiser(Reconstructor):
         self.avg_point_err = {}
         self.avg_end_err = {}
 
+        self.rot0_pitch_errors = None
+        self.avg_pitch_err = 0
+
         val_len = interp_dist[-1]
         if val_len <0:
             print(f"val_len: {val_len}")
 
         for calib_shape in self.calib_shapes:
-            point_errors = {}
-            end_errors = {}
-            point_errors_avg = {}
             results = rs[calib_shape]
-            ideals = self._construct_ideals(calib_shape=calib_shape, interp_dist=interp_dist, val_len=val_len)
+            
+            if calib_shape == "rot0":
+                pitch_errors = dict_recur_extract_path(d=results, f=lambda x, path: self._compute_rot0_pitch_err(result=x, interp_dist=interp_dist, radius_m=path[-2]*0.001, rot_pos=path[-1]*0.001, val_len=val_len))
 
-            point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: np.linalg.norm(x - y, axis=1)/val_len)
-            end_errors = dict_recur_extract(d=point_errors, f=lambda x: x[-1])
-            point_errors_avg = dict_recur_extract(d=point_errors, f=lambda x: np.nanmean(x))
-            self.point_errors[calib_shape] = point_errors
-            self.end_errors[calib_shape] = end_errors
-            self.point_errors_avg[calib_shape] = point_errors_avg
+                self.rot0_pitch_errors = pitch_errors
+                pitch_vals = dict_recur_value(pitch_errors)
+                self.avg_pitch_err = np.nanmean(pitch_vals)
 
-            # 统一处理 circ / S / end
-            point_vals = dict_recur_value(point_errors_avg)
-            end_vals = dict_recur_value(end_errors)
-            self.avg_point_err[calib_shape] = np.nanmean(point_vals)
-            self.avg_end_err[calib_shape] = np.nanmean(end_vals)
-        
-        calib_point_errors_avg = {k: self.point_errors_avg[k] for k in ['circ', 'S', 'rot0'] if k in self.point_errors_avg}
-        calib_end_errors = {k: self.end_errors[k] for k in ['circ', 'S', 'rot0'] if k in self.end_errors}
+            else:    
+                point_errors = {}
+                end_errors = {}
+                point_errors_avg = {}
+                ideals = self._construct_ideals(calib_shape=calib_shape, interp_dist=interp_dist, val_len=val_len)
+
+                point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: self._compute_point_err(result=x, ideal=y, interp_dist=interp_dist, val_len=val_len))
+                end_errors = dict_recur_extract(d=point_errors, f=lambda x: x[-1])
+                point_errors_avg = dict_recur_extract(d=point_errors, f=lambda x: np.nanmean(x))
+
+                self.point_errors[calib_shape] = point_errors
+                self.end_errors[calib_shape] = end_errors
+                self.point_errors_avg[calib_shape] = point_errors_avg
+
+                # 统一处理 circ / S / end
+                point_vals = dict_recur_value(point_errors_avg)
+                end_vals = dict_recur_value(end_errors)
+                self.avg_point_err[calib_shape] = np.nanmean(point_vals)
+                self.avg_end_err[calib_shape] = np.nanmean(end_vals)
+            
+        calib_point_errors_avg = {k: self.point_errors_avg[k] for k in ['circ', 'S', 'end'] if k in self.point_errors_avg}
+        calib_end_errors = {k: self.end_errors[k] for k in ['circ', 'S', 'end'] if k in self.end_errors}
         calib_point_vals = dict_recur_value(calib_point_errors_avg)
         calib_end_vals = dict_recur_value(calib_end_errors)
         self.avg_point_err['calib'] = np.nanmean(calib_point_vals)
@@ -391,17 +455,16 @@ class Optimiser(Reconstructor):
         return real_point
     
     def _construct_ideal_end(self, radius_m, radius_end_m, arc_len):
-        end_len = 0.05 if radius_m == 2 else 0.15
-        if arc_len <= self.ideal_len - end_len:
+        if arc_len <= self.samp_dist[-1] - self.end_len:
             real_point = self._construct_ideal_circ(radius_m=radius_m, arc_len=arc_len)
         else:
             # 第一段在拼接点的末端位置
-            p0 = self._construct_ideal_circ(radius_m=radius_m, arc_len=self.ideal_len-end_len)
+            p0 = self._construct_ideal_circ(radius_m=radius_m, arc_len=self.samp_dist[-1]-self.end_len)
             # 第二段使用局部弧长
-            p_local = self._construct_ideal_circ(radius_m=radius_end_m, arc_len=arc_len-(self.ideal_len-end_len))
+            p_local = self._construct_ideal_circ(radius_m=radius_end_m, arc_len=arc_len-(self.samp_dist[-1]-self.end_len))
             # 将第二段局部圆弧旋转到第一段末端切向方向，再平移到拼接点
-            x = p0[0] + np.cos((self.ideal_len - end_len) / radius_m) * p_local[0] - np.sin((self.ideal_len - end_len) / radius_m) * p_local[1]
-            y = p0[1] + np.sin((self.ideal_len - end_len) / radius_m) * p_local[0] + np.cos((self.ideal_len - end_len) / radius_m) * p_local[1]
+            x = p0[0] + np.cos((self.samp_dist[-1] - self.end_len) / radius_m) * p_local[0] - np.sin((self.samp_dist[-1] - self.end_len) / radius_m) * p_local[1]
+            y = p0[1] + np.sin((self.samp_dist[-1] - self.end_len) / radius_m) * p_local[0] + np.cos((self.samp_dist[-1] - self.end_len) / radius_m) * p_local[1]
             real_point = np.array([x, y, 0.0])
         return real_point
     
@@ -426,3 +489,12 @@ class Optimiser(Reconstructor):
         z = dir * theta * pitch / (2 * np.pi)
         real_point = np.array([x, y, z])
         return real_point
+    
+    def _compute_rot0_pitch_err(self, result, interp_dist, radius_m, rot_pos, val_len):
+        rot_start = bisect.bisect_left(interp_dist, rot_pos)
+        rot_end = bisect.bisect_right(interp_dist, rot_pos + 2*np.pi*radius_m) - 1
+        return np.abs((result[rot_end, 2] - result[rot_start, 2]) / val_len)
+    
+    def _compute_point_err(self, result, ideal, interp_dist, val_len):
+        eval = bisect.bisect_right(interp_dist, val_len)
+        return np.linalg.norm(result[:eval] - ideal[:eval], axis=1) / val_len

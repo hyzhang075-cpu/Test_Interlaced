@@ -54,24 +54,29 @@ class Reconstructor(Initialiser):
         步骤：
         1. 读取指定 calib_shape 与 direct 下的标定数据，以及该方向对应的权重和扭转系数。
         2. 对每组数据分别执行预处理：
-        - 应变转曲率与方向
-        - 滤波
-        - 插值
-        - 扭率计算
-        - 初始法向量生成
+            - 应变转曲率与方向
+            - 滤波
+            - 插值
+            - 扭率计算
+            - 初始法向量生成
         3. 使用 Frenet-Serret 标架进行空间曲线重构。
         4. 对重构结果统一施加绕 x 轴的旋转补偿。
 
         输入：
-        - calib_shape: 标定形状类型，如 'circ'、'S' 或 'end'
+        - calib_shape: 标定形状类型，如 'circ'、'S'、'end'、'rot0'、'up' 或 'down'
         - direct: 当前重构方向
         - verbose: 是否打印详细中间结果
 
         输出：
         - r_results_postrot:
-        - 当 calib_shape != 'end' 时，格式为 {radius: 轨迹数组}
-        - 当 calib_shape == 'end' 时，格式为 {radius: {end_radius: 轨迹数组}}
-        - interp_dist: 本次循环中最后一组数据预处理得到的插值采样距离数组
+            - 当 calib_shape 为 'circ' 或 'S' 时，格式为 {radius: 轨迹数组}
+            - 当 calib_shape 为 'end'、'rot0'、'up' 或 'down' 时，格式为 {key1: {key2: 轨迹数组}}
+        - interp_dist: 本次循环中最后一组数据预处理得到的插值采样距离数组；
+        若对应数据全部被跳过，则可能为 None
+
+        说明：
+        - 本方法返回的轨迹结果均已完成绕 x 轴的方向旋转补偿
+        - 不同形状的数据层级结构与 self.processed_Data 中对应形状的数据组织方式保持一致
         """
         # ---------- 初始准备 ----------
         calib_Data = self.processed_Data[calib_shape][direct]
@@ -137,9 +142,10 @@ class Reconstructor(Initialiser):
 
         输入：
         - keys:
-        - None：直接使用 calib_Data.T
-        - [radius]：使用单半径数据
-        - [radius, end_radius]：使用 end 形状下的嵌套数据
+            - None：直接使用 calib_Data.T
+            - [key1]：使用单层数据，如 circ / S 下的单组数据
+            - [key1, key2]：使用双层嵌套数据，如 end / rot0 / up / down 下的单组数据
+        - calib_shape: 当前标定形状类型
         - calib_Data: 当前方向下的标定数据字典
         - weight: 当前方向下的曲率分级权重
         - slope: 当前方向下的分级分段扭转系数
@@ -151,6 +157,10 @@ class Reconstructor(Initialiser):
         - interp_ss: 插值后相邻采样点的弧长差
         - init_N: 初始法向量
         - interp_dist: 插值后的采样距离数组
+
+        说明：
+        - 本方法只负责单组数据的预处理，不执行最终三维轨迹递推
+        - 当插值阶段报错时，会附加当前 calib_shape 与 keys 的上下文信息后重新抛出异常
         """
         # ---------- 计算重构使用的曲率大小与方向 ----------
         magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, verbose=verbose)
@@ -212,9 +222,10 @@ class Reconstructor(Initialiser):
 
         输入：
         - keys:
-        - None：直接使用 calib_Data.T
-        - [radius]：使用单半径数据
-        - [radius, end_radius]：使用 end 形状下的嵌套数据
+            - None：直接使用 calib_Data.T
+            - [key1]：使用单层数据，如 circ / S 下的单组数据
+            - [key1, key2]：使用双层嵌套数据，如 end / rot0 / up / down 下的单组数据
+        - calib_shape: 当前方向下的标定形状类型
         - calib_Data: 当前方向下的标定数据字典
         - weight: 当前方向下的曲率等级权重
         - slope: 当前方向下的分级分段扭转系数
@@ -225,8 +236,8 @@ class Reconstructor(Initialiser):
         - angle: 最终曲率方向角数组
 
         说明：
-        - 当 calib_shape == 'S' 时，当前实现会区分普通段与转折段，并从 slope 中取两组分段扭转系数进行组合；
-        - 其他形状下仅使用一组基础分段扭转系数。
+        - 当 calib_shape == 'S' 时，当前实现会区分普通段与转折段，并从 slope 中取两组分段扭转系数进行组合
+        - 其他形状下仅使用一组基础分段扭转系数
         """
         # ---------- 初始准备 ----------
         base_slopes = slope[0]
@@ -260,7 +271,7 @@ class Reconstructor(Initialiser):
             for i in range(self.num_levels):
                 for j, (start, end) in enumerate(self.base_segments):
                     turn_mask = turn_masks[start:end]
-                    slope_vecs[i, start:end] = np.where(turn_mask, slope[i, j + 3], slope[i, j])
+                    slope_vecs[i, start:end] = np.where(turn_mask, slope[i, j + self.num_segments], slope[i, j])
         else:
             for i in range(self.num_levels):
                 for j, (start, end) in enumerate(self.base_segments):
@@ -287,17 +298,18 @@ class Reconstructor(Initialiser):
         """
         使用基础分段扭转系数计算一组数据的基础曲率大小、方向角及转折分段。
 
-        说明：
-        - 基于基础分段扭转系数 base_slopes 生成动态角度；
-        - 再由原始应变直接计算基础曲率大小与方向角；
-        - 并根据 unwrap 后方向角的相邻差值是否超过 self.turn_threshold，
-        识别转折点并构造 turn_segments。
+        步骤：
+        1. 根据基础分段扭转系数 base_slopes 与 self.base_segments 生成动态角度 theta_dynamic。
+        2. 按 keys 指定的数据路径提取当前组应变数据。
+        3. 基于原始应变与动态角度计算基础曲率大小和方向角。
+        4. 对方向角做 unwrap。
+        5. 根据相邻点方向角变化是否超过 self.turn_threshold，识别转折点并构造 turn_segments。
 
         输入：
         - keys:
-        - None：直接使用 calib_Data.T
-        - [radius]：使用单半径数据
-        - [radius, end_radius]：使用 end 形状下的嵌套数据
+            - None：直接使用 calib_Data.T
+            - [key1]：使用单层数据，如 circ / S 下的单组数据
+            - [key1, key2]：使用双层嵌套数据，如 end / rot0 / up / down 下的单组数据
         - calib_Data: 当前方向下的标定数据字典
         - base_slopes: 基础分段扭转系数列表
         - verbose: 是否打印详细中间结果
@@ -307,6 +319,10 @@ class Reconstructor(Initialiser):
         - magnitude: 基础曲率大小数组
         - angle: 基础曲率方向角数组
         - turn_segments: 根据方向角转折检测得到的分段区间列表
+
+        说明：
+        - 本方法给出的 magnitude 与 angle 仅用于后续曲率分级、分段与权重计算
+        - turn_segments 由方向角跳变阈值规则自动检测得到
         """
         theta_dynamic = self._calculate_dynamic_angles(mode='recon', segments=self.base_segments, seg_slopes=base_slopes)
         if keys is None:
@@ -511,6 +527,7 @@ class Reconstructor(Initialiser):
 
         说明：
         - 当某点曲率小于 self.TNB_threshold 时，认为局部形状变化过小，直接沿用上一点的 T/N/B。
+        - 当前实现的返回顺序为 (r, N, T, B)。
 
         输入：
         - kappa: 曲率数组，形状为 (num_points,)
@@ -521,11 +538,11 @@ class Reconstructor(Initialiser):
 
         输出：
         - r: 三维曲线位置数组，形状为 (num_points, 3)
-        - T: 切向量数组，形状为 (num_points, 3)
         - N: 法向量数组，形状为 (num_points, 3)
+        - T: 切向量数组，形状为 (num_points, 3)
         - B: 副法向量数组，形状为 (num_points, 3)
         """
-        # Define normlize func
+            # Define normlize func
         cal_norm = lambda v: v / np.linalg.norm(v)
         
         num_points = len(ss) + 1  #range函数会不包括这个值
@@ -569,7 +586,7 @@ class Reconstructor(Initialiser):
             # 计算 r(i)
             r[i] = ss[i] * T[i] + r[i-1]
         
-        return r, N, T, B
+        return r, T, N, B
     
     def _get_rot_x(self, direct):
         """
