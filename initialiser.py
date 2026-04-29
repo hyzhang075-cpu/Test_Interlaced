@@ -374,30 +374,26 @@ class Initialiser(Sensor):
     def _segment_data(self, angles):
         """
         对单条自扭转角度-距离曲线生成拟合分段结构。
-
+    
         基础规则：
         - self.segmentation = [n1, n2, ..., nk]
         - 先对 angles 做 np.unwrap；
         - 再根据 self.zero_init 决定是否跳过第一个采样点；
         - 再由 _calculate_segments(total_points) 生成不重叠基础分段。
-
+    
         connect 规则：
         - 若 self.connect == False：
             直接返回不重叠基础分段 base_segments。
         - 若 self.connect == True：
             在拟合阶段生成带 1 点重叠的分段；
-            但首尾分段不拓展。
-
+            首段不变，此后每一段向左拓展 1 个点，使相邻分段首尾相连。
+    
         connect=True 时的拓展规则：
-        - 若基础分段数 n 为奇数：
-            * 中间段 idx = n // 2，两边各拓展 1 点；
-            * 中间段左侧的非首段向左拓展 1 点；
-            * 中间段右侧的非尾段向右拓展 1 点。
-        - 若基础分段数 n 为偶数：
-            * 中心偏左段 idx = n // 2 - 1，两边各拓展 1 点；
-            * 其左侧的非首段向左拓展 1 点；
-            * 其右侧的非尾段向右拓展 1 点。
-
+        - 第 0 段保持不变；
+        - 从第 1 段开始，每一段 start 向左拓展 1 个点；
+        - end 不变；
+        - 返回区间仍采用左闭右开格式 [(start, end), ...]。
+    
         输出：
         - x_data: 对应采样距离数组
         - y_data: unwrap 后的角度数组
@@ -405,63 +401,45 @@ class Initialiser(Sensor):
         """
         unwrapped = np.unwrap(angles)
         raw_valid_length = min(len(unwrapped), len(self.samp_dist))
-
+    
         if self.zero_init:
             x_data = self.samp_dist[:raw_valid_length]
             y_data = unwrapped[:raw_valid_length]
         else:
             x_data = self.samp_dist[1:raw_valid_length]
             y_data = unwrapped[1:raw_valid_length]
-
+    
         total_points = min(len(x_data), len(y_data))
         x_data = x_data[:total_points]
         y_data = y_data[:total_points]
-
+    
         if total_points <= 0:
             return x_data, y_data, []
-
+    
         # Step 1: 生成不重叠基础分段
         base_segments = self._calculate_segments(total_points)
-
+    
         # Step 2: 如果不启用连接，则直接返回不重叠分段
         if not self.connect:
             return x_data, y_data, base_segments
-
-        # Step 3: 启用连接时，生成拟合用 1 点重叠分段
-        n = len(base_segments)
-        if n <= 1:
+    
+        # Step 3: 启用连接时，从第二段开始，每段向左拓展 1 个点
+        if len(base_segments) <= 1:
             return x_data, y_data, base_segments
-
-        # Python 0-based 索引：
-        # 奇数 n：正中间段；
-        # 偶数 n：中心偏左段。
-        center_idx = (n - 1) // 2
-
+    
         segments = []
+    
         for idx, (start, end) in enumerate(base_segments):
             start = int(start)
             end = int(end)
-
-            # 首尾分段不做任何拓展
-            if idx == 0 or idx == n - 1:
-                pass
-
-            # 中心段两边各拓展 1 点
-            elif idx == center_idx:
+    
+            # 首段不变；此后每段向左拓展一个点
+            if idx > 0:
                 start = max(start - 1, 0)
-                end = min(end + 1, total_points)
-
-            # 中心段左侧：向左拓展 1 点
-            elif idx < center_idx:
-                start = max(start - 1, 0)
-
-            # 中心段右侧：向右拓展 1 点
-            else:
-                end = min(end + 1, total_points)
-
+    
             if end > start:
                 segments.append((start, end))
-
+    
         return x_data, y_data, segments
 
     def _calculate_segments(self, total_points):
