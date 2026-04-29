@@ -36,7 +36,11 @@ class Initialiser(Sensor):
 
         fit_shapes = {'circ', 'S', 'rot0'}
 
-        theta_dynamic = self._calculate_dynamic_angles(mode='init', segments=None, seg_slopes=None)
+        theta_dynamic = self._calculate_dynamic_angles(
+            mode='init',
+            segments=None,
+            seg_slopes=None
+        )
 
         self.slopes_init = {}
         self.angle_results_raw = {}
@@ -59,46 +63,66 @@ class Initialiser(Sensor):
             for calib_shape in ['circ', 'S', 'rot0', 'end']:
                 if calib_shape not in self.calib_shapes:
                     continue
+
                 if direct not in self.processed_Data[calib_shape]:
                     continue
 
                 calib_data = self.processed_Data[calib_shape][direct]
+
                 if calib_shape in ['circ', 'S']:
                     target_data = {radius: calib_data[radius] for radius in self.radii[direct][calib_shape] if radius in calib_data}
                 else:
                     target_data = calib_data
 
-                bundled_tree = dict_recur_extract_path(target_data,
-                    lambda leaf, path: (
-                        lambda strain_data: (
-                            lambda angle: (angle, np.unwrap(angle), np.unwrap(angle)[0])
-                        )(self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)[1])
-                    )(np.asarray(leaf).T))
-                angle_raw = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[0])
-                angle_unwrap = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[1])
-                init_angle = dict_recur_extract_path(bundled_tree, lambda leaf, path: leaf[2])
+                # ---------- 递归路径展开，逐个数据计算 angle raw / unwrap / init ----------
+                target_data_flat = dict_recur_flatten(target_data)
+
+                bundled_flat = {}
+
+                for path, leaf in target_data_flat.items():
+                    strain_data = np.asarray(leaf).T
+
+                    _, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
+
+                    angle_unwrap_i = np.unwrap(angle)
+                    init_angle_i = angle_unwrap_i[0]
+
+                    bundled_flat[path] = (angle, angle_unwrap_i, init_angle_i)
+
+                # ---------- 将 flat 结果还原成原始树结构 ----------
+                angle_raw = dict_recur_unflatten({path: bundle[0] for path, bundle in bundled_flat.items()})
+
+                angle_unwrap = dict_recur_unflatten({path: bundle[1] for path, bundle in bundled_flat.items()})
+
+                init_angle = dict_recur_unflatten({path: bundle[2] for path, bundle in bundled_flat.items()})
 
                 self.angle_results_raw[calib_shape][direct] = angle_raw
                 self.angle_results_unwrap[calib_shape][direct] = angle_unwrap
 
                 # ---------- circ / S / rot0 联合参与 phase 与 fit ----------
                 if calib_shape in fit_shapes:
-                    flat_init = dict_recur_flatten(init_angle)
-                    for path, val in flat_init.items():
+                    for path, bundle in bundled_flat.items():
+                        angle_unwrap_i = bundle[1]
+                        init_angle_i = bundle[2] 
+                        if -np.pi <= init_angle_i <= np.pi:
+                            init_angle_i = init_angle_i
+                        elif init_angle_i < -np.pi:
+                            init_angle_i += 2 * np.pi
+                        else:
+                            init_angle_i -= 2 * np.pi
                         # ---------- inline _phase_leaf_ok ----------
                         use_for_phase = True
+
                         if calib_shape in ['circ', 'S']:
                             radius = path[0]
                             if radius == 0:
                                 use_for_phase = False
 
                         if use_for_phase:
-                            phase_pool.append(val)
+                            phase_pool.append(init_angle_i)
 
-                    flat_unwrap = dict_recur_flatten(angle_unwrap)
-                    for path, curve in flat_unwrap.items():
                         fit_key = (calib_shape,) + path
-                        fit_angle_data_flat[fit_key] = curve
+                        fit_angle_data_flat[fit_key] = angle_unwrap_i
 
                 if verbose:
                     print(f"calib_shape: {calib_shape}")
@@ -111,6 +135,7 @@ class Initialiser(Sensor):
             # ---------- 联合做全局 / 个体分段拟合 ----------
             if len(fit_angle_data_flat) > 0:
                 global_fit = self._compute_global_fit(angle_data=fit_angle_data_flat)
+
                 individual_fits_flat = self._compute_individual_fits(angle_data=fit_angle_data_flat)
 
                 self.global_fit_direct[direct] = global_fit
@@ -120,8 +145,10 @@ class Initialiser(Sensor):
                 if verbose:
                     print(f"global phase: {self.global_phases_set}")
                     print(f"segment fit: {global_fit}")
+
                     slopes_detail = dict_recur_extract_path(self.individual_fits_direct[direct], lambda groups, path: [group[0] for group in groups])
-                    print(f"slopes: {slopes_detail}")
+
+                    print(f"slopes: {slopes_detail}")            
 
     def _directional_unwrap(self, angles):
         """
@@ -374,26 +401,26 @@ class Initialiser(Sensor):
     def _segment_data(self, angles):
         """
         对单条自扭转角度-距离曲线生成拟合分段结构。
-    
+
         基础规则：
         - self.segmentation = [n1, n2, ..., nk]
         - 先对 angles 做 np.unwrap；
         - 再根据 self.zero_init 决定是否跳过第一个采样点；
         - 再由 _calculate_segments(total_points) 生成不重叠基础分段。
-    
+
         connect 规则：
         - 若 self.connect == False：
             直接返回不重叠基础分段 base_segments。
         - 若 self.connect == True：
             在拟合阶段生成带 1 点重叠的分段；
             首段不变，此后每一段向左拓展 1 个点，使相邻分段首尾相连。
-    
+
         connect=True 时的拓展规则：
         - 第 0 段保持不变；
         - 从第 1 段开始，每一段 start 向左拓展 1 个点；
         - end 不变；
         - 返回区间仍采用左闭右开格式 [(start, end), ...]。
-    
+
         输出：
         - x_data: 对应采样距离数组
         - y_data: unwrap 后的角度数组
@@ -401,45 +428,45 @@ class Initialiser(Sensor):
         """
         unwrapped = np.unwrap(angles)
         raw_valid_length = min(len(unwrapped), len(self.samp_dist))
-    
+
         if self.zero_init:
             x_data = self.samp_dist[:raw_valid_length]
             y_data = unwrapped[:raw_valid_length]
         else:
             x_data = self.samp_dist[1:raw_valid_length]
             y_data = unwrapped[1:raw_valid_length]
-    
+
         total_points = min(len(x_data), len(y_data))
         x_data = x_data[:total_points]
         y_data = y_data[:total_points]
-    
+
         if total_points <= 0:
             return x_data, y_data, []
-    
+
         # Step 1: 生成不重叠基础分段
         base_segments = self._calculate_segments(total_points)
-    
+
         # Step 2: 如果不启用连接，则直接返回不重叠分段
         if not self.connect:
             return x_data, y_data, base_segments
-    
+
         # Step 3: 启用连接时，从第二段开始，每段向左拓展 1 个点
         if len(base_segments) <= 1:
             return x_data, y_data, base_segments
-    
+
         segments = []
-    
+
         for idx, (start, end) in enumerate(base_segments):
             start = int(start)
             end = int(end)
-    
+
             # 首段不变；此后每段向左拓展一个点
             if idx > 0:
                 start = max(start - 1, 0)
-    
+
             if end > start:
                 segments.append((start, end))
-    
+
         return x_data, y_data, segments
 
     def _calculate_segments(self, total_points):

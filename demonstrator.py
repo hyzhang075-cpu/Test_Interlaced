@@ -430,8 +430,6 @@ class Demonstrator(QMainWindow):
         direct = 0  # 保持原代码逻辑
 
         # ---------- 预处理 ----------
-        cur_interp, torsion, interp_ss, init_N, _ = self.recon._preprocess(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], verbose=False)
-
         if self.imu:
             if self.imu_data_queue:
                 with self.imu_lock:
@@ -448,7 +446,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        r, T, N, B = self.recon._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)
+        cur_interp, _, r, T, _, _ = self._reconstruct_frame(keys=None, calib_shape='circ',  calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
 
