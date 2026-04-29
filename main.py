@@ -3,6 +3,7 @@ import time
 import sys
 import threading
 import numpy as np
+from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication
 
@@ -55,21 +56,21 @@ def main():
     print("-------------------- 初始化开始 --------------------")
     parser = argparse.ArgumentParser()
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="04B1", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=163.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--sensor_id', type=str, default="04B1_scope", help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=69, help='传感器第一个传感点到固定件的距离, 单位为mm')
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m')
     parser.add_argument('--ideal_len', type=float, default=0.96, help='传感器长度, 单位为m')
     parser.add_argument('--samp_dist_preset', type=list, default=[510, 520, 530, 540, 550, 580, 610, 640, 670, 720, 770, 850, 930, 1010, 1110, 1230], help='FBG传感点位置, 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
-    parser.add_argument('--global_phases_set', type=float, default=-2.6051262303184806, help='全局相位，初始值为None')
+    parser.add_argument('--global_phases_set', type=float, default=0, help='全局相位，初始值为None')
     # 标定实验参数
     parser.add_argument('--interrogator', type=str, default='Hippo', choices=['FiberTecc', 'Hippo', 'LUNA'], help='解调仪器')
     parser.add_argument('--active_channels', type=list, default=[2, 4, 5, 6, 3, 1, 7], help='传感器连接解调仪的通道以及其顺序')
     parser.add_argument('--active_angles', type=list, default=None, help='外围通道角度排布(度数)，若为None则默认均匀排布')
-    parser.add_argument('--folder_path', type=str, default="./FBG/0413-04B1-自研（1+6）FBG", help='数据存储路径')
+    parser.add_argument('--folder_path', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0427-04B1-自研（1+6）FBG+支气管镜导管"), help='数据存储路径')
     parser.add_argument('--rot_dir', type=int, default=-1, help='各个标定实验按逆(1)还是顺(-1)时针调整的方向')
     parser.add_argument('--exp_directs', type=list, default=[0, 120, 240], help='实验使用的方向')
-    parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200], 'end': {2000: [30, 20, 15], 1500: [150, 100, 50]}}, help='标定圆弧形状半径')
+    parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
     parser.add_argument('--end_len', type=float, default=0.08, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
     parser.add_argument('--weight_bounds', type=tuple, default=(0.0, 2.0), help='曲率权重范围')
@@ -99,11 +100,11 @@ def main():
     parser.add_argument('--smoothing_params', type=dict, default={'window_length': 21,'polyorder': 3}, help='LUNA数据平滑参数')
     parser.add_argument('--interp_num', type=int, default=60, help='插值目标点数')
     parser.add_argument('--sharpness', type=float, default=4.8, help='sigmoid软评分硬度')
-    parser.add_argument('--end_weights', type=bool, default=True, help='是否对末端另算权重')
+    parser.add_argument('--end_weights', type=bool, default=False, help='是否对末端另算权重')
     parser.add_argument('--end_start', type=int, default=-7, help='末端起点')
-    parser.add_argument('--TNB_threshold', type=float, default=0.15, help='TNB重构直线判定阈值')
+    parser.add_argument('--TNB_threshold', type=float, default=0.0, help='TNB重构直线判定阈值')
     # 初始化时必须手动调整的超参数
-    parser.add_argument('--segmentation', type=list, default=[4, 3, 2, 7], help='对扭转角度-传感点位置曲线的点数')
+    parser.add_argument('--segmentation', type=list, default=[3, 8, 5], help='对扭转角度-传感点位置曲线的点数')
     parser.add_argument('--turn_threshold', type=float, default=2.0, help='判断形状弯曲方向是否改变的阈值')
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值

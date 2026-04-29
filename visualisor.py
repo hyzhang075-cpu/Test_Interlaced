@@ -310,7 +310,7 @@ class Visualisor:
                         ax.plot(x, y, label=f"{radius}-{radius_end}")
 
             ax.set_ylabel(f'Ch {phy_ch}') #限制y轴范围，便于观察细节
-            ax.set_ylim(-300, 300)  # 根据实际数据调整范围
+            ax.set_ylim(-800, 800)  # 根据实际数据调整范围
         # 显示图形
         safe_title = title.replace(" ", "_").replace("/", "_")
         save_path = os.path.join(save_dir, f"{safe_title}.png")
