@@ -9,9 +9,9 @@ from reconstructor import Reconstructor
 from utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path
 
 class Optimiser(Reconstructor):
-    def __init__(self, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
+    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.direct = 0
+        self.direct = direct
         self.end_len = end_len
         self.max_iter = max_iter
         self.min_loss_diff = min_loss_diff
@@ -23,7 +23,7 @@ class Optimiser(Reconstructor):
         self.slope_upper_bound = slope_upper_bound
         self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
 
-    def optim_coeff(self, init_loss, coeff="slopes", verbose=True):
+    def optim_coeff(self, coeff="slopes", verbose=True):
         """
         交替优化 slopes 和 weights。
         coeff 决定先优化哪个参数：
@@ -42,6 +42,8 @@ class Optimiser(Reconstructor):
 
         order = ["slopes", "weights"] if coeff == "slopes" else ["weights", "slopes"]
 
+        init_loss = None
+
         current_loss = init_loss
         best_loss = init_loss
 
@@ -54,7 +56,15 @@ class Optimiser(Reconstructor):
             loss_before_outer = best_loss
 
             for c in order:
-                new_loss, status = self._optim_one_coeff_until_stop(coeff=c, init_loss=best_loss, options=options, verbose=verbose,)
+                new_loss, status, coeff_start_loss = self._optim_one_coeff_until_stop(
+                    coeff=c,
+                    init_loss=best_loss,
+                    options=options,
+                    verbose=verbose,
+                )
+
+                if loss_before_outer is None:
+                    loss_before_outer = coeff_start_loss
 
                 best_loss = new_loss
                 current_loss = new_loss
@@ -62,6 +72,10 @@ class Optimiser(Reconstructor):
                 if status == "diverge":
                     print(f"{c} 优化发散，已回滚到上一轮最优变量，进入另一个参数优化")
                     continue
+
+            if loss_before_outer is None or best_loss is None:
+                print("未能得到有效初始误差，停止优化")
+                break
 
             improvement = loss_before_outer - best_loss
 
@@ -107,27 +121,37 @@ class Optimiser(Reconstructor):
 
         current_loss = init_loss
         best_loss = init_loss
+        first_loss = init_loss
 
         print(f"-------------------- {coeff_name}连续优化开始 --------------------")
 
         for i in range(self.max_iter):
             prev_weights = copy.deepcopy(self.weights[self.direct])
             prev_slopes = copy.deepcopy(self.slopes[self.direct])
-            prev_loss = best_loss
 
             slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
             slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
             slopes_normalised = slopes_flattened / slope_upper_bound
 
-            new_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
+            new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
 
-            if new_loss > best_loss:
+            # 核心改动：第一次进入时，best_loss 可能还是 None
+            if best_loss is None:
+                best_loss = iter_init_loss
+                current_loss = iter_init_loss
+
+            if first_loss is None:
+                first_loss = iter_init_loss
+
+            prev_loss = best_loss
+
+            if new_loss > prev_loss:
                 self.weights[self.direct] = prev_weights
                 self.slopes[self.direct] = prev_slopes
                 current_loss = prev_loss
 
                 print(f"{coeff_name}优化发散，已回滚")
-                return current_loss, "diverge"
+                return current_loss, "diverge", first_loss
 
             current_loss = new_loss
             best_loss = new_loss
@@ -136,10 +160,10 @@ class Optimiser(Reconstructor):
 
             if 0 <= improvement <= self.min_loss_diff:
                 print(f"{coeff_name}优化已收敛")
-                return current_loss, "converge"
+                return current_loss, "converge", first_loss
 
         print(f"{coeff_name}优化已达最大轮数")
-        return current_loss, "max_iter"     
+        return current_loss, "max_iter", first_loss   
     
     def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound, options):
         print(f"---------- 第{i}轮优化开始 ----------")
@@ -148,7 +172,8 @@ class Optimiser(Reconstructor):
         if coeff == "slopes":
             loss_fn = lambda slopes: self._loss_fn(self.rot_ang, self.weights[self.direct], slopes, slope_upper_bound)
             x0 = slopes_normalised
-            coeff_bounds = [(-1.0, 1.0)] * len(x0)       
+            coeff_bounds = [(-1.0, 1.0)] * len(x0)
+
         elif coeff == "weights":
             loss_fn = lambda weights: self._loss_fn(self.rot_ang, weights, slopes_normalised, slope_upper_bound)
             x0 = self.weights[self.direct]
@@ -157,11 +182,20 @@ class Optimiser(Reconstructor):
         if len(coeff_bounds) != len(x0):
             raise ValueError(f"bounds 长度({len(coeff_bounds)})与{coeff}长度({len(x0)})不一致")
 
+        # 核心改动：允许 init_loss 为 None
+        if init_loss is None:
+            init_loss = float(loss_fn(x0))
+        else:
+            init_loss = float(init_loss)
+
         res = minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
-        current_loss = res.fun
+
+        current_loss = float(res.fun)
+
         if coeff == "slopes":
             self.slopes[self.direct] = (res.x * slope_upper_bound).reshape(self.slopes_shape)
             best_param = self.slopes[self.direct]
+
         elif coeff == "weights":
             self.weights[self.direct] = res.x
             best_param = self.weights[self.direct]
@@ -174,7 +208,7 @@ class Optimiser(Reconstructor):
         print(f"---------- 第{i}轮优化结束 ----------")
         print()
 
-        return current_loss
+        return current_loss, init_loss
 
     def _print_errors(self):
         """
