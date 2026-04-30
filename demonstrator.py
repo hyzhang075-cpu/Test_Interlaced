@@ -1,6 +1,7 @@
 import pickle
 import queue
-import datetime
+#import datetime
+from datetime import datetime
 import time
 import vtk
 import threading
@@ -28,7 +29,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp):
+    def save(self, timestamp, r_results, end_pose, cur_interp, row_bad, calib_data):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -61,7 +62,9 @@ class DataRecorder:
                 'timestamp': timestamp,
                 'r_results': r_results.copy() if hasattr(r_results, 'copy') else r_results,
                 'end_pose': end_pose.copy() if hasattr(end_pose, 'copy') else end_pose,
-                'cur_interp': list(cur_interp) if cur_interp is not None else []
+                'cur_interp': list(cur_interp) if cur_interp is not None else [],
+                'row_bad': row_bad if cur_interp is not None else [],
+                'calib_data': calib_data if calib_data is not None else []
             }
             # 非阻塞放入，保证渲染实时性
             self.queue.put(data_packet, block=False)
@@ -397,13 +400,10 @@ class Demonstrator(QMainWindow):
             Data = self.recon.data_queue.get_nowait()
         except queue.Empty:
             return  # 队列为空，直接返回等待下一次定时器触发
-
+        
         # ---------- 处理数据 ----------
-        calib_Data = Data[0] * 1e-6
-
-        # 处理中心光纤的数据
-        if self.recon.centre_fibre:
-            _, _, calib_Data, _ = self.recon._process_centreData(calib_Data)
+        # calib_Data = Data[0] * 1e-6
+        calib_Data = Data[0]
 
         # 确保超量程不会造成展示中断
         row_bad = ~np.isfinite(calib_Data).all(axis=1)   # shape (16,)
@@ -416,6 +416,13 @@ class Demonstrator(QMainWindow):
             else:
                 # 第一帧就坏了：没法用上一帧补，只能跳过这一帧（或把坏行置0）
                 return
+            
+        # ---------- 处理数据 ----------
+        calib_Data *= 1e-6
+        # 处理中心光纤的数据
+        if self.recon.centre_fibre:
+            _, _, calib_Data, _ = self.recon._process_centreData(calib_Data)
+
         self.prev_reordered_data = calib_Data.copy()
 
         # ---------- 判定当前方向 ----------
@@ -430,8 +437,6 @@ class Demonstrator(QMainWindow):
         direct = 0  # 保持原代码逻辑
 
         # ---------- 预处理 ----------
-        cur_interp, torsion, interp_ss, init_N, _ = self.recon._preprocess(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], verbose=False)
-
         if self.imu:
             if self.imu_data_queue:
                 with self.imu_lock:
@@ -448,7 +453,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        r, T, N, B = self.recon._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)
+        cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ',  calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
 
@@ -462,7 +467,7 @@ class Demonstrator(QMainWindow):
             r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp)
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, row_bad=row_bad, calib_data=calib_Data)
 
         self._update_frame(r_results_postrot)
 

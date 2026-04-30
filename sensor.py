@@ -1079,7 +1079,7 @@ class Sensor:
                     print(f"通道{ch}归零基准已设置")
 
             data = np.empty((1, 16, self.num_channels))
-            for phy_ch, i in self.active_channels:
+            for phy_ch, i in self.active_channels.items():
                 data[0, :, i] = (data_received[phy_ch] - self.zero_points[phy_ch]) * 1000
 
             if self.data_queue.full():
