@@ -12,6 +12,7 @@ class Initialiser(Sensor):
     def __init__(self, segmentation, connect=True, global_phases_set=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.discont = discont
         self.segmentation = segmentation # 对应原本的segments
         self.num_segments = len(segmentation)
         self.connect = connect
@@ -84,7 +85,7 @@ class Initialiser(Sensor):
 
                     _, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
 
-                    angle_unwrap_i = np.unwrap(angle)
+                    angle_unwrap_i = np.unwrap(angle, discont=self.discont)
                     init_angle_i = angle_unwrap_i[0]
 
                     bundled_flat[path] = (angle, angle_unwrap_i, init_angle_i)
@@ -159,11 +160,11 @@ class Initialiser(Sensor):
         """
         angles = np.asarray(angles, dtype=np.float64)
         if len(angles) < 3:
-            return np.unwrap(angles)
+            return np.unwrap(angles, discont=self.discont)
 
         unwrapped = np.zeros_like(angles)
         # 前两个点使用标准 unwrap
-        unwrapped[:2] = np.unwrap(angles[:2])
+        unwrapped[:2] = np.unwrap(angles[:2], discont=self.discont)
 
         # 确定初始趋势 (1 表示增加, -1 表示减小)
         # 也可以根据实际业务逻辑修改趋势的判断依据
@@ -426,7 +427,7 @@ class Initialiser(Sensor):
         - y_data: unwrap 后的角度数组
         - segments: 用于拟合的分段索引区间列表，格式为 [(start, end), ...]
         """
-        unwrapped = np.unwrap(angles)
+        unwrapped = np.unwrap(angles, discont=self.discont)
         raw_valid_length = min(len(unwrapped), len(self.samp_dist))
 
         if self.zero_init:
