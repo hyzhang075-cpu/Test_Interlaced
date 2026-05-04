@@ -99,7 +99,7 @@ class Reconstructor(Initialiser):
             angle[0] = angle[1]        
         
         # ---------- 重构前预处理 ----------
-        angle_unwrap = np.unwrap(angle)
+        angle_unwrap = np.unwrap(angle, discont=self.discont)
         ang_filter = self._moving_average_scipy(data=angle_unwrap, window_size=self.move_filter, mode='reflect')
         cur_kal = self._Kalman_filter(data=magnitude, Rk=self.kalman_params['magnitude']['Rk'], Bk=self.kalman_params['magnitude']['Bk'])
 
@@ -270,7 +270,7 @@ class Reconstructor(Initialiser):
             radius, idx = keys
             strain_data = calib_Data[radius][idx].T
         magnitude, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
-        angle_unwrap = np.unwrap(angle)
+        angle_unwrap = np.unwrap(angle, discont=self.discont)
         turn_idx = [0]
         for i in range(1, len(angle)):
             if np.abs(angle_unwrap[i] - angle_unwrap[i-1]) > self.turn_threshold:
