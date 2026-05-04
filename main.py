@@ -93,6 +93,7 @@ def main():
     parser.add_argument('--imu_maxlen', type=int, default=10)
     parser.add_argument('--demo_recorder', type=bool, default=True, help='是否在动态展示时记录数据')
     # 重构使用的超参数
+    parser.add_argument('--discont', type=float, default=np.pi, help='np.unwrap跳变判断阈值')
     parser.add_argument('--frame_rule', type=str, default='TNB', choices=['TNB', 'TNN'], help="选择使用FS标架还是平行传递标架")
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')
     parser.add_argument('--move_filter', type=int, default=3, help='动/静态重构前平滑滤波窗口大小')
