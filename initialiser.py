@@ -9,7 +9,7 @@ class Initialiser(Sensor):
     """
     形状重构的初始化模块
     """
-    def __init__(self, segmentation, connect=True, global_phases_set=None, *args, **kwargs):
+    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.discont = discont
@@ -35,13 +35,9 @@ class Initialiser(Sensor):
         5. 将全局拟合得到的各段斜率取负，作为初始扭转系数 self.slopes_init[direct]。
         """
 
-        fit_shapes = {'circ', 'S', 'rot0'}
+        fit_shapes = {'circ'}
 
-        theta_dynamic = self._calculate_dynamic_angles(
-            mode='init',
-            segments=None,
-            seg_slopes=None
-        )
+        theta_dynamic = self._calculate_dynamic_angles(mode='init', segments=None, seg_slopes=None)
 
         self.slopes_init = {}
         self.angle_results_raw = {}
@@ -100,6 +96,7 @@ class Initialiser(Sensor):
                 self.angle_results_raw[calib_shape][direct] = angle_raw
                 self.angle_results_unwrap[calib_shape][direct] = angle_unwrap
 
+
                 # ---------- circ / S / rot0 联合参与 phase 与 fit ----------
                 if calib_shape in fit_shapes:
                     for path, bundle in bundled_flat.items():
@@ -149,7 +146,7 @@ class Initialiser(Sensor):
 
                     slopes_detail = dict_recur_extract_path(self.individual_fits_direct[direct], lambda groups, path: [group[0] for group in groups])
 
-                    print(f"slopes: {slopes_detail}")            
+                    print(f"slopes: {slopes_detail}")  
 
     def _directional_unwrap(self, angles):
         """
@@ -290,7 +287,8 @@ class Initialiser(Sensor):
 
         # 计算曲率向量与坐标轴的夹角 (弧度)
         curvature_angle = np.arctan2(kappa_y, kappa_x)
-        curvature_angle = [ang + 2*np.pi if ang < 0 else ang for ang in curvature_angle]    #转化到0-2pi
+        # curvature_angle = [ang + 2*np.pi if ang < 0 else ang for ang in curvature_angle]    #转化到0-2pi
+        curvature_angle = [ang + 2*np.pi if ang < -np.pi else ang for ang in curvature_angle]
 
         return curvature_magnitude, curvature_angle
     
@@ -309,7 +307,7 @@ class Initialiser(Sensor):
             if radius in {0, 200, 300}:
                 continue
 
-            x_data, y_data, segments = self._segment_data(angles)
+            x_data, y_data, segments = self._segment_data(angles=angles)
 
             for idx, (start, end) in enumerate(segments):
                 if idx >= self.num_segments:
@@ -368,7 +366,7 @@ class Initialiser(Sensor):
             if radius == 0:
                 continue
 
-            x_data, y_data, segments = self._segment_data(angles)
+            x_data, y_data, segments = self._segment_data(angles=angles)
             individual_fits[radius] = self._piecewise_linear_fit(y_data, x_data, segments)
 
         return individual_fits
@@ -405,7 +403,7 @@ class Initialiser(Sensor):
 
         基础规则：
         - self.segmentation = [n1, n2, ..., nk]
-        - 先对 angles 做 np.unwrap；
+        - 先对 angles 做 unwrap；
         - 再根据 self.zero_init 决定是否跳过第一个采样点；
         - 再由 _calculate_segments(total_points) 生成不重叠基础分段。
 

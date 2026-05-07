@@ -6,10 +6,10 @@ from scipy.optimize import minimize
 
 from reconstructor import Reconstructor
 
-from utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path
+from utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path, fit_radius
 
 class Optimiser(Reconstructor):
-    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
+    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.direct = direct
         self.end_len = end_len
@@ -19,6 +19,7 @@ class Optimiser(Reconstructor):
         self.method = method
         self.k_end = k_end
         self.k_pitch = k_pitch
+        self.k_radius = k_radius
         self.weight_bounds = [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)]
         self.slope_upper_bound = slope_upper_bound
         self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
@@ -229,6 +230,7 @@ class Optimiser(Reconstructor):
         print(f"每点误差: {self.avg_point_err}")
         print(f"末端误差: {self.avg_end_err}")    
         print(f"螺距误差: {self.avg_pitch_err}")
+        print(f"半径误差: {self.avg_radius_err}")
         print()
 
     def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound):
@@ -269,7 +271,7 @@ class Optimiser(Reconstructor):
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
 
-        return self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err
+        return self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
 
     def _compute_error(self, interp_dist, rs):
         """
@@ -312,7 +314,9 @@ class Optimiser(Reconstructor):
         self.avg_end_err = {}
 
         self.rot0_pitch_errors = None
+        self.rot0_radius_errors = None
         self.avg_pitch_err = 0
+        self.avg_radius_err = 0
 
         val_len = interp_dist[-1]
         if val_len <0:
@@ -322,11 +326,19 @@ class Optimiser(Reconstructor):
             results = rs[calib_shape]
             
             if calib_shape == "rot0":
-                pitch_errors = dict_recur_extract_path(d=results, f=lambda x, path: self._compute_rot0_pitch_err(result=x, interp_dist=interp_dist, radius_m=path[-2]*0.001, rot_pos=path[-1]*0.001, val_len=val_len))
+                rot0_errors = dict_recur_extract_path(d=results,f=lambda x, path: self._compute_rot0_err(result=x, interp_dist=interp_dist, radius_m=path[-2] * 0.001, rot_pos=path[-1] * 0.001, val_len=val_len))
+
+                pitch_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[0])
+                radius_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[1])
 
                 self.rot0_pitch_errors = pitch_errors
+                self.rot0_radius_errors = radius_errors
+
                 pitch_vals = dict_recur_value(pitch_errors)
+                radius_vals = dict_recur_value(radius_errors)
+
                 self.avg_pitch_err = np.nanmean(pitch_vals)
+                self.avg_radius_err = np.nanmean(radius_vals)
 
             else:    
                 point_errors = {}
@@ -453,11 +465,19 @@ class Optimiser(Reconstructor):
         real_point = np.array([x, y, z])
         return real_point
     
-    def _compute_rot0_pitch_err(self, result, interp_dist, radius_m, rot_pos, val_len):
+    def _compute_rot0_err(self, result, interp_dist, radius_m, rot_pos, val_len):
         rot_start = bisect.bisect_left(interp_dist, rot_pos)
-        rot_end = bisect.bisect_right(interp_dist, rot_pos + 2*np.pi*radius_m) - 1
-        return np.abs((result[rot_end, 2] - result[rot_start, 2]) / val_len)
-    
+        rot_end = bisect.bisect_right(interp_dist, rot_pos + 2 * np.pi * radius_m) - 1
+
+        points = result[rot_start:rot_end + 1]
+
+        pitch_err = np.abs((result[rot_end, 2] - result[rot_start, 2]) / val_len)
+
+        real_radius = fit_radius(points=points)
+        radius_err = np.abs(real_radius - radius_m)
+
+        return pitch_err, radius_err
+        
     def _compute_point_err(self, result, ideal, interp_dist, val_len):
         eval = bisect.bisect_right(interp_dist, val_len)
         return np.linalg.norm(result[:eval] - ideal[:eval], axis=1) / val_len
