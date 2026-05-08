@@ -9,20 +9,59 @@ from reconstructor import Reconstructor
 from utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path, fit_radius
 
 class Optimiser(Reconstructor):
-    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], method='Powell', k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
+    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.direct = direct
         self.end_len = end_len
         self.max_iter = max_iter
         self.min_loss_diff = min_loss_diff
         self.hyper_params = hyper_params
+
         self.method = method
+        self.straight_threshold = straight_threshold
+        self.rot_threshold = rot_threshold
+        self.k_point = k_point
         self.k_end = k_end
         self.k_pitch = k_pitch
         self.k_radius = k_radius
         self.weight_bounds = [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)]
         self.slope_upper_bound = slope_upper_bound
         self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
+
+        self.freeze = freeze
+        self._get_freeze_idx()
+
+    def _get_freeze_idx(self):
+        if self.freeze is None:
+            return np.array([], dtype=int)
+
+        freeze_idx = np.unique(np.atleast_1d(self.freeze).astype(int))
+
+        n_weights = len(self.weights[self.direct])
+        n_slopes = self.slopes_shape[0]
+
+        if np.any(freeze_idx < 0):
+            raise ValueError(f"freeze 中不应包含负 index: {freeze_idx}")
+
+        if np.any(freeze_idx >= n_weights):
+            raise ValueError(f"freeze index 超出 weights 范围: freeze={freeze_idx}, weights长度={n_weights}")
+
+        if np.any(freeze_idx >= n_slopes):
+            raise ValueError(f"freeze index 超出 slopes 范围: freeze={freeze_idx}, slopes第一维长度={n_slopes}")
+
+        return freeze_idx
+
+    def _get_weight_freeze_mask(self):
+        mask = np.zeros(len(self.weights[self.direct]), dtype=bool)
+        freeze_idx = self._get_freeze_idx()
+        mask[freeze_idx] = True
+        return mask
+
+    def _get_slope_freeze_mask(self):
+        mask = np.zeros(self.slopes_shape, dtype=bool)
+        freeze_idx = self._get_freeze_idx()
+        mask[freeze_idx, ...] = True
+        return mask
 
     def optim_coeff(self, coeff="slopes", verbose=True):
         """
@@ -57,12 +96,7 @@ class Optimiser(Reconstructor):
             loss_before_outer = best_loss
 
             for c in order:
-                new_loss, status, coeff_start_loss = self._optim_one_coeff_until_stop(
-                    coeff=c,
-                    init_loss=best_loss,
-                    options=options,
-                    verbose=verbose,
-                )
+                new_loss, status, coeff_start_loss = self._optim_one_coeff_until_stop(coeff=c, init_loss=best_loss, options=options, verbose=verbose,)
 
                 if loss_before_outer is None:
                     loss_before_outer = coeff_start_loss
@@ -170,35 +204,72 @@ class Optimiser(Reconstructor):
         print(f"---------- 第{i}轮优化开始 ----------")
         start = time.time()
 
+        base_weights = np.asarray(self.weights[self.direct], dtype=float).copy()
+        base_slopes_normalised = np.asarray(slopes_normalised, dtype=float).reshape(self.slopes_shape).copy()
+
         if coeff == "slopes":
-            loss_fn = lambda slopes: self._loss_fn(self.rot_ang, self.weights[self.direct], slopes, slope_upper_bound)
-            x0 = slopes_normalised
+            freeze_mask = self._get_slope_freeze_mask()
+            optimise_mask = ~freeze_mask
+
+            x0 = base_slopes_normalised[optimise_mask]
             coeff_bounds = [(-1.0, 1.0)] * len(x0)
 
+            def loss_fn(x):
+                slopes_full = base_slopes_normalised.copy()
+                slopes_full[optimise_mask] = x
+                return self._loss_fn(self.rot_ang, base_weights, slopes_full.reshape(-1), slope_upper_bound)
+
         elif coeff == "weights":
-            loss_fn = lambda weights: self._loss_fn(self.rot_ang, weights, slopes_normalised, slope_upper_bound)
-            x0 = self.weights[self.direct]
+            freeze_mask = self._get_weight_freeze_mask()
+            optimise_mask = ~freeze_mask
+
+            x0 = base_weights[optimise_mask]
             coeff_bounds = self.weight_bounds * len(x0)
+
+            def loss_fn(x):
+                weights_full = base_weights.copy()
+                weights_full[optimise_mask] = x
+                return self._loss_fn(self.rot_ang, weights_full, base_slopes_normalised.reshape(-1), slope_upper_bound)
+
+        else:
+            raise ValueError(f"Unknown coeff: {coeff}")
 
         if len(coeff_bounds) != len(x0):
             raise ValueError(f"bounds 长度({len(coeff_bounds)})与{coeff}长度({len(x0)})不一致")
 
-        # 核心改动：允许 init_loss 为 None
         if init_loss is None:
             init_loss = float(loss_fn(x0))
         else:
             init_loss = float(init_loss)
 
-        res = minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
+        if len(x0) == 0:
+            current_loss = init_loss
+            best_param = self.slopes[self.direct] if coeff == "slopes" else self.weights[self.direct]
 
+            end = time.time()
+            print(f"{coeff} 对应变量全部被冻结，跳过本轮优化")
+            print(f"第{i}轮优化耗时: {end - start}")
+            print(f"当前最优: {best_param}")
+            print(f"当前最小误差: {current_loss}")
+            print(f"提升幅度: {init_loss - current_loss}")
+            print(f"---------- 第{i}轮优化结束 ----------")
+            print()
+
+            return current_loss, init_loss
+
+        res = minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
         current_loss = float(res.fun)
 
         if coeff == "slopes":
-            self.slopes[self.direct] = (res.x * slope_upper_bound).reshape(self.slopes_shape)
+            slopes_best = base_slopes_normalised.copy()
+            slopes_best[optimise_mask] = res.x
+            self.slopes[self.direct] = (slopes_best * slope_upper_bound).reshape(self.slopes_shape)
             best_param = self.slopes[self.direct]
 
         elif coeff == "weights":
-            self.weights[self.direct] = res.x
+            weights_best = base_weights.copy()
+            weights_best[optimise_mask] = res.x
+            self.weights[self.direct] = weights_best
             best_param = self.weights[self.direct]
 
         end = time.time()
@@ -271,7 +342,7 @@ class Optimiser(Reconstructor):
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
 
-        return self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
+        return self.k_point * self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
 
     def _compute_error(self, interp_dist, rs):
         """
@@ -326,7 +397,7 @@ class Optimiser(Reconstructor):
             results = rs[calib_shape]
             
             if calib_shape == "rot0":
-                rot0_errors = dict_recur_extract_path(d=results,f=lambda x, path: self._compute_rot0_err(result=x, interp_dist=interp_dist, radius_m=path[-2] * 0.001, rot_pos=path[-1] * 0.001, val_len=val_len))
+                rot0_errors = dict_recur_extract_path(d=results,f=lambda x, path: self._compute_rot0_err(result=x, cur_interp=self.cur_interp, radius_m=path[-2] * 0.001))
 
                 pitch_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[0])
                 radius_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[1])
@@ -464,20 +535,69 @@ class Optimiser(Reconstructor):
         z = dir * theta * pitch / (2 * np.pi)
         real_point = np.array([x, y, z])
         return real_point
-    
-    def _compute_rot0_err(self, result, interp_dist, radius_m, rot_pos, val_len):
-        rot_start = bisect.bisect_left(interp_dist, rot_pos)
-        rot_end = bisect.bisect_right(interp_dist, rot_pos + 2 * np.pi * radius_m) - 1
-
-        points = result[rot_start:rot_end + 1]
-
-        pitch_err = np.abs((result[rot_end, 2] - result[rot_start, 2]) / val_len)
-
-        real_radius = fit_radius(points=points)
-        radius_err = np.abs(real_radius - radius_m)
-
-        return pitch_err, radius_err
         
     def _compute_point_err(self, result, ideal, interp_dist, val_len):
         eval = bisect.bisect_right(interp_dist, val_len)
         return np.linalg.norm(result[:eval] - ideal[:eval], axis=1) / val_len
+    
+    def _compute_rot0_err(self, result, cur_interp, radius_m):
+        rot_start, rot_end = self._find_rot_segment(cur_interp=cur_interp)
+        points = result[rot_start:rot_end+1]
+        rot_axis = self._find_rot_axis(points=points)
+        rot_axis /= np.linalg.norm(rot_axis)
+
+        real_radius = real_radius = np.linalg.norm(np.cross(points - points.mean(axis=0), rot_axis), axis=1).mean()
+        radius_err = np.abs(real_radius - radius_m)
+        pitch_err = np.abs(np.dot(points[-1] - points[0], rot_axis))
+
+        return pitch_err, radius_err
+
+    def _find_rot_segment(self, cur_interp, min_straight_len=3, min_consecutive_rot=5):
+        pri_straight_end = min_straight_len
+        while pri_straight_end < self.interp_num - min_straight_len - min_consecutive_rot and np.all(cur_interp[:pri_straight_end] < self.straight_threshold):
+            pri_straight_end += 1
+
+        post_straight_start = self.interp_num - min_straight_len
+        while post_straight_start > pri_straight_end + min_consecutive_rot and np.all(cur_interp[post_straight_start:] < self.straight_threshold):
+            post_straight_start -= 1
+
+        rot_start = pri_straight_end + 1
+        while pri_straight_end < rot_start < post_straight_start - min_consecutive_rot and np.all(cur_interp[rot_start:rot_start+min_consecutive_rot] < self.rot_threshold):
+            rot_start += 1
+
+        rot_end = post_straight_start - 1
+        while pri_straight_end + min_consecutive_rot < rot_end < post_straight_start and np.all(cur_interp[rot_end-min_consecutive_rot:rot_end] < self.rot_threshold):
+            rot_end -= 1
+
+        if rot_end - rot_start < min_consecutive_rot - 1:
+            raise ValueError(f"螺旋段长度不足: rot_start={rot_start}, rot_end={rot_end}, length={rot_end - rot_start + 1}, min_required={min_consecutive_rot}")
+        else: 
+            return rot_start, rot_end
+
+    def _find_rot_axis(self, points, max_x_to_yz_ratio=0.5):
+        centred_points = points - points.mean(axis=0)
+        if np.allclose(centred_points, 0.0, atol=1e-9):
+            raise ValueError("所有点重合，无法确定轴向")
+
+        _, _, vh = np.linalg.svd(centred_points, full_matrices=False)
+
+        # vh[0] 是最大方差方向，vh[-1] 是最小方差方向
+        axis = vh[-1]
+        axis = axis / np.linalg.norm(axis)
+
+        x_comp, y_comp, z_comp = axis
+        yz_magnitude = np.sqrt(y_comp**2 + z_comp**2)
+
+        if yz_magnitude < 1e-12:
+            ratio = np.inf
+        else:
+            ratio = abs(x_comp) / yz_magnitude
+
+        # if ratio >= max_x_to_yz_ratio:
+        #     print(f"警告 (PCA): 估计轴 [{x_comp:.3f}, {y_comp:.3f}, {z_comp:.3f}] 的 X 分量偏大，|x| / sqrt(y^2 + z^2) = {ratio:.3f} >= {max_x_to_yz_ratio}。")
+
+        # 统一方向，避免 pitch 符号随机翻转
+        if axis[2] < 0:
+            axis = -axis
+
+        return axis

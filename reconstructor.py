@@ -120,6 +120,7 @@ class Reconstructor(Initialiser):
         try:
             ang_interp, interp_dist = self._KT_Hermit_interp_tang(data=ang_filter)
             cur_interp, interp_dist = self._KT_Hermit_interp_tang(data=cur_kal)
+            self.cur_interp = cur_interp
         except ValueError as e:
             # 将上下文信息拼接到原有的报错信息中
             raise ValueError(f"数据追踪信息 -> {context_str} | 原始报错: {e}")
