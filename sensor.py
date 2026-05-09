@@ -11,6 +11,7 @@ import copy
 import numpy as np
 import pandas as pd
 
+from scipy.interpolate import CubicSpline
 from pathlib import Path
 from collections import defaultdict
 from scipy.signal import savgol_filter
@@ -27,7 +28,7 @@ class Sensor:
                        'rot0': {200: [0, 10, 40, 70], 100: [0, 10, 40, 70]}, 'up': {200: [0, 25, 50, 75, 100], 100: [0, 25, 50, 75, 100]}, 'down': {200: [0, 25, 50, 75, 100], 100: [0, 25, 50, 75, 100]}}, 
                 samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None,
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
-                IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100):
+                IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None):
         
         # 实验参数
         self.exp_directs = exp_directs
@@ -68,7 +69,7 @@ class Sensor:
 
         # 传感器物理参数
         self.zero_init = start_value != 0
-        self.generate_samp_dist(start_value=start_value, samp_dist_preset=samp_dist_preset)  # 生成传感点在传感器上所处的实际位置（单位：米）
+        self.generate_samp_dist(start_value=start_value, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub, interlaced_grating=interlaced_grating)  # 生成传感点在传感器上所处的实际位置（单位：米）
         self.total_points = len(self.samp_dist)
         self.R = R
         self.ideal_len = ideal_len
@@ -85,8 +86,11 @@ class Sensor:
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
 
+        # 数据存储结构
+        self.channel_change = channel_change
+        self.channel_layout = channel_layout
         if self.interrogator in ['FiberTecc', 'Hippo']:
-            self.read_data_FBG(folder_path=folder_path)
+            self.read_data_FBG(folder_path=folder_path, samp_dist_preset=samp_dist_preset)
             if self.centre_fibre:
                 self.centreData, self.outerData, self.processed_Data, self.plot_Data = self._process_centreData(data=self.Data)
                 self.num_channels_recon = self.num_channels - 1
@@ -97,7 +101,7 @@ class Sensor:
             self.read_data_OFDR(folder_path=folder_path)
              
 
-    def generate_samp_dist(self, start_value, samp_dist_preset):
+    def generate_samp_dist(self, start_value, samp_dist_preset, samp_dist_preset_sub=None, interlaced_grating=False):
         """
         根据当前解调仪类型生成采样距离数组，并更新实例成员。
 
@@ -110,6 +114,8 @@ class Sensor:
         输入：
         - start_value: 固定件到第一个有效采样点的距离
         - samp_dist_preset: 原始光栅位置数组或预设距离数组
+        - samp_dist_preset_sub: 子组光栅位置数组或预设距离数组
+        - interlaced_grating: 是否交错排列
 
         输出：
         - 无显式返回
@@ -118,6 +124,7 @@ class Sensor:
             - self.ad_samp_dist: 若 self.zero_init=True 则在开头额外补 0，否则与 self.samp_dist 相同
 
         异常：
+        - 当 interlaced_grating=True 且 samp_dist_preset_sub 为 None 时抛出 ValueError
         - 当 self.samp_dist 包含 NaN / inf 时抛出 ValueError
         - 当 self.ad_samp_dist 不是严格递增数组时抛出 ValueError
 
@@ -128,13 +135,24 @@ class Sensor:
         if self.interrogator == 'LUNA':
             self.samp_dist = np.arange(self.min_len) * self.ss
         else:
-            diff = np.diff(samp_dist_preset)
+            # 处理交错光栅逻辑
+            if interlaced_grating:
+                if samp_dist_preset_sub is None:
+                    raise ValueError("当 interlaced_grating 为 True 时，samp_dist_preset_sub 不能为空")
+                # 统一转为 numpy 数组合并，并进行升序排序
+                combined_preset = np.concatenate((np.array(samp_dist_preset), np.array(samp_dist_preset_sub)))
+                preset_to_diff = np.sort(combined_preset)
+            else:
+                preset_to_diff = np.array(samp_dist_preset)
+
+            # 差分并倒序
+            diff = np.diff(preset_to_diff)
             diff_reversed = diff[::-1]
             samp_dist = [start_value]
             for d in diff_reversed:
                 samp_dist.append(samp_dist[-1] + d)
             self.samp_dist = np.array(samp_dist) * 0.001
-        if self.zero_init:
+        if getattr(self, 'zero_init', False):  # 使用 getattr 增加代码健壮性
             self.ad_samp_dist = np.insert(self.samp_dist, 0, 0)
         else:
             self.ad_samp_dist = self.samp_dist
@@ -144,7 +162,7 @@ class Sensor:
             raise ValueError("ad_samp_dist 必须是递增的数组")
     
     # -------------------- FBG数据处理 --------------------
-    def read_data_FBG(self, folder_path):
+    def read_data_FBG(self, folder_path, samp_dist_preset):
         """
         从 FBG 静态标定数据文件夹中读取各类子文件夹下的通道数据，清洗后整理为统一结构，并更新 self.Data。
 
@@ -200,6 +218,11 @@ class Sensor:
         """
         self.Data = {"circ": {}, "S": {}, "end": {}, "rot0": {}, "up": {}, "down": {}}
 
+        # 按照物理参数确定期望的列数（2列文字说明 + 预设采样点数）
+        expected_data_cols = len(samp_dist_preset)
+        expected_cols = expected_data_cols + 2
+        col_start, col_end = 2, expected_cols
+
         for subfolder in os.listdir(folder_path):
             subfolder_path = os.path.join(folder_path, subfolder)
             if not os.path.isdir(subfolder_path):
@@ -212,8 +235,8 @@ class Sensor:
             # key 是真实读取时使用的 channel 编号，value 是该 channel 的均值向量
             channel_data = {}
             valid_subfolder = True
-            num_columns = None
-            col_start, col_end = None, None
+            # num_columns = None
+            # col_start, col_end = None, None
 
             for channel in range(max(self.active_channels) + 1):
                 if self.interrogator == 'FiberTecc':
@@ -233,6 +256,8 @@ class Sensor:
 
                 try:
                     df = pd.read_csv(file_path)
+                    # 解决表头列数多于实际数据列数导致的整行被误判为 NaN 的问题
+                    df.dropna(axis=1, how='all', inplace=True)
                 except Exception as e:
                     logging.warning(f"文件 {file_path} 读取失败，跳过该 channel。error={e}")
                     continue
@@ -244,17 +269,24 @@ class Sensor:
 
                 current_num_cols = df.shape[1]
 
-                if num_columns is None:
-                    num_columns = current_num_cols - 2
-                    col_start, col_end = 2, current_num_cols
-                else:
-                    expected_cols = num_columns + 2
-                    if current_num_cols != expected_cols:
-                        print(f"Column mismatch in {subfolder}: ")
-                        print(f"Channel {channel} has {current_num_cols} columns ")
-                        print(f"(expected {expected_cols})")
-                        valid_subfolder = False
-                        break
+                # if num_columns is None:
+                #     num_columns = current_num_cols - 2
+                #     col_start, col_end = 2, current_num_cols
+                # else:
+                #     expected_cols = num_columns + 2
+                #     if current_num_cols != expected_cols:
+                #         print(f"Column mismatch in {subfolder}: ")
+                #         print(f"Channel {channel} has {current_num_cols} columns ")
+                #         print(f"(expected {expected_cols})")
+                #         valid_subfolder = False
+                #         break
+
+                # --- 核心修改：根据 samp_dist_preset 的长度动态调整 df 的列数 ---
+                if current_num_cols != expected_cols:
+                    logging.warning(f"Column count mismatch in {subfolder} Channel {channel}: "
+                                    f"found {current_num_cols}, expected {expected_cols}.")
+                    valid_subfolder = False
+                    break
 
                 # -------------------- 清洗 outlier --------------------
                 fbg_cols = list(enumerate(df.columns[col_start:col_end]))
@@ -320,7 +352,33 @@ class Sensor:
                 self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
-            data_matrix = np.column_stack([channel_data[ch] for ch in required_channels]) * 1e-6
+            # 针对通道排布变化的情况，按照不同行数变化的 active_channels 的输入顺序重排 data_matrix 的列
+            if getattr(self, 'channel_change', False) and getattr(self, 'channel_layout', None):
+                try:
+                    data_matrix = self._reorder_matrix_by_layout(channel_data, self.channel_layout)
+                except Exception as e:
+                    logging.error(f"严重错误：subfolder {subfolder} 数据通道重排失败: {e}，跳过该组数据。")
+                    self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                    continue
+            else:
+                # 默认按照 active_channels 的输入顺序重排
+                data_matrix = np.column_stack([channel_data[ch] for ch in required_channels]) * 1e-6
+            # print(f"data_matrix for {subfolder} (channels {required_channels}):\n{data_matrix}")  # 调试输出
+
+
+            # 针对交错刻栅的情况，按照samp_dist_preset和samp_dist_preset_sub的顺序将所有刻栅合并
+            if getattr(self, 'interlaced_grating', False):
+                if getattr(self, 'samp_dist_preset_sub', None) is None:
+                    logging.error(f"严重错误：subfolder {subfolder} 启用了 interlaced_grating 但缺少 samp_dist_preset_sub，跳过该组数据。")
+                    self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                    continue
+
+                try:
+                    data_matrix = self._process_interlaced_grating(data_matrix=data_matrix)
+                except Exception as e:
+                    logging.error(f"数据交错合并与插值失败: {e}，跳过该 subfolder。")
+                    self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                    continue
 
             if folder_type in ("circ", "S"):
                 self.Data[folder_type].setdefault(x, {})
@@ -342,6 +400,104 @@ class Sensor:
                     self.Data[shape][x][y] = dict(sorted(self.Data[shape][x][y].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
                 self.Data[shape][x] = dict(sorted(self.Data[shape][x].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
             self.Data[shape] = dict(sorted(self.Data[shape].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
+
+
+    def _reorder_matrix_by_layout(self, channel_data, channel_layout):
+        """
+        根据 channel_layout 针对不同采样点（行）重排物理通道（列）。
+        
+        输入：
+        - channel_data: 字典，key 为解调仪内部通道号，value 为该通道所有采样点的一维数组
+        - channel_layout: 列表嵌套元组，格式为 [(行数, [物理通道顺序]), ...]
+                          例如 [(6, [2, 1, 4, 3, 7, 5, 6]), ...]
+                          表示第0-5行，逻辑列0对应物理通道2，逻辑列1对应物理通道1...
+        
+        输出：
+        - data_matrix: 重排并垂直拼接后的 numpy 矩阵，形状为 (总行数, 逻辑通道数)，单位缩放为 1e-6
+        """
+        blocks = []
+        current_row = 0
+        
+        for num_rows, order in channel_layout:
+            row_end = current_row + num_rows
+            block_cols = []
+            
+            # 针对当前行切片 [current_row : row_end]，按照 order 提取物理通道作为逻辑列
+            for phy_ch in order:
+                # 映射物理通道号到 channel_data 的键
+                if self.interrogator == 'Hippo':
+                    ch_key = phy_ch - 1
+                else:
+                    ch_key = phy_ch
+                
+                if ch_key not in channel_data:
+                    raise ValueError(f"缺少物理通道 {phy_ch} (内部键 {ch_key}) 的数据")
+                
+                # 提取该物理通道在当前行范围内的数据
+                col_data = channel_data[ch_key][current_row:row_end]
+                block_cols.append(col_data)
+            
+            # 将提取出的多个一维数组按列堆叠，形成形状为 (num_rows, len(order)) 的局部矩阵
+            block_matrix = np.column_stack(block_cols)
+            blocks.append(block_matrix)
+            
+            # 更新行指针
+            current_row = row_end
+            
+        # 将所有局部矩阵按行（垂直）拼接起来，恢复为完整的 data_matrix
+        data_matrix = np.vstack(blocks) * 1e-6
+        return data_matrix
+
+    def _process_interlaced_grating(self, data_matrix):
+        """
+        专门处理交错刻栅数据的合并与插值逻辑。
+
+        输入：
+        - data_matrix: 原始 data_matrix，包含两个预设位置集的数据，列顺序为 [p1_ch1, p1_ch2, ..., p2_ch1, p2_ch2, ...]
+        - samp_dist_preset: 第一个预设位置集
+        - samp_dist_preset_sub: 第二个预设位置集
+
+        输出：
+        - merged_data_matrix: 经过合并与插值后的 data_matrix，列顺序为 [center, outer1, outer2, outer3]
+
+        说明：
+        - 中心通道（假设为第0列）使用样条插值从第一个预设位置集估算第二个预设位置集的数据。
+        - 外围通道按照原始列顺序直接合并。
+        - 最后根据位置排序重构 data_matrix。
+        """
+        
+        p1 = np.array(self.samp_dist_preset)
+        p2 = np.array(self.samp_dist_preset_sub)
+        
+        # 1. 中心通道插值 (第0列)
+        center_p1 = data_matrix[:, 0]
+        # 确保 p1 是单调递增的，否则样条插值会报错
+        sort_p1_idx = np.argsort(p1)
+        cs = CubicSpline(p1[sort_p1_idx], center_p1[sort_p1_idx])
+        center_p2 = cs(p2) # 预估 p2 位置处的数据
+        
+        # 2. 合并各通道数据
+        center_combined = np.concatenate((center_p1, center_p2))
+        # 外围通道：1/3/5 列对应 p1，2/4/6 列对应 p2
+        outer1_combined = np.concatenate((data_matrix[:, 1], data_matrix[:, 2]))
+        outer2_combined = np.concatenate((data_matrix[:, 3], data_matrix[:, 4]))
+        outer3_combined = np.concatenate((data_matrix[:, 5], data_matrix[:, 6]))
+        
+        # 3. 按照位置排序合并
+        p_combined = np.concatenate((p1, p2))
+        sort_idx = np.argsort(p_combined)
+        print(f"交错刻栅合并后位置顺序: {p_combined[sort_idx]}")  # 调试输出
+        
+        # 4. 重构 data_matrix (16 * 4)
+        interlaced_data_matrix = np.column_stack((
+            center_combined[sort_idx],
+            outer1_combined[sort_idx],
+            outer2_combined[sort_idx],
+            outer3_combined[sort_idx]
+        ))
+        print(f"交错刻栅合并后 data_matrix:\n{data_matrix}")  # 调试输出
+
+        return interlaced_data_matrix
 
     def _classify_folder(self, subfolder):
         # 注意顺序：先判四段，再判三段字母，再判三段数字，最后判两段

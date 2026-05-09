@@ -4,11 +4,13 @@ from scipy.interpolate import CubicHermiteSpline
 
 from initialiser import Initialiser
 
+from utils import dict_recur_paths, dict_recur_unflatten
+
 class Reconstructor(Initialiser):
     """
     形状重构模块
     """
-    def __init__(self, rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
+    def __init__(self, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
                  TNB_threshold=0.15, interp_num=60, move_filter=3, kaiman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},  
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -16,6 +18,7 @@ class Reconstructor(Initialiser):
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
 
         # 重构所需参数
+        self.frame_rule = frame_rule
         self.turn_threshold = turn_threshold
         self.thresholds = thresholds # 曲率分级阈值
         self.min_consecutive = min_consecutive
@@ -46,122 +49,47 @@ class Reconstructor(Initialiser):
         self.kalman_params = kaiman_params
         self.interp_num = interp_num
 
-
     def reconstruct_shapes(self, calib_shape, direct, verbose=False):
         """
         对指定标定形状与方向下的所有数据进行三维形状重构。
-
-        步骤：
-        1. 读取指定 calib_shape 与 direct 下的标定数据，以及该方向对应的权重和扭转系数。
-        2. 对每组数据分别执行预处理：
-            - 应变转曲率与方向
-            - 滤波
-            - 插值
-            - 扭率计算
-            - 初始法向量生成
-        3. 使用 Frenet-Serret 标架进行空间曲线重构。
-        4. 对重构结果统一施加绕 x 轴的旋转补偿。
-
-        输入：
-        - calib_shape: 标定形状类型，如 'circ'、'S'、'end'、'rot0'、'up' 或 'down'
-        - direct: 当前重构方向
-        - verbose: 是否打印详细中间结果
-
-        输出：
-        - r_results_postrot:
-            - 当 calib_shape 为 'circ' 或 'S' 时，格式为 {radius: 轨迹数组}
-            - 当 calib_shape 为 'end'、'rot0'、'up' 或 'down' 时，格式为 {key1: {key2: 轨迹数组}}
-        - interp_dist: 本次循环中最后一组数据预处理得到的插值采样距离数组；
-        若对应数据全部被跳过，则可能为 None
-
-        说明：
-        - 本方法返回的轨迹结果均已完成绕 x 轴的方向旋转补偿
-        - 不同形状的数据层级结构与 self.processed_Data 中对应形状的数据组织方式保持一致
         """
+
         # ---------- 初始准备 ----------
         calib_Data = self.processed_Data[calib_shape][direct]
         weight = self.weights[direct]
         slope = self.slopes[direct]
 
-        # 默认的 interp_dist，防止全部跳过时未赋值
-        interp_dist = None 
+        interp_dist = None
+        rot_matrix = self._get_rot_x(direct=direct)
 
+        # ---------- 构造路径树 ----------
         if calib_shape in ['circ', 'S']:
-            r_results = {}
-            for radius in self.radii[direct][calib_shape]:
-                keys = [radius]
-                # 预处理
-                cur_interp, torsion, interp_ss, init_N, interp_dist = self._preprocess(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight,  slope=slope, verbose=verbose)
-                # Frenet-Serret重构
-                r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=[1.0, 0.0, 0.0], init_N=init_N)
-                r_results[radius] = r
-                if verbose:
-                    print(f"r: {r}")
-                    print()
-            # 旋转
-            r_results_postrot = {}
-            for radius, r in r_results.items():
-                rot_matrix = self._get_rot_x(direct=direct)
-                r_results_postrot[radius] = r @ rot_matrix.T
+            path_tree = {radius: None for radius in self.radii[direct][calib_shape]}
         else:
-            r_results_postrot = {}
-            for radius in self.radii[direct][calib_shape]:
-                r_results_radius = {}
-                for idx in self.radii[direct][calib_shape][radius]:
-                    keys = [radius, idx]
-                    # 预处理
-                    cur_interp, torsion, interp_ss, init_N, interp_dist = self._preprocess(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, verbose=verbose)       
-                    # Frenet-Serret重构
-                    r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=[1.0, 0.0, 0.0], init_N=init_N)     
-                    r_results_radius[idx] = r
-                    if verbose:
-                        print(f"r: {r}")
-                        print()
-                # 旋转
-                r_results_postrot_radius = {}
-                for idx, r in r_results_radius.items():
-                    rot_matrix = self._get_rot_x(direct=direct)
-                    r_results_postrot_radius[idx] = r @ rot_matrix.T
-                r_results_postrot[radius] = r_results_postrot_radius
-            
+            path_tree = {radius: {idx: None for idx in self.radii[direct][calib_shape][radius]} for radius in self.radii[direct][calib_shape]}
+
+        # ---------- 遍历所有叶节点路径并重构 ----------
+        flat_results = {}
+
+        for path in dict_recur_paths(path_tree):
+            keys = list(path)
+
+            _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, init_T=[1.0, 0.0, 0.0], verbose=verbose)
+
+            r_postrot = r @ rot_matrix.T
+            flat_results[path] = r_postrot
+
+            if verbose:
+                print(f"keys: {keys}")
+                print(f"r: {r}")
+                print()
+
+        # ---------- 还原为原本嵌套结构 ----------
+        r_results_postrot = dict_recur_unflatten(flat_results)
+
         return r_results_postrot, interp_dist
-    
-    def _preprocess(self, keys, calib_shape, calib_Data, weight, slope, verbose=False):
-        """
-        在 Frenet-Serret 重构前，对单组数据进行预处理。
 
-        步骤：
-        1. 调用 _Strain_2_Cur() 将应变数据转换为曲率大小与方向角。
-        2. 若 zero_init=True，则在起点补入一个与首元素相同的曲率与方向角；
-        否则将首个方向角替换为第二个方向角。
-        3. 对方向角进行 unwrap 与移动平均滤波。
-        4. 对曲率大小进行 Kalman 滤波。
-        5. 对方向角与曲率分别做 Hermite 插值。
-        6. 根据插值后的方向角计算扭率 torsion。
-        7. 根据起始方向角构造 Frenet-Serret 初始法向量 init_N。
-
-        输入：
-        - keys:
-            - None：直接使用 calib_Data.T
-            - [key1]：使用单层数据，如 circ / S 下的单组数据
-            - [key1, key2]：使用双层嵌套数据，如 end / rot0 / up / down 下的单组数据
-        - calib_shape: 当前标定形状类型
-        - calib_Data: 当前方向下的标定数据字典
-        - weight: 当前方向下的曲率分级权重
-        - slope: 当前方向下的分级分段扭转系数
-        - verbose: 是否打印详细中间结果
-
-        输出：
-        - cur_interp: 插值后的曲率数组
-        - torsion: 插值后的扭率数组
-        - interp_ss: 插值后相邻采样点的弧长差
-        - init_N: 初始法向量
-        - interp_dist: 插值后的采样距离数组
-
-        说明：
-        - 本方法只负责单组数据的预处理，不执行最终三维轨迹递推
-        - 当插值阶段报错时，会附加当前 calib_shape 与 keys 的上下文信息后重新抛出异常
-        """
+    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, init_T, verbose=False):
         # ---------- 计算重构使用的曲率大小与方向 ----------
         magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, verbose=verbose)
         if self.zero_init:
@@ -193,9 +121,7 @@ class Reconstructor(Initialiser):
             raise ValueError(f"数据追踪信息 -> {context_str} | 原始报错: {e}")
         interp_ss = np.diff(interp_dist)
 
-        # 计算torsion与初始N向量
-        ang_diff = np.diff(ang_interp)
-        torsion = (ang_diff - 2 * np.pi * np.floor((ang_diff + np.pi) / (2 * np.pi))) / interp_ss
+        # 计算初始N向量
         init_N = np.array([0, np.cos(ang_interp[0]), np.sin(ang_interp[0])])
 
         if verbose:
@@ -203,9 +129,19 @@ class Reconstructor(Initialiser):
             print(f"ang_interp: {ang_interp}")
             print(f"cur_interp: {cur_interp}")
             print(f"init_N: {init_N}")
-            print(f"torsion: {torsion}")
 
-        return cur_interp, torsion, interp_ss, init_N, interp_dist
+        if self.frame_rule == 'TNB':
+            # Frenet-Serret重构
+            ang_diff = np.diff(ang_interp)
+            torsion = (ang_diff - 2 * np.pi * np.floor((ang_diff + np.pi) / (2 * np.pi))) / interp_ss
+            if verbose:
+                print(f"torsion: {torsion}")
+            r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)  
+            return cur_interp, interp_dist, r, T, N, B
+        elif self.frame_rule == 'TNN':
+            # 平行标架重构
+            r, T, N1, N2 = self._parallel_frame(kappa=cur_interp, angles=ang_interp, ss=interp_ss, init_T=init_T, init_N=init_N)   
+            return cur_interp, interp_dist, r, T, N1, N2
     
     def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, verbose=False):
         """
@@ -588,6 +524,67 @@ class Reconstructor(Initialiser):
         
         return r, T, N, B
     
+    def _parallel_frame(self, kappa, angles, ss, init_T, init_N):
+        """
+        使用 Frenet-Serret 标架公式递推计算三维曲线及 T/N/B 标架。
+
+        说明：
+        - 当某点曲率小于 self.TNB_threshold 时，认为局部形状变化过小，直接沿用上一点的 T/N/B。
+        - 当前实现的返回顺序为 (r, N, T, B)。
+
+        输入：
+        - kappa: 曲率数组，形状为 (num_points,)
+        - tau: 扭率数组，形状通常为 (num_points - 1,) 或插入后与步长对齐
+        - ss: 相邻点之间的弧长间隔数组
+        - init_T: 初始切向量
+        - init_N: 初始法向量
+
+        输出：
+        - r: 三维曲线位置数组，形状为 (num_points, 3)
+        - N: 法向量数组，形状为 (num_points, 3)
+        - T: 切向量数组，形状为 (num_points, 3)
+        - B: 副法向量数组，形状为 (num_points, 3)
+        """
+            # Define normlize func
+        cal_norm = lambda v: v / np.linalg.norm(v)
+        
+        num_points = len(ss) + 1  #range函数会不包括这个值
+        
+        # 初始化 T, N, B, r
+        r = np.zeros((num_points, 3))  # 三维位置向量
+        T = np.zeros((num_points, 3))  # 切向量
+        N1 = np.zeros((num_points, 3))  # 法向量
+        N2 = np.zeros((num_points, 3))  # 副法向量
+        
+        # 起点的初始值
+        T[0] = init_T
+        N1[0] = init_N
+        N2[0] = np.cross(init_T, init_N) # 也可以反过来init_N\times init_T
+
+        angles_rel = angles - angles[0]
+        kappa1 = kappa * np.cos(angles_rel)
+        kappa2 = kappa * np.sin(angles_rel)
+
+        # 在开头插入 0，保证各数组的长度相同
+        ss = np.insert(ss, 0, 0)
+
+        # 迭代计算
+        for i in range(1, num_points):
+            numerator = T[i - 1] + ss[i] * (kappa1[i] * N1[i - 1] + kappa2[i] * N2[i - 1])
+            denominator = 1.0 + ss[i]**2 * (kappa1[i]**2 + kappa2[i]**2)
+            T[i] = numerator / denominator
+            T[i] = cal_norm(np.array(T[i]))
+
+            N1[i] = N1[i - 1] - ss[i] * kappa1[i] * T[i]
+            N1[i] = cal_norm(N1[i])
+
+            N2[i] = N2[i - 1] - ss[i] * kappa2[i] * T[i]
+            N2[i] = cal_norm(N2[i])
+
+            r[i] = ss[i] * T[i] + r[i-1]
+
+        return r, T, N1, N2
+
     def _get_rot_x(self, direct):
         """
         生成绕 x 轴旋转的旋转矩阵。
