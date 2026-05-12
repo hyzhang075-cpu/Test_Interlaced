@@ -16,7 +16,6 @@ class Reconstructor(Initialiser):
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
-
         # 重构所需参数
         self.frame_rule = frame_rule
         self.turn_threshold = turn_threshold
@@ -60,7 +59,8 @@ class Reconstructor(Initialiser):
         slope = self.slopes[direct]
 
         interp_dist = None
-        rot_matrix = self._get_rot_x(direct=direct)
+        rot_dir = self.rot_dir[self.calib_shapes.index(calib_shape)]
+        rot_matrix = self._get_rot_x(direct=direct, rot_dir=rot_dir)
 
         # ---------- 构造路径树 ----------
         if calib_shape in ['circ', 'S']:
@@ -74,7 +74,7 @@ class Reconstructor(Initialiser):
         for path in dict_recur_paths(path_tree):
             keys = list(path)
 
-            _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, init_T=[1.0, 0.0, 0.0], verbose=verbose)
+            _, _, _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, init_T=[1.0, 0.0, 0.0], verbose=verbose)
 
             r_postrot = r @ rot_matrix.T
             flat_results[path] = r_postrot
@@ -89,17 +89,21 @@ class Reconstructor(Initialiser):
 
         return r_results_postrot, interp_dist
 
-    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, init_T, verbose=False):
+    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, init_T, verbose=False, unwrap_threshold=0.65, align_threshold=0.15, angle_prev=None, angle_unwrap_prev=None):
         # ---------- 计算重构使用的曲率大小与方向 ----------
         magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, verbose=verbose)
+
+        if angle_prev is not None and magnitude[0] < align_threshold:
+            angle[0] = angle_prev[0]
+        
         if self.zero_init:
             magnitude = np.insert(magnitude, 0, magnitude[0])  #在第一个位置插入0
             angle = np.insert(angle, 0, angle[0])   #把原点的弯曲角补齐
         else:
-            angle[0] = angle[1]        
-        
+            angle[0] = angle[1]    
+
         # ---------- 重构前预处理 ----------
-        angle_unwrap = np.unwrap(angle)
+        angle_unwrap = self._framewise_unwrap_limit(angle=angle, angle_prev=angle_prev, angle_unwrap_prev=angle_unwrap_prev, unwrap_threshold=unwrap_threshold)
         ang_filter = self._moving_average_scipy(data=angle_unwrap, window_size=self.move_filter, mode='reflect')
         cur_kal = self._Kalman_filter(data=magnitude, Rk=self.kalman_params['magnitude']['Rk'], Bk=self.kalman_params['magnitude']['Bk'])
 
@@ -116,6 +120,7 @@ class Reconstructor(Initialiser):
         try:
             ang_interp, interp_dist = self._KT_Hermit_interp_tang(data=ang_filter)
             cur_interp, interp_dist = self._KT_Hermit_interp_tang(data=cur_kal)
+            self.cur_interp = cur_interp
         except ValueError as e:
             # 将上下文信息拼接到原有的报错信息中
             raise ValueError(f"数据追踪信息 -> {context_str} | 原始报错: {e}")
@@ -137,12 +142,53 @@ class Reconstructor(Initialiser):
             if verbose:
                 print(f"torsion: {torsion}")
             r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)  
-            return cur_interp, interp_dist, r, T, N, B
+            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B
         elif self.frame_rule == 'TNN':
             # 平行标架重构
             r, T, N1, N2 = self._parallel_frame(kappa=cur_interp, angles=ang_interp, ss=interp_ss, init_T=init_T, init_N=init_N)   
-            return cur_interp, interp_dist, r, T, N1, N2
-    
+            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N1, N2
+        
+    def _framewise_unwrap_limit(self, angle, angle_prev=None, angle_unwrap_prev=None, unwrap_threshold=0.65):
+        """
+        与 diagnostics 中 make_framewise_unwrap_processor 的核心逻辑等价。
+
+        规则：
+        - 先由 np.unwrap 得到 angle_unwrap；
+        - 如果当前帧和上一帧在同一个相邻段 i-1 -> i 上的 raw step 变化小于 unwrap_threshold，
+        则当前段不单纯接受 np.unwrap 的分支，而是选择最接近上一帧 unwrapped step 的 2π 分支；
+        - 若当前点发生相位分支切换，则把 offset 累加并传递给后续点。
+        """
+        angle_unwrap = np.unwrap(angle, discont=self.discont)
+        if angle_prev is None or angle_unwrap_prev is None:
+            return angle_unwrap
+
+        offset = 0.0
+
+        for i in range(1, len(angle_prev)):
+            angle_unwrap[i] += offset
+
+            step = angle[i] - angle[i - 1]
+            step_prev = angle_prev[i] - angle_prev[i - 1]
+
+            segment_step_diff = np.abs((step - step_prev + np.pi) % (2 * np.pi) - np.pi)
+
+            if np.isclose(segment_step_diff, 0.0, atol=unwrap_threshold, rtol=0.0):
+                unwrap_val = angle_unwrap[i]
+                unwrap_step_prev = angle_unwrap_prev[i] - angle_unwrap_prev[i - 1]
+
+                candidate_steps = np.array([step - 2 * np.pi, step, step + 2 * np.pi], dtype=np.float64)
+                chosen_step = candidate_steps[np.argmin(np.abs(candidate_steps - unwrap_step_prev))]
+
+                angle_unwrap[i] = angle_unwrap[i - 1] + chosen_step
+
+                step_offset = angle_unwrap[i] - unwrap_val
+                offset += step_offset
+
+        if offset != 0.0 and len(angle_prev) < len(angle_unwrap):
+            angle_unwrap[len(angle_prev):] += offset
+
+        return angle_unwrap
+
     def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, verbose=False):
         """
         将一组应变数据转换为最终用于重构的曲率大小与方向角。
@@ -270,7 +316,7 @@ class Reconstructor(Initialiser):
             radius, idx = keys
             strain_data = calib_Data[radius][idx].T
         magnitude, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
-        angle_unwrap = np.unwrap(angle)
+        angle_unwrap = np.unwrap(angle, discont=self.discont)
         turn_idx = [0]
         for i in range(1, len(angle)):
             if np.abs(angle_unwrap[i] - angle_unwrap[i-1]) > self.turn_threshold:
@@ -585,7 +631,7 @@ class Reconstructor(Initialiser):
 
         return r, T, N1, N2
 
-    def _get_rot_x(self, direct):
+    def _get_rot_x(self, direct, rot_dir):
         """
         生成绕 x 轴旋转的旋转矩阵。
 
@@ -595,7 +641,7 @@ class Reconstructor(Initialiser):
         输出：
         - rot_matrix: 3×3 的绕 x 轴旋转矩阵
         """
-        sigma = np.deg2rad(direct * self.rot_dir + self.rot_ang)
+        sigma = np.deg2rad(direct * rot_dir + self.rot_ang)
         rot_matrix = np.array([
             [1.0, 0.0, 0.0],
             [0.0, np.cos(sigma), -np.sin(sigma)],

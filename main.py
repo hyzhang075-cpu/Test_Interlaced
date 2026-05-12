@@ -76,13 +76,16 @@ def main():
     parser.add_argument('--end_len', type=float, default=0.08, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
-    parser.add_argument('--weight_bounds', type=tuple, default=(0.0, 3.0), help='曲率权重范围')
+    parser.add_argument('--freeze', type=list, default=[0, 1, 2, 3, 4], help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None')
+    parser.add_argument('--weight_bounds', type=tuple, default=(0.0, 2.0), help='曲率权重范围')
     parser.add_argument('--slope_upper_bound', type=tuple, default=20.0, help='扭转系数大小上限')
     # parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0], help='各曲率分级的阈值')
     parser.add_argument('--thresholds', type=list, default=[1.2, 2.0, 4.5], help='各曲率分级的阈值')
     parser.add_argument('--max_iter', type=int, default=5, help='优化的最大轮次')
-    parser.add_argument('--k_end', type=float, default=0.0, help='优化目标中末端误差的权重')
-    parser.add_argument('--k_pitch', type=float, default=0.0, help='优化目标中螺距误差的权重')
+    parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_end', type=float, default=0.3, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_pitch', type=float, default=1.0, help='优化目标中螺距误差的权重')
+    parser.add_argument('--k_radius', type=float, default=1.0, help='优化目标中半径误差的权重')
     parser.add_argument('--method', type=str, default="Powell", help='优化算法, 用于输入scipy.optimize.minimimze')
     parser.add_argument('--hyper_params', type=dict, default=[10000, 1e-5, 1e-5], help='优化算法使用的超参数')
     parser.add_argument('--min_loss_diff', type=float, default=1e-5, help='收敛判定')
@@ -98,6 +101,11 @@ def main():
     parser.add_argument('--imu_maxlen', type=int, default=10)
     parser.add_argument('--demo_recorder', type=bool, default=False, help='是否在动态展示时记录数据')
     # 重构使用的超参数
+    parser.add_argument('--discont', type=float, default=np.pi, help='np.unwrap跳变判断阈值')
+    parser.add_argument('--frame_rule', type=str, default='TNN', choices=['TNB', 'TNN'], help="选择使用FS标架还是平行传递标架")
+    parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0, 8.0], help='各曲率分级的阈值')
+    parser.add_argument('--straight_threshold', type=float, default=2.0, help='零螺距形状中判断直线段的曲率阈值')
+    parser.add_argument('--rot_threshold', type=float, default=4.0, help='零螺距形状中判断螺旋段的曲率阈值')
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')
     parser.add_argument('--move_filter', type=int, default=3, help='动/静态重构前平滑滤波窗口大小')
     parser.add_argument('--kaiman_params', type=dict, default={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}}, help='卡尔曼滤波参数')
@@ -126,14 +134,13 @@ def main():
     parser.add_argument('--ang_step', type=float, default=0.1, help='旋转角度搜索步长, 初始为0.1')
     parser.add_argument('--ang_range', type=float, default=180, help='旋转角度搜索距离, 初始为180.0')
     args = parser.parse_args()
-
     # 避免Terminal指令读取错误
     if args.weights == "None":
         args.weights = None
     if args.slopes == "None":
         args.slopes = None
     
-    params = {k: getattr(args, k) for k in vars(args) if k not in ['task', 'ang_step', 'ang_range', 'total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder']}
+    params = {k: getattr(args, k) for k in vars(args) if k not in ['task', 'ang_step', 'ang_range', 'total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold']}
     
     # 初始化优化器与可视化工具
     optim = Optimiser(**params)
@@ -141,7 +148,7 @@ def main():
 
     if args.task == 'demo':
         app = QApplication(sys.argv)
-        demo = Demonstrator(recon=optim, total_scale=args.total_scale, imu=args.imu, imu_com=args.imu_com, demo_recorder=args.demo_recorder)
+        demo = Demonstrator(recon=optim, total_scale=args.total_scale, unwrap_threshold=args.unwrap_threshold, align_threshold=args.align_threshold, imu=args.imu, imu_com=args.imu_com, demo_recorder=args.demo_recorder)
         demo.show()
         
         if demo.imu: 

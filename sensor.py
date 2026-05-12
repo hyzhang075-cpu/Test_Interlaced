@@ -25,7 +25,7 @@ class Sensor:
     """
     def __init__(self, sensor_id, start_value, folder_path, centre_fibre=True, active_channels=[1, 3, 4], rot_dir=-1, exp_directs=[0, 120, 240], interrogator='FiberTecc', R=0.235e-3, ideal_len=1.35,
                 radii={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200], 'S': [0, 250, 200, 150], 'end': {2000: [30, 20, 15], 1500: [150, 100, 50]}, 
-                       'rot0': {200: [0, 10, 40, 70], 100: [0, 10, 40, 70]}, 'up': {200: [0, 25, 50, 75, 100], 100: [0, 25, 50, 75, 100]}, 'down': {200: [0, 25, 50, 75, 100], 100: [0, 25, 50, 75, 100]}}, 
+                       'rot0': {100: [10, 40, 70]}, 'up': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}, 'down': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}}, 
                 samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None,
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None):

@@ -112,7 +112,7 @@ class DataRecorder:
         print(f"--- 数据记录结束，文件已关闭 ---")
 
 class Demonstrator(QMainWindow):
-    def __init__(self, recon, total_scale, imu=False, imu_com='COM6', imu_maxlen=10, demo_recorder=False, title="Viewer"):
+    def __init__(self, recon, total_scale, unwrap_threshold, align_threshold, imu=False, imu_com='COM6', imu_maxlen=10, demo_recorder=False, title="Viewer"):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -134,6 +134,11 @@ class Demonstrator(QMainWindow):
         self.curve_history = deque(maxlen=self.recon.move_filter)
         self.prev_reordered_data = None
         self.total_scale = total_scale
+
+        self.unwrap_threshold = unwrap_threshold
+        self.align_threshold = align_threshold
+        self.angle_prev = None
+        self.angle_unwrap_prev = None
 
         self.firstFocal = None
         self.firstPosition = None
@@ -453,7 +458,8 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ',  calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False)
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, _, _ = self._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False, 
+                                                                                            unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
 

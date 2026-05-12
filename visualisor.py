@@ -711,3 +711,90 @@ class Visualisor:
         # 执行线性回归
         slope, intercept = stats.linregress(merged_x, merged_y)[:2]
         return slope, intercept, merged_x, merged_y
+    
+    def plot_curve_with_tnb(self, dist, r, T=None, N=None, B=None, scale=1.0, arrow_length=0.1):
+        """
+        绘制曲线及每个点处的切向量、法向量、副法向量（如果提供）。
+        
+        参数:
+        - r: ndarray (N x 3)，曲线上每个点的位置向量。
+        - T: ndarray (N x 3) 或 None，每个点处的切向量。如果为 None，则不绘制。
+        - N: ndarray (N x 3) 或 None，每个点处的法向量。如果为 None，则不绘制。
+        - B: ndarray (N x 3) 或 None，每个点处的副法向量。如果为 None，则不绘制。
+        - dist: 螺距信息
+        - scale: float，法向量和副法向量的缩放因子。
+        - arrow_length: float，箭头的长度。
+        """
+        # 确保输入是 NumPy 数组
+        r = np.array(r)
+        
+        # 检查输入形状是否一致
+        if T is not None:
+            T = np.array(T)
+            if r.shape != T.shape:
+                raise ValueError("r 和 T 必须具有相同的形状")
+        if N is not None:
+            N = np.array(N)
+            if r.shape != N.shape:
+                raise ValueError("r 和 N 必须具有相同的形状")
+        if B is not None:
+            B = np.array(B)
+            if r.shape != B.shape:
+                raise ValueError("r 和 B 必须具有相同的形状")
+        
+        # 创建 3D 图形
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # 绘制曲线
+        ax.plot(r[:, 0], r[:, 1], r[:, 2], label="Curve", color='blue')
+        
+        # 绘制每个点的 T、N 和 B 向量
+        for i in range(len(r)):
+            # 当前点
+            p = r[i]
+            
+            # 绘制切向量 T（如果提供）
+            if T is not None:
+                ax.quiver(
+                    p[0], p[1], p[2],  # 起点
+                    T[i, 0], T[i, 1], T[i, 2],  # 切向量方向
+                    color='red', length=arrow_length, normalize=True, label='T' if i == 0 else ""
+                )
+            
+            # 绘制法向量 N（如果提供）
+            if N is not None:
+                ax.quiver(
+                    p[0], p[1], p[2],
+                    N[i, 0], N[i, 1], N[i, 2],
+                    color='green', length=arrow_length * scale, normalize=True, label='N' if i == 0 else ""
+                )
+            
+            # 绘制副法向量 B（如果提供）
+            if B is not None:
+                ax.quiver(
+                    p[0], p[1], p[2],
+                    B[i, 0], B[i, 1], B[i, 2],
+                    color='purple', length=arrow_length * scale, normalize=True, label='B' if i == 0 else ""
+                )
+        
+        # 固定坐标轴范围
+        ax.set(xlim=(-0.1, 0.3), ylim=(-0.25, 0.15), zlim=(-0.2, 0.2))
+        # ax.set(xlim=(0.0, 1.2), ylim=(-0.6, 0.2), zlim=(-0.4, 0.4))
+        
+        # 设置图例
+        ax.legend(loc='upper left')
+        
+        # 设置轴标签
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        
+        # 设置标题
+        ax.set_title(f"Curve with T, N, B vectors in {dist}")
+        
+        # 设置视角
+        ax.view_init(elev=30, azim=60)
+        
+        # 显示图形
+        plt.show()
