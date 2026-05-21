@@ -55,32 +55,34 @@ def main():
     # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="04B4_cath0507", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=20, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m')
+    parser.add_argument('--sensor_id', type=str, default="04C4", help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=93, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--R', type=float, default=0.076e-3, help='传感器半径, 单位为m')
     parser.add_argument('--ideal_len', type=float, default=0.9, help='传感器长度, 单位为m')
-    parser.add_argument('--samp_dist_preset', type=list, default=[510, 520, 530, 540, 550, 580, 610, 640, 670, 720, 770, 850, 930, 1010, 1110, 1230], help='FBG传感点位置(A组及中心), 单位为mm')
+    parser.add_argument('--samp_dist_preset', type=list, default=[100, 140, 180, 220, 370, 520, 670, 820], help='FBG传感点位置(A组及中心), 单位为mm')
+    parser.add_argument('--samp_dist_preset_sub', type=list, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
-    parser.add_argument('--interlaced_grating', type=bool, default=False, help='栅区是否交错排列')
+    parser.add_argument('--interlaced_grating', type=bool, default=True, help='栅区是否交错排列')
+    parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为度')
     parser.add_argument('--global_phases_set', type=float, default=2.171893469999961, help='全局相位，初始值为None')
     # 标定实验参数
     parser.add_argument('--interrogator', type=str, default='Hippo', choices=['FiberTecc', 'Hippo', 'LUNA'], help='解调仪器')
-    parser.add_argument('--active_channels', type=list, default=[2, 1, 4, 3, 7, 5, 6], help='传感器连接解调仪的通道以及其顺序')
-    parser.add_argument('--channel_change', type=bool, default=True, help='通道排布是否变化')
+    parser.add_argument('--active_channels', type=list, default=[1, 2, 3, 4, 5, 6, 7], help='传感器连接解调仪的通道以及其顺序')
+    parser.add_argument('--channel_change', type=bool, default=False, help='通道排布是否变化')
     parser.add_argument('--channel_layout', type=list, default=[(6, [2, 1, 4, 3, 7, 5, 6]), (6, [5, 1, 4, 3, 2, 7, 6]), (4, [7, 1, 4, 3, 2, 5, 6])], help='当通道排布出现错序，每一段的长度及其排布顺序(列表嵌套元组格式)')
     parser.add_argument('--active_angles', type=list, default=None, help='外围通道角度排布(度数)，若为None则默认均匀排布')
-    parser.add_argument('--folder_path', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0507-04B4-自研（1+6）FBG＋支气管镜导管中心（装盒）"), help='数据存储路径')
-    parser.add_argument('--rot_dir', type=int, default= -1, help='各个标定实验按逆(1)还是顺(-1)时针调整的方向')
+    parser.add_argument('--folder_path', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0512-04C4-峰澜(1+6)-FBG"), help='数据存储路径')
+    parser.add_argument('--rot_dir', type=list, default=[-1], help='各个标定实验按逆(1)还是顺(-1)时针调整的方向')
     parser.add_argument('--exp_directs', type=list, default=[0, 120, 240], help='实验使用的方向')
     parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300]}, help='标定圆弧形状半径')
     parser.add_argument('--end_len', type=float, default=0.08, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
-    parser.add_argument('--freeze', type=list, default=[0, 1, 2, 3, 4], help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None')
+    parser.add_argument('--freeze', type=list, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None')
     parser.add_argument('--weight_bounds', type=tuple, default=(0.0, 2.0), help='曲率权重范围')
     parser.add_argument('--slope_upper_bound', type=tuple, default=20.0, help='扭转系数大小上限')
-    # parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0], help='各曲率分级的阈值')
-    parser.add_argument('--thresholds', type=list, default=[1.2, 2.0, 4.5], help='各曲率分级的阈值')
+    parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0], help='各曲率分级的阈值')
+    # parser.add_argument('--thresholds', type=list, default=[1.2, 2.0, 4.5], help='各曲率分级的阈值')
     parser.add_argument('--max_iter', type=int, default=5, help='优化的最大轮次')
     parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
     parser.add_argument('--k_end', type=float, default=0.3, help='优化目标中末端误差的权重')
@@ -103,7 +105,6 @@ def main():
     # 重构使用的超参数
     parser.add_argument('--discont', type=float, default=np.pi, help='np.unwrap跳变判断阈值')
     parser.add_argument('--frame_rule', type=str, default='TNN', choices=['TNB', 'TNN'], help="选择使用FS标架还是平行传递标架")
-    parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0, 8.0], help='各曲率分级的阈值')
     parser.add_argument('--straight_threshold', type=float, default=2.0, help='零螺距形状中判断直线段的曲率阈值')
     parser.add_argument('--rot_threshold', type=float, default=4.0, help='零螺距形状中判断螺旋段的曲率阈值')
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')
@@ -134,6 +135,7 @@ def main():
     parser.add_argument('--ang_step', type=float, default=0.1, help='旋转角度搜索步长, 初始为0.1')
     parser.add_argument('--ang_range', type=float, default=180, help='旋转角度搜索距离, 初始为180.0')
     args = parser.parse_args()
+
     # 避免Terminal指令读取错误
     if args.weights == "None":
         args.weights = None

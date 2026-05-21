@@ -9,7 +9,7 @@ class Initialiser(Sensor):
     """
     形状重构的初始化模块
     """
-    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, *args, **kwargs):
+    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.discont = discont
@@ -17,6 +17,7 @@ class Initialiser(Sensor):
         self.num_segments = len(segmentation)
         self.connect = connect
         self.global_phases_set = global_phases_set
+        self.interlaced_offset = interlaced_offset
         if not self.global_phases_set:
             self.global_phases_set = 0.0
             self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
@@ -220,6 +221,66 @@ class Initialiser(Sensor):
         使用均匀分布的默认通道角度；
         - 本方法只计算参与重构的通道角度，不包含被 centre fibre 补偿后剔除的通道。
         """
+        # # 获取 active_angles 参数，如果不存在则为 None
+        # active_angles = self.active_angles
+        
+        # # 判断是否传入了有效的 active_angles
+        # if active_angles is not None and len(active_angles) == self.num_channels_recon:
+        #     # 将传入的角度(度)转换为弧度，并加上全局相位
+        #     theta_0_list = [self.global_phases_set + np.deg2rad(ang) for ang in active_angles]
+        #     theta_0 = np.array([theta_0_list]).T
+        # else:
+        #     if self.interlaced_grating:
+        #         if self.samp_dist_preset_sub is None:
+        #             raise ValueError("交错刻栅模式下，samp_dist_preset_sub 不能为空")
+        #         # 交错刻栅时，由于将外围通道的数据按照pre_samp_dist和sub_samp_dist的顺序合并，因此重建通道的角度也需要按照相同的顺序进行交错排列
+        #         # self.num_channels_recon 已经在 Sensor 类的 __init__ 中根据是否交错刻栅进行了调整，因此这里直接使用 self.num_channels_recon 来计算均匀分布的角度即可，无需额外处理
+        #         # 如果需要在全局相位基础上进行交错排列，可以在计算均匀分布的基础上添加一个交错偏移，例如：
+        #         theta_0_1 = np.array([[self.global_phases_set + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
+        #         theta_0_2 = np.array([[self.global_phases_set + self.interlaced_offset + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
+
+        #         p1 = np.array(self.samp_dist_preset)
+        #         p2 = np.array(self.samp_dist_preset_sub)
+                
+        #         # 按照各自的采样点数量进行水平平铺
+        #         theta_0_1_full = np.repeat(theta_0_1, len(p1), axis=1)
+        #         theta_0_2_full = np.repeat(theta_0_2, len(p2), axis=1)
+                
+        #         # 拼接后根据位置排序索引进行穿插重排
+        #         theta_0_combined = np.concatenate((theta_0_1_full, theta_0_2_full), axis=1)
+        #         p_combined = np.concatenate((p1, p2))
+        #         sort_idx = np.argsort(p_combined)
+                
+        #         # 此时 theta_0 是一个形状为 (num_channels_recon, total_points) 的矩阵
+        #         theta_0 = theta_0_combined[:, sort_idx]
+            
+        #     else:# 默认的均匀分布逻辑
+        #         theta_0 = np.array([[self.global_phases_set + i * 2*np.pi/self.num_channels_recon for i in range(self.num_channels_recon)]]).T
+            
+        # theta = np.zeros((self.num_channels_recon, len(self.samp_dist)))
+        # if mode == 'init':
+        #     theta_dynamic = theta_0 + theta
+        # elif mode == 'recon':
+        #     seg_frequencies = [slope for slope in seg_slopes]
+        #     current_phase = theta_0
+        #     last_position = self.samp_dist[0]
+        #     # 按顺序处理每个分段
+        #     for seg, freq in zip(segments, seg_frequencies):
+        #         seg_start, seg_end = seg
+        #         seg_slice = slice(seg_start, seg_end)
+                
+        #         if seg_start >= len(self.samp_dist) or seg_end > len(self.samp_dist):
+        #             continue
+
+        #         # 计算相对距离（相对于累积基准位置）
+        #         delta_dist = (self.samp_dist[seg_slice] - last_position)  #m
+        #         # 计算当前分段相位（所有相同时计算）
+        #         theta[:, seg_slice] = current_phase + np.ones((self.num_channels_recon, 1)) * (freq * delta_dist)
+        #         # 更新基准相位和位置
+        #         last_position = self.samp_dist[seg_end-1] if seg_end <= len(self.samp_dist) else last_position
+        #         current_phase = theta[:, seg_end-1:seg_end] if seg_end <= len(self.samp_dist) else current_phase
+        #     theta_dynamic = theta
+
         # 获取 active_angles 参数，如果不存在则为 None
         active_angles = self.active_angles
         
@@ -229,17 +290,42 @@ class Initialiser(Sensor):
             theta_0_list = [self.global_phases_set + np.deg2rad(ang) for ang in active_angles]
             theta_0 = np.array([theta_0_list]).T
         else:
-            # 默认的均匀分布逻辑
-            theta_0 = np.array([[self.global_phases_set + i * 2*np.pi/self.num_channels_recon for i in range(self.num_channels_recon)]]).T
+            if self.interlaced_grating:
+                if self.samp_dist_preset_sub is None:
+                    raise ValueError("交错刻栅模式下，samp_dist_preset_sub 不能为空")
+                theta_0_1 = np.array([[self.global_phases_set + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
+                theta_0_2 = np.array([[self.global_phases_set + self.interlaced_offset + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
+
+                p1 = np.array(self.samp_dist_preset)
+                p2 = np.array(self.samp_dist_preset_sub)
+                
+                # 按照各自的采样点数量进行水平平铺
+                theta_0_1_full = np.repeat(theta_0_1, len(p1), axis=1)
+                theta_0_2_full = np.repeat(theta_0_2, len(p2), axis=1)
+                
+                # 拼接后根据位置排序索引进行穿插重排
+                theta_0_combined = np.concatenate((theta_0_1_full, theta_0_2_full), axis=1)
+                p_combined = np.concatenate((p1, p2))
+                sort_idx = np.argsort(p_combined)
+                
+                # 此时 theta_0 是一个形状为 (num_channels_recon, total_points) 的矩阵
+                theta_0 = theta_0_combined[:, sort_idx]
             
-        theta = np.zeros((self.num_channels_recon, len(self.samp_dist)))
+            else:# 默认的均匀分布逻辑
+                theta_0 = np.array([[self.global_phases_set + i * 2*np.pi/self.num_channels_recon for i in range(self.num_channels_recon)]]).T
+            
         if mode == 'init':
-            theta_dynamic = theta_0 + theta
+            # theta_0 加上 0 矩阵保持形状一致
+            theta_dynamic = theta_0 + np.zeros((self.num_channels_recon, len(self.samp_dist)))
         elif mode == 'recon':
             seg_frequencies = [slope for slope in seg_slopes]
-            current_phase = theta_0
+            
+            # 仅记录光纤由于扭转累积的整体相位 (1, total_points)
+            twist_phase = np.zeros((1, len(self.samp_dist)))
             last_position = self.samp_dist[0]
-            # 按顺序处理每个分段
+            current_twist = 0.0
+            
+            # 按顺序处理每个分段，累积扭转相位
             for seg, freq in zip(segments, seg_frequencies):
                 seg_start, seg_end = seg
                 seg_slice = slice(seg_start, seg_end)
@@ -248,13 +334,18 @@ class Initialiser(Sensor):
                     continue
 
                 # 计算相对距离（相对于累积基准位置）
-                delta_dist = (self.samp_dist[seg_slice] - last_position)  #m
-                # 计算当前分段相位（所有相同时计算）
-                theta[:, seg_slice] = current_phase + np.ones((self.num_channels_recon, 1)) * (freq * delta_dist)
+                delta_dist = (self.samp_dist[seg_slice] - last_position)  # m
+                # 计算当前分段的扭转累积
+                twist_phase[0, seg_slice] = current_twist + freq * delta_dist
+                
                 # 更新基准相位和位置
-                last_position = self.samp_dist[seg_end-1] if seg_end <= len(self.samp_dist) else last_position
-                current_phase = theta[:, seg_end-1:seg_end] if seg_end <= len(self.samp_dist) else current_phase
-            theta_dynamic = theta
+                if seg_end <= len(self.samp_dist):
+                    last_position = self.samp_dist[seg_end-1]
+                    current_twist = twist_phase[0, seg_end-1]
+                    
+            # 最终动态角度 = 固有初始角度 + 累积扭转角度
+            # 利用 numpy 的 broadcast 机制：(3, 1) + (1, N) 或 (3, N) + (1, N) 都能正确相加
+            theta_dynamic = theta_0 + twist_phase
 
         return theta_dynamic
 
