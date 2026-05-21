@@ -291,6 +291,8 @@ class Optimiser(Reconstructor):
         - self.end_errors: 各标定形状内部各半径（及嵌套形状下各二级参数）的末端误差
         - self.avg_point_err: 各标定形状的平均逐点误差，以及键 'calib' 对应的校准形状总体平均逐点误差
         - self.avg_end_err: 各标定形状的平均末端误差，以及键 'calib' 对应的校准形状总体平均末端误差
+        - self.rot0_pitch_errors / self.rot0_radius_errors: rot0 形状的螺距误差与半径误差
+        - self.avg_pitch_err / self.avg_radius_err: rot0 螺距误差与半径误差的平均值
 
         说明：
         - 当前实现中的 'calib' 仅汇总 circ、S、rot0 三类形状
@@ -309,26 +311,25 @@ class Optimiser(Reconstructor):
         给定当前参数，计算优化器使用的损失函数值。
 
         步骤：
-        1. 将输入参数写回当前对象状态，包括旋转角、应变权重和扭转系数。
-        2. 若提供 slope_scales，则将展平后的扭转系数恢复到原始量级；
-        否则直接将输入视为原始扭转系数。
+        1. 将 rot_ang、weights 写回当前对象状态。
+        2. 将 slopes_normalised 乘以 slope_upper_bound 后 reshape 回 self.slopes_shape，并写回 self.slopes[self.direct]。
         3. 使用当前参数对所有可用标定形状执行一次形状重构。
-        4. 调用 _compute_error() 计算对应的重构误差统计量。
-        5. 返回当前损失：
-        self.avg_point_err['calib'] + self.k * self.avg_end_err['calib']
+        4. 调用 _compute_error() 计算逐点误差、末端误差，以及 rot0 的螺距/半径误差。
+        5. 返回加权损失：
+        k_point * avg_point_err['calib']
+        + k_end * avg_end_err['calib']
+        + k_pitch * avg_pitch_err
+        + k_radius * avg_radius_err
 
         输入：
         - rot_ang: 当前旋转角补偿
         - weights: 当前应变权重向量
-        - slopes_flattened: 展平后的扭转系数
-        - slope_scales: 扭转系数对应的尺度数组；若为 None，则不做尺度恢复
-
-        输出：
-        - loss: 当前参数下的标量损失值
+        - slopes_normalised: 归一化后的展平扭转系数
+        - slope_upper_bound: 用于恢复扭转系数原始量级的尺度
 
         说明：
-        - 当前实现的损失只基于校准形状集合 'calib' 计算；
-        - 'calib' 由 circ、S、rot0 三类形状的误差汇总得到。
+        - 当前 avg_point_err['calib'] 与 avg_end_err['calib'] 汇总 circ / S / end。
+        - rot0 不参与 calib 的逐点/末端误差汇总，而是通过 avg_pitch_err 与 avg_radius_err 进入损失。
         """
         # ---------- unpack parameters ----------
         self.rot_ang = rot_ang
@@ -344,6 +345,29 @@ class Optimiser(Reconstructor):
 
         return self.k_point * self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
 
+    def _get_trim_interp_mask(self, interp_dist):
+        """
+        返回当前 straight_trim 对应的插值点 mask。
+        straight_trim 不影响重构本身，只在误差统计阶段筛选参与评价的点。
+        """
+        interp_dist = np.asarray(interp_dist, dtype=float)
+        trim_min = getattr(self, "trim_eval_min", interp_dist[0])
+        trim_max = getattr(self, "trim_eval_max", interp_dist[-1])
+
+        mask = (interp_dist >= trim_min) & (interp_dist <= trim_max)
+        if not np.any(mask):
+            raise ValueError(
+                f"straight_trim 后没有可用于误差计算的插值点: "
+                f"trim_eval_min={trim_min}, trim_eval_max={trim_max}, "
+                f"interp范围=({interp_dist[0]}, {interp_dist[-1]})"
+            )
+        return mask
+
+    def _trim_result_tree(self, results, mask):
+        """递归裁剪重构/理想轨迹树。"""
+        mask = np.asarray(mask, dtype=bool)
+        return dict_recur_extract(results, lambda arr: arr[mask] if len(arr) == len(mask) else arr)
+
     def _compute_error(self, interp_dist, rs):
         """
         计算各类标定形状下的重构结果相对于理论标定曲线的误差。
@@ -355,7 +379,7 @@ class Optimiser(Reconstructor):
             - 每组曲线的末端误差
             - 每组曲线的平均逐点误差
         4. 对每个标定形状分别汇总其内部所有曲线的平均逐点误差与平均末端误差。
-        5. 进一步对 circ、S、rot0 三类校准形状汇总，得到键 'calib' 对应的整体平均逐点误差与平均末端误差。
+        5. 对 circ、S、end 三类常规校准形状汇总，得到键 'calib' 对应的整体平均逐点误差与平均末端误差。rot0 不进入该 calib 汇总，而是单独计算螺距误差和半径误差。
 
         输入：
         - interp_dist: 插值后的弧长坐标数组
@@ -373,10 +397,9 @@ class Optimiser(Reconstructor):
             - self.avg_end_err
 
         说明：
-        - 当前实现不再调用单独的 _compute_error_shape()，而是通过 dict_recur_operate、
-        dict_recur_extract 与 dict_recur_value 递归完成误差计算与汇总；
         - self.avg_point_err 与 self.avg_end_err 中额外包含的聚合键为 'calib'，而不是 'all'；
-        - 'calib' 当前仅汇总 circ、S、rot0、end 三类形状。
+        - 'calib' 当前仅汇总 circ、S、end；
+        - rot0 单独更新 self.rot0_pitch_errors、self.rot0_radius_errors、self.avg_pitch_err 与 self.avg_radius_err。
         """
         self.point_errors = {}
         self.point_errors_avg = {}
@@ -389,15 +412,18 @@ class Optimiser(Reconstructor):
         self.avg_pitch_err = 0
         self.avg_radius_err = 0
 
-        val_len = interp_dist[-1]
-        if val_len <0:
+        trim_mask = self._get_trim_interp_mask(interp_dist)
+        interp_dist_eval = np.asarray(interp_dist, dtype=float)[trim_mask]
+        val_len = interp_dist_eval[-1]
+        if val_len < 0:
             print(f"val_len: {val_len}")
 
         for calib_shape in self.calib_shapes:
-            results = rs[calib_shape]
+            results = self._trim_result_tree(rs[calib_shape], trim_mask)
             
             if calib_shape == "rot0":
-                rot0_errors = dict_recur_extract_path(d=results,f=lambda x, path: self._compute_rot0_err(result=x, cur_interp=self.cur_interp, radius_m=path[-2] * 0.001))
+                cur_interp_eval = self.cur_interp[trim_mask] if len(self.cur_interp) == len(trim_mask) else self.cur_interp
+                rot0_errors = dict_recur_extract_path(d=results, f=lambda x, path: self._compute_rot0_err(result=x, cur_interp=cur_interp_eval, radius_m=path[-2] * 0.001))
 
                 pitch_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[0])
                 radius_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[1])
@@ -415,9 +441,9 @@ class Optimiser(Reconstructor):
                 point_errors = {}
                 end_errors = {}
                 point_errors_avg = {}
-                ideals = self._construct_ideals(calib_shape=calib_shape, interp_dist=interp_dist, val_len=val_len)
+                ideals = self._construct_ideals(calib_shape=calib_shape, interp_dist=interp_dist_eval, val_len=val_len)
 
-                point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: self._compute_point_err(result=x, ideal=y, interp_dist=interp_dist, val_len=val_len))
+                point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: self._compute_point_err(result=x, ideal=y, interp_dist=interp_dist_eval, val_len=val_len))
                 end_errors = dict_recur_extract(d=point_errors, f=lambda x: x[-1])
                 point_errors_avg = dict_recur_extract(d=point_errors, f=lambda x: np.nanmean(x))
 
@@ -537,8 +563,13 @@ class Optimiser(Reconstructor):
         return real_point
         
     def _compute_point_err(self, result, ideal, interp_dist, val_len):
-        eval = bisect.bisect_right(interp_dist, val_len)
-        return np.linalg.norm(result[:eval] - ideal[:eval], axis=1) / val_len
+        eval = min(bisect.bisect_right(interp_dist, val_len), len(result), len(ideal))
+        if eval <= 0:
+            return np.array([np.nan])
+
+        # trim 后用剩余区间长度归一化；无 trim 时等价于原来的 interp_dist[-1]。
+        norm_len = max(float(interp_dist[eval - 1] - interp_dist[0]), 1e-12)
+        return np.linalg.norm(result[:eval] - ideal[:eval], axis=1) / norm_len
     
     def _compute_rot0_err(self, result, cur_interp, radius_m):
         rot_start, rot_end = self._find_rot_segment(cur_interp=cur_interp)

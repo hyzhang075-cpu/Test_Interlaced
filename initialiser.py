@@ -24,16 +24,15 @@ class Initialiser(Sensor):
 
     def rot_seg_fit(self, verbose, update_phase):
         """
-        初始化全局相位，并基于 circ / S / rot0 标定数据联合估计初始分段扭转系数。
+        初始化全局相位，并基于 fit_shapes 中指定的标定数据估计初始分段扭转系数。
 
-        步骤：
-        1. 在初始化模式下生成动态角度基准 theta_dynamic。
-        2. 对所有存在的标定形状递归计算 angle raw / unwrap / init。
-        3. 将 circ / S / rot0 中的初始角度递归汇总，用于全局相位估计。
-        4. 将 circ / S / rot0 中的 unwrap 角度曲线递归拉平后联合做：
-        - 全局分段拟合
-        - 个体分段拟合
-        5. 将全局拟合得到的各段斜率取负，作为初始扭转系数 self.slopes_init[direct]。
+        当前实现中 fit_shapes = {'circ'}，因此只有 circ 数据参与：
+        - global_phases_set 的估计；
+        - global_fit_direct / individual_fits_direct 的分段拟合；
+        - slopes_init[direct] 的初始化。
+
+        S / rot0 / end 若存在，仍会递归计算并保存 magnitude / angle raw / unwrap / init 结果，
+        但不会参与 phase_pool 或扭转系数拟合。
         """
 
         fit_shapes = {'circ'}
@@ -45,6 +44,7 @@ class Initialiser(Sensor):
         )
 
         self.slopes_init = {}
+        self.magnitude_results = {}
         self.angle_results_raw = {}
         self.angle_results_unwrap = {}
         self.global_fit_direct = {}
@@ -52,6 +52,7 @@ class Initialiser(Sensor):
 
         for calib_shape in ['circ', 'S', 'rot0', 'end']:
             if calib_shape in self.calib_shapes:
+                self.magnitude_results[calib_shape] = {}
                 self.angle_results_raw[calib_shape] = {}
                 self.angle_results_unwrap[calib_shape] = {}
 
@@ -76,7 +77,7 @@ class Initialiser(Sensor):
                 else:
                     target_data = calib_data
 
-                # ---------- 递归路径展开，逐个数据计算 angle raw / unwrap / init ----------
+                # ---------- 递归路径展开，逐个数据计算 magnitude / angle raw / unwrap / init ----------
                 target_data_flat = dict_recur_flatten(target_data)
 
                 bundled_flat = {}
@@ -84,35 +85,39 @@ class Initialiser(Sensor):
                 for path, leaf in target_data_flat.items():
                     strain_data = np.asarray(leaf).T
 
-                    _, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
+                    magnitude, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
 
                     angle_unwrap_i = np.unwrap(angle, discont=self.discont)
                     init_angle_i = angle_unwrap_i[0]
 
-                    bundled_flat[path] = (angle, angle_unwrap_i, init_angle_i)
+                    bundled_flat[path] = (magnitude, angle, angle_unwrap_i, init_angle_i)
 
                 # ---------- 将 flat 结果还原成原始树结构 ----------
-                angle_raw = dict_recur_unflatten({path: bundle[0] for path, bundle in bundled_flat.items()})
+                magnitude_raw = dict_recur_unflatten({path: bundle[0] for path, bundle in bundled_flat.items()})
 
-                angle_unwrap = dict_recur_unflatten({path: bundle[1] for path, bundle in bundled_flat.items()})
+                angle_raw = dict_recur_unflatten({path: bundle[1] for path, bundle in bundled_flat.items()})
 
-                init_angle = dict_recur_unflatten({path: bundle[2] for path, bundle in bundled_flat.items()})
+                angle_unwrap = dict_recur_unflatten({path: bundle[2] for path, bundle in bundled_flat.items()})
 
+                init_angle = dict_recur_unflatten({path: bundle[3] for path, bundle in bundled_flat.items()})
+
+                self.magnitude_results[calib_shape][direct] = magnitude_raw
                 self.angle_results_raw[calib_shape][direct] = angle_raw
                 self.angle_results_unwrap[calib_shape][direct] = angle_unwrap
 
-
-                # ---------- circ / S / rot0 联合参与 phase 与 fit ----------
+                # ---------- fit_shapes 中指定的标定形状参与 phase 与 fit；当前仅 circ ----------
                 if calib_shape in fit_shapes:
                     for path, bundle in bundled_flat.items():
-                        angle_unwrap_i = bundle[1]
-                        init_angle_i = bundle[2] 
+                        angle_unwrap_i = bundle[2]
+                        init_angle_i = bundle[3]
+
                         if -np.pi <= init_angle_i <= np.pi:
                             init_angle_i = init_angle_i
                         elif init_angle_i < -np.pi:
                             init_angle_i += 2 * np.pi
                         else:
                             init_angle_i -= 2 * np.pi
+
                         # ---------- inline _phase_leaf_ok ----------
                         use_for_phase = True
 
@@ -151,45 +156,7 @@ class Initialiser(Sensor):
 
                     slopes_detail = dict_recur_extract_path(self.individual_fits_direct[direct], lambda groups, path: [group[0] for group in groups])
 
-                    print(f"slopes: {slopes_detail}")  
-
-    def _directional_unwrap(self, angles):
-        """
-        自定义的定向 unwrap 函数。
-        从第三个点开始限制 unwrap 的方向：
-        如果初始趋势是增加，则后续所有相位跳变只能向增加的方向 unwrap；
-        如果初始趋势是减小，则只能向减小的方向 unwrap。
-        """
-        angles = np.asarray(angles, dtype=np.float64)
-        if len(angles) < 3:
-            return np.unwrap(angles, discont=self.discont)
-
-        unwrapped = np.zeros_like(angles)
-        # 前两个点使用标准 unwrap
-        unwrapped[:2] = np.unwrap(angles[:2], discont=self.discont)
-
-        # 确定初始趋势 (1 表示增加, -1 表示减小)
-        # 也可以根据实际业务逻辑修改趋势的判断依据
-        trend = 1 if unwrapped[1] >= unwrapped[0] else -1
-
-        for i in range(2, len(angles)):
-            # 计算当前点与前一个 unwrapped 点的原始差值
-            diff = angles[i] - (unwrapped[i-1] % (2 * np.pi))
-
-            # 将差值映射到 [-pi, pi] 之间
-            diff = (diff + np.pi) % (2 * np.pi) - np.pi
-
-            # 根据趋势强制限制跳变方向
-            if trend == 1 and diff < 0:
-                # 如果趋势是增加，但当前差值为负，强制加 2*pi 使其变为正向增长
-                diff += 2 * np.pi
-            elif trend == -1 and diff > 0:
-                # 如果趋势是减小，但当前差值为正，强制减 2*pi 使其变为负向增长
-                diff -= 2 * np.pi
-
-            unwrapped[i] = unwrapped[i-1] + diff
-
-        return unwrapped
+                    print(f"slopes: {slopes_detail}")
 
     def _calculate_dynamic_angles(self, mode, segments, seg_slopes):
         """
@@ -363,7 +330,7 @@ class Initialiser(Sensor):
 
         输出:
         - curvature_magnitude: 曲率模数组
-        - curvature_angle: 曲率方向角序列，单位为弧度，范围被映射到 [0, 2π)
+        - curvature_angle: 曲率方向角序列，单位为弧度，范围被映射到 [-pi, pi]
 
         说明：
         - 当前实现中 curvature_magnitude 为 numpy 数组；
@@ -429,11 +396,7 @@ class Initialiser(Sensor):
         if len(combined_x) == 0:
             return [(np.nan, np.nan)] * self.num_segments
 
-        fit_results = self._piecewise_linear_fit(
-            y_data=np.asarray(combined_y, dtype=float),
-            x_data=np.asarray(combined_x, dtype=float),
-            segments=merged_segments
-        )
+        fit_results = self._piecewise_linear_fit(y_data=np.asarray(combined_y, dtype=float), x_data=np.asarray(combined_x, dtype=float), segments=merged_segments)
 
         # 若某些段完全没有数据，可补齐到固定长度
         if len(fit_results) < self.num_segments:
@@ -442,21 +405,14 @@ class Initialiser(Sensor):
         return fit_results
     
     def _compute_individual_fits(self, angle_data):
-        '''
-        对每个标定半径的自扭转角度-距离数据分别进行分段线性拟合。
+        """
+        对每个标定数据的自扭转角度-距离数据分别进行分段线性拟合。
 
         说明：
-        - 每个半径独立进行分段，不与其他半径的数据混合。
-        - 半径为 0 的数据不参与个体拟合。
-        - 分段方式由 _segment_data() 按当前 segmentation 自动生成。
-
-        输入:
-        - angle_data: 各半径对应的角度数据字典，键为半径，值为角度数组
-
-        输出:
-        - individual_fits: 字典，键为半径，值为该半径各分段拟合结果的列表
-        - 每个分段拟合结果为 (斜率, 截距)
-        '''
+        - angle_data 的 key 可以是半径，也可以是 (calib_shape, ...path) 形式的完整路径键。
+        - 若能从 key 中解析出半径为 0，则该组数据不参与个体拟合。
+        - 每组数据独立进行分段，不与其他数据混合。
+        """
         individual_fits = {}
 
         for radius, angles in angle_data.items():
