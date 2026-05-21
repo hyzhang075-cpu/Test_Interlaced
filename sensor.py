@@ -15,17 +15,17 @@ from pathlib import Path
 from collections import defaultdict
 from scipy.signal import savgol_filter
 
-from utils import build_valid_row_mask
+from utils import build_valid_row_mask, dict_recur_extract
 
 
 class Sensor:
     """
     传感器自身物理参数以及数据处理模块
     """
-    def __init__(self, sensor_id, start_value, folder_path, centre_fibre=True, active_channels=[1, 3, 4], rot_dir=-1, exp_directs=[0, 120, 240], interrogator='FiberTecc', R=0.235e-3, ideal_len=1.35,
+    def __init__(self, sensor_id, start_value, end_value, folder_path, centre_fibre=True, active_channels=[1, 3, 4], rot_dir=-1, exp_directs=[0, 120, 240], interrogator='FiberTecc', R=0.235e-3, ideal_len=1.35,
                 radii={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200], 'S': [0, 250, 200, 150], 'end': {2000: [30, 20, 15], 1500: [150, 100, 50]}, 
                        'rot0': {100: [10, 40, 70]}, 'up': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}, 'down': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}}, 
-                samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None,
+                samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None, reverse=False, straight_trim=0.0,
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100):
         
@@ -67,12 +67,11 @@ class Sensor:
         self.smoothing_params = smoothing_params
 
         # 传感器物理参数
-        self.zero_init = start_value != 0
-        self.generate_samp_dist(start_value=start_value, samp_dist_preset=samp_dist_preset)  # 生成传感点在传感器上所处的实际位置（单位：米）
+        self.ideal_len = ideal_len
+        self.generate_samp_dist(reverse=reverse, start_value=start_value, end_value=end_value, straight_trim=straight_trim, samp_dist_preset=samp_dist_preset)  # 生成传感点在传感器上所处的实际位置（单位：米）
         self.total_points = len(self.samp_dist)
         self.R = R
-        self.ideal_len = ideal_len
-
+       
         # 动态数据接收相关参数
         self.IP = IP
         self.PORT = PORT
@@ -95,9 +94,14 @@ class Sensor:
                 self.plot_Data = self.Data
         elif self.interrogator == 'LUNA':
             self.read_data_OFDR(folder_path=folder_path)
-             
 
-    def generate_samp_dist(self, start_value, samp_dist_preset):
+        # straight_trim 不再在数据读取 / 处理端裁剪数据。
+        # 这里只保留 reverse 对数据顺序的影响；trim 只在误差计算和可视化阶段使用。
+        if reverse:
+            self.processed_Data = dict_recur_extract(self.processed_Data, lambda arr: arr[::-1, :])
+            self.plot_Data = dict_recur_extract(self.plot_Data, lambda arr: arr[::-1, :])
+
+    def generate_samp_dist(self, reverse, start_value, end_value, straight_trim, samp_dist_preset):
         """
         根据当前解调仪类型生成采样距离数组，并更新实例成员。
 
@@ -126,22 +130,67 @@ class Sensor:
         - self.samp_dist 本身可以包含 0；zero_init 只决定是否在 self.ad_samp_dist 中额外插入一个起始 0
         """
         if self.interrogator == 'LUNA':
-            self.samp_dist = np.arange(self.min_len) * self.ss
+            raw_samp_dist = np.arange(self.min_len) * self.ss
         else:
             diff = np.diff(samp_dist_preset)
             diff_reversed = diff[::-1]
             samp_dist = [start_value]
             for d in diff_reversed:
                 samp_dist.append(samp_dist[-1] + d)
-            self.samp_dist = np.array(samp_dist) * 0.001
+            raw_samp_dist = np.array(samp_dist) * 0.001
+
+        if not np.all(np.isfinite(raw_samp_dist)):
+            raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
+
+        # straight_trim 只记录为“优化/可视化时的有效区间”，不再裁剪 samp_dist 或数据本身。
+        self.straight_trim = straight_trim
+        self.trim_len = straight_trim if straight_trim >= 0 else self.ideal_len + straight_trim
+
+        if self.trim_len < raw_samp_dist[0]:
+            raw_trim_idx = 0
+        else:
+            raw_trim_idx = np.searchsorted(raw_samp_dist, self.trim_len, side="left")
+
+        if raw_trim_idx >= len(raw_samp_dist):
+            raise ValueError(
+                f"straight_trim={straight_trim} 对应的 trim_len={self.trim_len} 已超出采样范围，"
+                f"最大采样距离为 {raw_samp_dist[-1]}"
+            )
+
+        self.raw_trim_idx = raw_trim_idx
+
+        # 先生成完整 samp_dist；reverse 只改变坐标方向，不与 straight_trim 耦合。
+        if reverse:
+            self.samp_dist = (raw_samp_dist[-1] - raw_samp_dist)[::-1] + end_value * 0.001
+
+            # raw 中 >= trim_len 的部分，在 reverse 后对应完整序列的前半段。
+            self.trim_eval_min = self.samp_dist[0]
+            self.trim_eval_max = raw_samp_dist[-1] - max(self.trim_len, 0.0) + end_value * 0.001
+            raw_keep_mask = raw_samp_dist >= self.trim_len
+            self.trim_sample_mask = raw_keep_mask[::-1]
+            self.trim_idx = 0
+        else:
+            self.samp_dist = raw_samp_dist
+
+            self.trim_eval_min = max(self.trim_len, 0.0)
+            self.trim_eval_max = self.samp_dist[-1]
+            self.trim_sample_mask = self.samp_dist >= self.trim_eval_min
+            self.trim_idx = raw_trim_idx
+
+        if not np.any(self.trim_sample_mask):
+            raise ValueError("straight_trim 后没有剩余采样点")
+
+        if not np.all(np.isfinite(self.samp_dist)):
+            raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
+        
+        self.zero_init = self.samp_dist[0] != 0
         if self.zero_init:
             self.ad_samp_dist = np.insert(self.samp_dist, 0, 0)
         else:
             self.ad_samp_dist = self.samp_dist
-        if not np.all(np.isfinite(self.samp_dist)):
-            raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
         if not np.all(np.diff(self.ad_samp_dist) > 0):
             raise ValueError("ad_samp_dist 必须是递增的数组")
+
     
     # -------------------- FBG数据处理 --------------------
     def read_data_FBG(self, folder_path):
@@ -266,9 +315,7 @@ class Sensor:
                 non_missing_mask = ~numeric_fbg.isna().any(axis=1)
 
                 # 2) outlier 行排除
-                outlier_valid_mask = build_valid_row_mask(
-                    df=df, fbg_cols=fbg_cols, threshold=9000, half_window=5
-                )
+                outlier_valid_mask = build_valid_row_mask(df=df, fbg_cols=fbg_cols, threshold=9000, half_window=5)
 
                 valid_rows = non_missing_mask.to_numpy() & outlier_valid_mask
 
@@ -400,28 +447,11 @@ class Sensor:
 
     def _edit_radii(self, folder_type, x, y, z):
         """
-        当某个 subfolder 最终没有任何有效 channel、因此被整体判定为无效时，
-        同步从 self.radii 中撤销该 subfolder 对应的半径配置。
+        当某个 subfolder 被判定为无效时，同步从 self.radii 中撤销该 subfolder 对应的半径配置。
 
-        步骤：
-        1. 根据 folder_type 判断当前 subfolder 对应的是二级还是三级半径结构。
-        2. 若 folder_type 为 "circ" 或 "S"，则从 self.radii[x][folder_type] 中移除 y。
-        3. 若 folder_type 为 "end"、"rot0"、"up" 或 "down"，则从 self.radii[x][folder_type][y] 中移除 z。
-        4. 若三级结构中的某个 y 对应容器在删除后为空，则进一步删除该 y 键。
-
-        输入：
-        - folder_type: 子文件夹对应的数据类型，可为 "circ"、"S"、"end"、"rot0"、"up" 或 "down"
-        - x: 实验方向，对应 self.radii 的一级 key
-        - y: 二级半径键或半径值
-        - z: 三级结构中的末级半径值；对 "circ" 与 "S" 类型可为 None
-
-        输出：
-        - 无显式返回
-        - 原地修改 self.radii
-
-        说明：
-        - 本方法只在调用者已决定“整个 subfolder 无效”时执行撤销
-        - 本方法支持 self.radii 中相关容器为 list 或 set
+        无效情况包括：
+        - 整个 subfolder 没有任何有效 channel；
+        - 构建 data_matrix 所需的 active_channels 中任一必需 channel 缺失。
         """
         def _remove_from_container(container, value):
             if isinstance(container, set):
@@ -585,9 +615,9 @@ class Sensor:
                 if phy_ch in self.active_channels:
                     groups[time_part][phy_ch] = file
 
-            if len(groups) != len(self.radii['circ']):
+            if len(groups) != len(self.radii[direct]['circ']):
                 logging.warning(
-                    f"预期分为 {len(self.radii['circ'])} 组，但实际分为 {len(groups)} 组。"
+                    f"预期分为 {len(self.radii[direct]['circ'])} 组，但实际分为 {len(groups)} 组。"
                 )
 
             # grouped_data[time_part][phy_ch] = dataframe
@@ -656,13 +686,13 @@ class Sensor:
 
             timestamps = sorted(next(iter(data_source.values())).keys())
 
-            if len(timestamps) > len(self.radii['circ']):
+            if len(timestamps) > len(self.radii[direct]['circ']):
                 raise ValueError(
-                    f"方向 {direct} 的时间组数 {len(timestamps)} 超过预设半径数 {len(self.radii['circ'])}。"
+                    f"方向 {direct} 的时间组数 {len(timestamps)} 超过预设半径数 {len(self.radii[direct]['circ'])}。"
                 )
 
             timestamp_to_exp_samps = {
-                timestamp: self.radii['circ'][idx]
+                timestamp: self.radii[direct]['circ'][idx]
                 for idx, timestamp in enumerate(timestamps)
             }
 
@@ -1079,7 +1109,7 @@ class Sensor:
                     print(f"通道{ch}归零基准已设置")
 
             data = np.empty((1, 16, self.num_channels))
-            for phy_ch, i in self.active_channels:
+            for phy_ch, i in self.active_channels.items():
                 data[0, :, i] = (data_received[phy_ch] - self.zero_points[phy_ch]) * 1000
 
             if self.data_queue.full():

@@ -4,19 +4,22 @@ from scipy.interpolate import CubicHermiteSpline
 
 from initialiser import Initialiser
 
-from utils import dict_recur_paths, dict_recur_unflatten
+from utils import dict_recur_paths, dict_recur_unflatten, dict_recur_extract_path
 
 class Reconstructor(Initialiser):
     """
     形状重构模块
     """
-    def __init__(self, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
-                 TNB_threshold=0.15, interp_num=60, move_filter=3, kaiman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},  
+    def __init__(self, soft=True, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
+                 TNB_threshold=0.15, interp_num=60, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},  
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
+        self.magnitude_ratio = dict_recur_extract_path(self.magnitude_results, lambda arr, path: 1.0 if path[-1] == 0 else float((1000 / path[-1]) / np.mean(arr)))
+        # self.magnitude_ratio = dict_recur_extract_path(self.magnitude_results, lambda arr, path: 1.0)
         # 重构所需参数
+        self.soft = soft
         self.frame_rule = frame_rule
         self.turn_threshold = turn_threshold
         self.thresholds = thresholds # 曲率分级阈值
@@ -26,7 +29,7 @@ class Reconstructor(Initialiser):
         self.num_levels = len(self.thresholds) + 1 
         self.base_segments = self._calculate_segments(total_points=self.total_points)
         self.end_mask = np.arange(self.total_points) >= self.total_points + end_start
-        self.TNB_threshold = TNB_threshold # FS重构时直接复制上一点的曲率变化阈值
+        self.TNB_threshold = TNB_threshold # FS重构时直接复制上一点的曲率大小阈值
 
         # 需要优化的应变权重、扭转系数以及旋转角度
         self.end_weights = end_weights # 是否优化末端权重
@@ -45,7 +48,7 @@ class Reconstructor(Initialiser):
 
         # 滤波、插值所需参数
         self.move_filter = move_filter
-        self.kalman_params = kaiman_params
+        self.kalman_params = kalman_params
         self.interp_num = interp_num
 
     def reconstruct_shapes(self, calib_shape, direct, verbose=False):
@@ -74,7 +77,13 @@ class Reconstructor(Initialiser):
         for path in dict_recur_paths(path_tree):
             keys = list(path)
 
-            _, _, _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, init_T=[1.0, 0.0, 0.0], verbose=verbose)
+            radius = keys[0]
+            magnitude_ratio = self.magnitude_ratio[calib_shape][direct][radius]
+
+            if isinstance(magnitude_ratio, dict):
+                magnitude_ratio = magnitude_ratio[keys[1]]
+
+            _, _, _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, init_T=[1.0, 0.0, 0.0], verbose=verbose)
 
             r_postrot = r @ rot_matrix.T
             flat_results[path] = r_postrot
@@ -89,15 +98,15 @@ class Reconstructor(Initialiser):
 
         return r_results_postrot, interp_dist
 
-    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, init_T, verbose=False, unwrap_threshold=0.65, align_threshold=0.15, angle_prev=None, angle_unwrap_prev=None):
+    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio, init_T, verbose=False, unwrap_threshold=0.65, align_threshold=0.15, angle_prev=None, angle_unwrap_prev=None):
         # ---------- 计算重构使用的曲率大小与方向 ----------
-        magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, verbose=verbose)
+        magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, verbose=verbose)
 
         if angle_prev is not None and magnitude[0] < align_threshold:
             angle[0] = angle_prev[0]
         
         if self.zero_init:
-            magnitude = np.insert(magnitude, 0, magnitude[0])  #在第一个位置插入0
+            magnitude = np.insert(magnitude, 0, magnitude[0])  #在第一个位置复制第一个值
             angle = np.insert(angle, 0, angle[0])   #把原点的弯曲角补齐
         else:
             angle[0] = angle[1]    
@@ -110,7 +119,7 @@ class Reconstructor(Initialiser):
         # 增加上下文信息字符串，方便报错时追踪
         context_str = f"calib_shape: {calib_shape}, keys(radius/end_radius): {keys}"
 
-        # 检查源头数据是否已经包含 NaN
+        # 检查预处理后的角度与曲率序列是否包含 NaN / inf
         if not np.all(np.isfinite(ang_filter)):
             raise ValueError(f"[{context_str}] ang_filter 包含 NaN 或 inf。请检查 _Strain_2_Cur 的输出。")
         if not np.all(np.isfinite(cur_kal)):
@@ -189,14 +198,16 @@ class Reconstructor(Initialiser):
 
         return angle_unwrap
 
-    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, verbose=False):
+    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio=1.0, verbose=False):
         """
         将一组应变数据转换为最终用于重构的曲率大小与方向角。
 
         步骤：
         1. 取 slope[0] 作为基础分段扭转系数 base_slopes，先计算基础曲率大小与方向角。
-        2. 根据基础曲率大小进行曲率分级，得到各等级的软分配分数。
-        3. 将分数转换为各等级的概率质量分布 masses。
+        2. 根据基础曲率大小进行曲率分级：
+        - soft=True 时，使用 sigmoid 分数与 _alloc_mass() 得到软分配 masses；
+        - soft=False 时，根据 thresholds 与 min_consecutive 找到硬覆盖区域，并生成 one-hot masses。
+        3. 使用 masses 在不同曲率等级之间选择/混合对应的 weight 与 slope。
         4. 按曲率等级权重对原始应变进行加权，得到 weighted_strain。
         5. 根据 _get_base() 返回的 turn_segments，将各等级在基础分段上的 slope 组合成逐点扭转系数映射 slope_map。
         6. 根据 slope_map 生成动态分段结构与对应分段扭转系数。
@@ -228,10 +239,49 @@ class Reconstructor(Initialiser):
         strain_data, magnitude, angle, turn_segments = self._get_base(keys=keys, calib_Data=calib_Data, base_slopes=base_slopes, verbose=False)
 
         # ---------- 进行曲率分级和分级参数计算 ----------
-        scores = self._get_scores(magnitude=magnitude)
-        masses = self._alloc_mass(scores=scores)
+        score_magnitude = magnitude * magnitude_ratio
+        # print(score_magnitude)
+        if not self.soft:
+            scores = None
+            hard_level_idx = np.zeros(self.total_points, dtype=int)
+            hard_regions = [None] * self.num_levels
+            min_consecutive = max(1, int(self.min_consecutive))
+
+            for level, threshold in enumerate(self.thresholds, start=1):
+                consecutive_count = 0
+                region_start = None
+                region_indices = None
+
+                for i, mag in enumerate(score_magnitude):
+                    if mag > threshold:
+                        if consecutive_count == 0:
+                            region_start = i
+                        consecutive_count += 1
+                    else:
+                        if consecutive_count >= min_consecutive:
+                            region_indices = np.arange(region_start, i)
+                            break
+                        consecutive_count = 0
+                        region_start = None
+
+                if region_indices is None and consecutive_count >= min_consecutive:
+                    region_indices = np.arange(region_start, self.total_points)
+
+                if region_indices is not None and len(region_indices) > 0:
+                    hard_level_idx[region_indices] = level
+                    hard_regions[level] = region_indices
+
+            masses = np.zeros((self.num_levels, self.total_points))
+            masses[hard_level_idx, np.arange(self.total_points)] = 1.0
+        else:
+            scores = self._get_scores(magnitude=score_magnitude)
+            masses = self._alloc_mass(scores=scores)
         if verbose:
-            print(f"scores: {scores}")
+            if scores is not None:
+                print(f"scores: {scores}")
+            else:
+                print(f"hard level index: {hard_level_idx}")
+                print(f"hard regions: {hard_regions}")
             for i in range(self.num_levels-1):
                 print(f"Probability mass for curvature class {i+1}: {masses[i]}")
 
@@ -572,26 +622,28 @@ class Reconstructor(Initialiser):
     
     def _parallel_frame(self, kappa, angles, ss, init_T, init_N):
         """
-        使用 Frenet-Serret 标架公式递推计算三维曲线及 T/N/B 标架。
+        使用平行标架 / TNN 形式递推计算三维曲线及 T/N1/N2 标架。
 
         说明：
-        - 当某点曲率小于 self.TNB_threshold 时，认为局部形状变化过小，直接沿用上一点的 T/N/B。
-        - 当前实现的返回顺序为 (r, N, T, B)。
+        - 根据 angles 相对于首点角度的变化，将曲率分解为 kappa1 与 kappa2。
+        - N1 由 init_N 初始化，N2 由 np.cross(init_T, init_N) 初始化。
+        - 当前实现不使用扭率 tau，也不使用 self.TNB_threshold。
+        - 当前实现的返回顺序为 (r, T, N1, N2)。
 
         输入：
-        - kappa: 曲率数组，形状为 (num_points,)
-        - tau: 扭率数组，形状通常为 (num_points - 1,) 或插入后与步长对齐
-        - ss: 相邻点之间的弧长间隔数组
+        - kappa: 曲率大小数组，形状为 (num_points,)
+        - angles: 曲率方向角数组，形状为 (num_points,)
+        - ss: 相邻插值点之间的弧长间隔数组，形状为 (num_points - 1,)
         - init_T: 初始切向量
-        - init_N: 初始法向量
+        - init_N: 初始 N1 方向
 
         输出：
         - r: 三维曲线位置数组，形状为 (num_points, 3)
-        - N: 法向量数组，形状为 (num_points, 3)
         - T: 切向量数组，形状为 (num_points, 3)
-        - B: 副法向量数组，形状为 (num_points, 3)
+        - N1: 第一法向基数组，形状为 (num_points, 3)
+        - N2: 第二法向基数组，形状为 (num_points, 3)
         """
-            # Define normlize func
+        # Define normlize func
         cal_norm = lambda v: v / np.linalg.norm(v)
         
         num_points = len(ss) + 1  #range函数会不包括这个值
@@ -631,7 +683,7 @@ class Reconstructor(Initialiser):
 
         return r, T, N1, N2
 
-    def _get_rot_x(self, direct, rot_dir):
+    def _get_rot_x(self, direct, rot_dir=-1):
         """
         生成绕 x 轴旋转的旋转矩阵。
 
@@ -641,7 +693,7 @@ class Reconstructor(Initialiser):
         输出：
         - rot_matrix: 3×3 的绕 x 轴旋转矩阵
         """
-        sigma = np.deg2rad(direct * rot_dir + self.rot_ang)
+        sigma = np.deg2rad((direct) * rot_dir + self.rot_ang)
         rot_matrix = np.array([
             [1.0, 0.0, 0.0],
             [0.0, np.cos(sigma), -np.sin(sigma)],
