@@ -57,6 +57,7 @@ def main():
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default="04C4", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=93, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=5, help='传感器最后一个传感点到末端的距离, 单位为mm')
     parser.add_argument('--R', type=float, default=0.076e-3, help='传感器半径, 单位为m')
     parser.add_argument('--ideal_len', type=float, default=0.9, help='传感器长度, 单位为m')
     parser.add_argument('--samp_dist_preset', type=list, default=[100, 140, 180, 220, 370, 520, 670, 820], help='FBG传感点位置(A组及中心), 单位为mm')
@@ -80,7 +81,7 @@ def main():
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
     parser.add_argument('--freeze', type=list, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None')
     parser.add_argument('--weight_bounds', type=tuple, default=(0.0, 2.0), help='曲率权重范围')
-    parser.add_argument('--slope_upper_bound', type=tuple, default=20.0, help='扭转系数大小上限')
+    parser.add_argument('--slope_upper_bound', type=tuple, default=90.0, help='扭转系数大小上限')
     parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0], help='各曲率分级的阈值')
     # parser.add_argument('--thresholds', type=list, default=[1.2, 2.0, 4.5], help='各曲率分级的阈值')
     parser.add_argument('--max_iter', type=int, default=5, help='优化的最大轮次')

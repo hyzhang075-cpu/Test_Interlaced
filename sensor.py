@@ -67,6 +67,14 @@ class Sensor:
         self.sensing_ranges = {phy_ch: (start, start + self.min_len) for phy_ch, (start, _) in sensing_ranges.items() if phy_ch in self.active_channels}
         self.smoothing_params = smoothing_params
 
+        # 数据存储结构
+        self.channel_change = channel_change
+        self.channel_layout = channel_layout
+        self.interlaced_grating = interlaced_grating
+        self.samp_dist_preset = samp_dist_preset
+        self.samp_dist_preset_sub = samp_dist_preset_sub
+        self.interlaced_offset = interlaced_offset # 确保这个也保存了
+
         # 传感器物理参数
         self.ideal_len = ideal_len
         self.generate_samp_dist(reverse=reverse, start_value=start_value, end_value=end_value, straight_trim=straight_trim, samp_dist_preset=samp_dist_preset)  # 生成传感点在传感器上所处的实际位置（单位：米）
@@ -85,15 +93,7 @@ class Sensor:
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
 
-        # 数据存储结构
-        self.channel_change = channel_change
-        self.channel_layout = channel_layout
-        self.interlaced_grating = interlaced_grating
-        # 在 __init__ 中添加以下两行保存预设数组
-        self.samp_dist_preset = samp_dist_preset
-        self.samp_dist_preset_sub = samp_dist_preset_sub
-        self.interlaced_offset = interlaced_offset # 确保这个也保存了
-
+        # 读取数据并进行预处理
         if self.interrogator in ['FiberTecc', 'Hippo']:
             # 1. 仅读取和清洗原始数据，输出的矩阵按物理通道号升序排列
             self.read_data_FBG(folder_path=folder_path, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub)
@@ -165,11 +165,11 @@ class Sensor:
             raw_samp_dist = np.arange(self.min_len) * self.ss
         else:
             # 处理交错光栅逻辑
-            if interlaced_grating:
-                if samp_dist_preset_sub is None:
+            if self.interlaced_grating:
+                if self.samp_dist_preset_sub is None:
                     raise ValueError("当 interlaced_grating 为 True 时，samp_dist_preset_sub 不能为空")
                 # 统一转为 numpy 数组合并，并进行升序排序
-                combined_preset = np.concatenate((np.array(samp_dist_preset), np.array(samp_dist_preset_sub)))
+                combined_preset = np.concatenate((np.array(self.samp_dist_preset), np.array(self.samp_dist_preset_sub)))
                 preset_to_diff = np.sort(combined_preset)
             else:
                 preset_to_diff = np.array(samp_dist_preset)
