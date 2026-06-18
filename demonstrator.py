@@ -51,8 +51,8 @@ class DataRecorder:
             - 向后台写入队列 self.queue 中加入一个数据包
 
         说明：
-        - 当前 self.queue 未设置 maxsize，因此 put(block=False) 通常不会因队列满而失败。
-        - 若未来将 self.queue 改为有界队列，则 queue.Full 分支会丢弃当前帧，以避免阻塞渲染线程。
+        - 当前实现使用 queue.Queue 的非阻塞 put，因此写入失败不会阻塞前台渲染线程
+        - cur_interp 会被转换为 list；若其为 None，则保存为空列表
         """
         if not self.running:
             return
@@ -366,10 +366,10 @@ class Demonstrator(QMainWindow):
         3. 将读入数据按当前单位约定转换为 calib_Data。
         4. 若启用了中心光纤补偿，则调用 self.recon._process_centreData() 去除中心通道影响。
         5. 检查当前帧是否存在非有限值；若存在，则优先使用上一帧同位置数据进行替换，否则直接跳过本帧。
-        6. 当前动态展示中 direct 固定为 0，自动方向判定逻辑仍处于注释状态。
-        7. 若启用 IMU，则从 IMU 队列读取最新姿态矩阵，并据此构造初始切向量 init_T；否则使用默认 init_T。
-        8. 调用 self.recon._reconstruct_frame() 完成曲率计算、unwrap、滤波、插值和三维重构；具体使用 TNB 还是 TNN 由 self.recon.frame_rule 决定。
-        9. 调用 self.recon._get_rot_x(direct=0) 做方向旋转补偿。
+        6. 设定当前重构方向 direct，并调用 self.recon._preprocess() 计算曲率、扭率、步长与初始法向量。
+        7. 若启用 IMU，则从 IMU 队列中读取最新姿态矩阵，并据此构造初始切向量 init_T；否则使用默认 init_T。
+        8. 调用 self.recon._F_S_frame() 执行 Frenet-Serret 重构，并调用 self.recon._get_rot_x() 做方向旋转补偿。
+        9. 提取末端姿态 End_pose。
         10. 将最近若干帧重构结果存入 self.curve_history，并在达到窗口长度后做均值平滑。
         11. 若启用 recorder，则将当前帧结果写入后台记录器。
         12. 调用 _update_frame() 将最终曲线写入 VTK 显示。
@@ -410,36 +410,17 @@ class Demonstrator(QMainWindow):
         if self.recon.centre_fibre:
             _, _, calib_Data, _ = self.recon._process_centreData(calib_Data)
 
-        # 确保缺数、inf、异常大值、突变值不会造成展示中断
-        abs_threshold = 1000 * 1e-6       # 绝对值阈值
-        jump_threshold = 500 * 1e-6     # 相邻帧突变阈值
-
-        # 1. NaN / inf / -inf
-        finite_bad = ~np.isfinite(calib_Data).all(axis=1)
-
-        # 2. 有限但绝对值异常大
-        safe_abs = np.where(np.isfinite(calib_Data), np.abs(calib_Data), np.inf)
-        abs_bad = safe_abs.max(axis=1) > abs_threshold
-
-        # 3. 相比上一帧突变过大
-        if self.prev_reordered_data is not None and self.prev_reordered_data.shape == calib_Data.shape:
-            jump_bad = np.abs(calib_Data - self.prev_reordered_data).max(axis=1) > jump_threshold
-        else:
-            jump_bad = np.zeros(calib_Data.shape[0], dtype=bool)
-
-        row_bad = finite_bad | abs_bad | jump_bad
-
+        # 确保超量程不会造成展示中断
+        row_bad = ~np.isfinite(calib_Data).all(axis=1)   # shape (16,)
         if np.any(row_bad):
-            print(f"坏点/超量程行: {np.where(row_bad)[0].tolist()}")
-
+            print(f"超量程")
             if self.prev_reordered_data is not None and self.prev_reordered_data.shape == calib_Data.shape:
                 # 用上一帧同一行替换
                 calib_Data = calib_Data.copy()
                 calib_Data[row_bad, :] = self.prev_reordered_data[row_bad, :]
             else:
-                # 第一帧就坏了：没法用上一帧补，只能跳过这一帧
+                # 第一帧就坏了：没法用上一帧补，只能跳过这一帧（或把坏行置0）
                 return
-
         self.prev_reordered_data = calib_Data.copy()
 
         # ---------- 判定当前方向 ----------
@@ -451,7 +432,7 @@ class Demonstrator(QMainWindow):
         #     direct = 120
         # else:
         #     direct = 240
-        direct = 0
+        direct = 0  
 
         # ---------- 预处理 ----------
         if self.imu:
@@ -470,7 +451,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], magnitude_ratio=1.0, init_T=init_T, verbose=False, 
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False, 
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
