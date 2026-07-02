@@ -9,7 +9,9 @@ from PyQt5.QtWidgets import QApplication
 
 from optimiser import Optimiser
 from visualisor import Visualisor
+# from proto_demonstrator import Demonstrator 完整样机展示代码
 from demonstrator import Demonstrator
+
 
 
 def compute_error_ang(optim, vis, init):
@@ -96,9 +98,9 @@ def main():
     parser.add_argument('--min_loss_diff', type=float, default=1e-4, help='收敛判定')
     parser.add_argument('--ss', type=float, default=2.6e-3, help='LUNA传感点间隔, 单位为m')
     # 动态展示参数
-    parser.add_argument('--IP', type=str, default='10.0.0.122', choices=['192.168.1.75', '10.0.0.122'], help='FiberTecc使用192.168.1.75, Hippo使用10.0.0.122')
-    parser.add_argument('--PORT', type=int, default=4010, choices=[26546, 4010], help='FiberTecc使用26546, Hippo使用4010')
-    parser.add_argument('--maxsize', type=int, default=2, choices=[10, 2], help='FiberTecc使用10, Hippo使用2')
+    parser.add_argument('--IP', type=str, default='192.168.1.75', choices=['192.168.1.75', '10.0.0.122'], help='FiberTecc使用192.168.1.75, Hippo使用10.0.0.122')
+    parser.add_argument('--PORT', type=int, default=26546, choices=[26546, 4010], help='FiberTecc使用26546, Hippo使用4010')
+    parser.add_argument('--maxsize', type=int, default=10, choices=[10, 2], help='FiberTecc使用10, Hippo使用2')
     parser.add_argument('--data_freq', type=int, default=100, help='解调仪频率')
     parser.add_argument('--total_scale', type=float, default=1.0, help='动态显示大小')
     parser.add_argument('--imu', type=bool, default=False, help='是否启用IMU')
@@ -151,22 +153,29 @@ def main():
     parser.add_argument('--ang_step', type=float, default=0.1, help='旋转角度搜索步长, 初始为0.1')
     parser.add_argument('--ang_range', type=float, default=1.0, help='旋转角度搜索距离, 初始为180.0')
     args = parser.parse_args()
-    
     # 避免Terminal指令读取错误
     if args.weights == "None":
         args.weights = None
     if args.slopes == "None":
         args.slopes = None
     
-    params = {k: getattr(args, k) for k in vars(args) if k not in ['task', 'ang_step', 'ang_range', 'total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold']}
-    
+    # 只传给 Demonstrator 的参数，不传给 Optimiser
+    # demo_param_keys = ['total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold',
+    #                    'body_model_path', 'entry_length_cm', 'max_curvature', 'back_num', 'entry_exclude', 'enable_t_align', 't2_smooth_window', 'clip_pct', 'clip_k', 'still_rms_th', 'still_hold_frames'] # 用于完整样机展示
+    demo_param_keys = ['total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold']
+
+    optim_exclude_keys = ['task', 'ang_step', 'ang_range'] + demo_param_keys
+    params = {k: getattr(args, k) for k in vars(args) if k not in optim_exclude_keys}
+
+    demo_params = {k: getattr(args, k) for k in demo_param_keys}
+
     # 初始化优化器与可视化工具
     optim = Optimiser(**params)
-    
+
 
     if args.task == 'demo':
         app = QApplication(sys.argv)
-        demo = Demonstrator(recon=optim, total_scale=args.total_scale, unwrap_threshold=args.unwrap_threshold, align_threshold=args.align_threshold, imu=args.imu, imu_com=args.imu_com, demo_recorder=args.demo_recorder)
+        demo = Demonstrator(recon=optim, **demo_params)
         demo.show()
         
         if demo.imu: 
@@ -190,8 +199,8 @@ def main():
             compute_error_ang(optim=optim, vis=vis, init=True)
         elif args.task == 'ang':
             optim_ang(rot_ang=args.rot_ang, ang_step=args.ang_step, ang_range=args.ang_range, optim=optim, vis=vis)
-        elif args.task in ['weights', 'slopes']:
-            optim.optim_coeff(coeff=args.task, verbose=True)            
+        elif args.task in ['optim']:
+            optim.optim_coeff(verbose=True)            
         elif args.task == 'recon':
             rs = {}
             for calib_shape in optim.calib_shapes:
