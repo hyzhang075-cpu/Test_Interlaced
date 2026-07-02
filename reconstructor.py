@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import CubicHermiteSpline
+import matplotlib.pyplot as plt
 
 from initialiser import Initialiser
 
@@ -18,6 +19,7 @@ class Reconstructor(Initialiser):
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
         self.magnitude_ratio = dict_recur_extract_path(self.magnitude_results, lambda arr, path: 1.0 if path[-1] == 0 else float((1000 / path[-1]) / np.mean(arr)))
         # self.magnitude_ratio = dict_recur_extract_path(self.magnitude_results, lambda arr, path: 1.0)
+        print(f" magnitude_ratio: {self.magnitude_ratio}")
         # 重构所需参数
         self.soft = soft
         self.frame_rule = frame_rule
@@ -237,6 +239,13 @@ class Reconstructor(Initialiser):
 
         # ---------- 使用基础扭转系数计算曲率 ----------
         strain_data, magnitude, angle, turn_segments = self._get_base(keys=keys, calib_Data=calib_Data, base_slopes=base_slopes, verbose=False)
+
+        # # 作图画出magnitude和angle的变化
+        # plt.figure()
+        # plt.plot(magnitude)
+        # # plt.plot(angle)
+        # plt.legend()
+        # plt.show()
 
         # ---------- 进行曲率分级和分级参数计算 ----------
         score_magnitude = magnitude * magnitude_ratio

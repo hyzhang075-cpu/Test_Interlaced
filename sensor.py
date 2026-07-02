@@ -338,8 +338,10 @@ class Sensor:
                 if current_num_cols != expected_cols:
                     logging.warning(f"Column count mismatch in {subfolder} Channel {channel}: "
                                     f"found {current_num_cols}, expected {expected_cols}.")
-                    valid_subfolder = False
-                    break
+                    if current_num_cols < expected_cols:
+                        logging.warning(f"文件 {file_path} 列数不足，缺少数据列")
+                        valid_subfolder = False
+                        break
 
                 fbg_cols = list(enumerate(df.columns[col_start:col_end]))
                 fbg_col_names = [col for _, col in fbg_cols]
@@ -349,9 +351,20 @@ class Sensor:
                 outlier_valid_mask = build_valid_row_mask(df=df, fbg_cols=fbg_cols, threshold=9000, half_window=5)
 
                 valid_rows = non_missing_mask.to_numpy() & outlier_valid_mask
+
+                removed_missing_count = int((~non_missing_mask).sum())
+                removed_outlier_count = int((non_missing_mask.to_numpy() & ~outlier_valid_mask).sum())
+
+                if removed_missing_count > 0:
+                    logging.warning(f"警告：文件 {file_path} 中有 {removed_missing_count} 行存在缺数据，已跳过相关行。")
+
+                if removed_outlier_count > 0:
+                    logging.warning(f"警告：文件 {file_path} 中有 {removed_outlier_count} 行被判定为 outlier，已跳过相关行。")
+
                 cleaned_df = df.loc[valid_rows].copy()
 
                 if cleaned_df.empty:
+                    logging.warning(f"文件 {file_path} 在缺数据 / outlier 清洗后已无有效行，该 channel 将被跳过。")
                     continue
 
                 data_slice = cleaned_df.iloc[:, col_start:col_end].apply(pd.to_numeric, errors="coerce")

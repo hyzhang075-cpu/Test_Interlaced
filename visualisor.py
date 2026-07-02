@@ -195,6 +195,7 @@ class Visualisor:
                 continue
             label = self._leaf_label(shape, path)
             ax_raw.plot(x, y, 'o-', markersize=3, alpha=0.8, label=label)
+            # print(f"Plotting unwrap curve: shape={shape}, path={path}, angles={y}")
 
         ax_raw.set_title(f"All Unwrapped Angle Curves (direct={direct})")
         ax_raw.set_xlabel("Sample Distance (m)")

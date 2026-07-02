@@ -9,7 +9,7 @@ class Initialiser(Sensor):
     """
     形状重构的初始化模块
     """
-    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, *args, **kwargs):
+    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, unwrap_direct = 0, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.discont = discont
@@ -18,6 +18,7 @@ class Initialiser(Sensor):
         self.connect = connect
         self.global_phases_set = global_phases_set
         self.interlaced_offset = interlaced_offset
+        self.unwrap_direct = unwrap_direct
         if not self.global_phases_set:
             self.global_phases_set = 0.0
             self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
@@ -87,7 +88,9 @@ class Initialiser(Sensor):
 
                     magnitude, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
 
-                    angle_unwrap_i = np.unwrap(angle, discont=self.discont)
+                    # angle_unwrap_i = np.unwrap(angle, discont=self.discont)
+                    angle_unwrap_i = self._directional_unwrap(angle)
+                    # print(f"calib_shape: {calib_shape}, path: {path}, \n raw angle: {angle}, \n unwrap angle: {angle_unwrap_i}")
                     init_angle_i = angle_unwrap_i[0]
 
                     bundled_flat[path] = (magnitude, angle, angle_unwrap_i, init_angle_i)
@@ -478,7 +481,8 @@ class Initialiser(Sensor):
         - y_data: unwrap 后的角度数组
         - segments: 用于拟合的分段索引区间列表，格式为 [(start, end), ...]
         """
-        unwrapped = np.unwrap(angles, discont=self.discont)
+        # unwrapped = np.unwrap(angles, discont=self.discont)
+        unwrapped = self._directional_unwrap(angles)
         raw_valid_length = min(len(unwrapped), len(self.samp_dist))
 
         if self.zero_init:
@@ -593,3 +597,63 @@ class Initialiser(Sensor):
             start = end
 
         return segments if segments else [(0, total_points)]
+
+
+    def _directional_unwrap(self, angles):
+        """
+        自定义的定向 unwrap 函数。
+        根据 self.unwrap_direct 的值限制 unwrap 的方向：
+        0  : 不限制跳变方向（标准 unwrap）
+        1  : 限制所有相位跳变只能向增加的方向 unwrap
+        -1 : 限制所有相位跳变只能向减小的方向 unwrap
+        """
+        angles = np.asarray(angles, dtype=np.float64)
+        
+        # 如果不限制方向，直接返回标准 unwrap 结果
+        if self.unwrap_direct == 0:
+            return np.unwrap(angles, discont=self.discont)
+
+        # 如果点数少于2，直接返回原数组副本
+        if len(angles) < 2:
+            return angles.copy()
+
+        unwrapped = np.zeros_like(angles)
+        unwrapped[0] = angles[0]
+
+        # 直接使用类属性指定的趋势
+        trend = self.unwrap_direct
+
+        # 既然趋势已明确，从第二个点（索引1）开始就应用方向限制
+        for i in range(1, len(angles)):
+            # 计算当前点与前一个 unwrapped 点的原始差值
+            diff = angles[i] - (unwrapped[i-1] % (2 * np.pi))
+
+            # 将差值映射到 [-pi, pi] 之间
+            diff = (diff + np.pi) % (2 * np.pi) - np.pi
+            # print(f"i: {i}, raw diff: {angles[i] - unwrapped[i-1]}, mapped diff: {diff}")
+            # 根据指定的趋势强制限制跳变方向
+            if trend == 1:
+                if diff < 0:
+                    # 强制正向增长
+                    diff += 2 * np.pi
+                # # 仅螺旋七芯光纤强栅情况生效    
+                # # 仅前10个点（i < 10）生效：若限制跳变方向后，diff的绝对值仍小于0.9375*np.pi，则再多增加2pi
+                #     if i < 10 and abs(diff) < 0.90*np.pi:
+                #         diff += 2 * np.pi
+                # elif diff > 0 and i < 10 and abs(diff) < 0.9*np.pi:
+                #     diff += 2 * np.pi
+
+            elif trend == -1:
+                if diff > 0:
+                    # 强制负向增长
+                    diff -= 2 * np.pi
+                #     # 仅前10个点（i < 10）生效：若限制跳变方向后，diff的绝对值仍小于0.9375*np.pi，则再多减少2pi
+                #     if i < 10 and abs(diff) < 0.9*np.pi:
+                #         diff -= 2 * np.pi
+                # elif diff < 0 and i < 10 and abs(diff) < 0.9*np.pi:
+                #     diff -= 2 * np.pi
+
+            unwrapped[i] = unwrapped[i-1] + diff
+
+        return unwrapped
+
