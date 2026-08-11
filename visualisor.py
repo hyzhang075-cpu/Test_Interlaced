@@ -36,44 +36,6 @@ class Visualisor:
         self._calculate_segments = recon._calculate_segments
         self._construct_ideals = recon._construct_ideals
 
-        self.trim_eval_min = getattr(recon, "trim_eval_min", self.samp_dist[0])
-        self.trim_eval_max = getattr(recon, "trim_eval_max", self.samp_dist[-1])
-        self.trim_sample_mask = getattr(recon, "trim_sample_mask", np.ones(len(self.samp_dist), dtype=bool))
-
-    def _get_trim_mask_for_x(self, x):
-        x = np.asarray(x, dtype=float)
-        mask = (x >= self.trim_eval_min) & (x <= self.trim_eval_max)
-        if not np.any(mask):
-            raise ValueError(
-                f"straight_trim 后没有可用于绘图的数据点: "
-                f"trim_eval_min={self.trim_eval_min}, trim_eval_max={self.trim_eval_max}, "
-                f"x范围=({x[0]}, {x[-1]})"
-            )
-        return mask
-
-    def _trim_xy_by_x(self, x, y):
-        x = np.asarray(x, dtype=float).reshape(-1)
-        y = np.asarray(y).reshape(-1)
-        n = min(len(x), len(y))
-        x = x[:n]
-        y = y[:n]
-        mask = self._get_trim_mask_for_x(x)
-        return x[mask], y[mask]
-
-    def _get_interp_trim_mask(self, interp_dist):
-        interp_dist = np.asarray(interp_dist, dtype=float)
-        return self._get_trim_mask_for_x(interp_dist)
-
-    def _trim_result_tree(self, obj, mask):
-        mask = np.asarray(mask, dtype=bool)
-        if isinstance(obj, dict):
-            return {k: self._trim_result_tree(v, mask) for k, v in obj.items()}
-
-        arr = np.asarray(obj)
-        if len(arr) == len(mask):
-            return arr[mask]
-        return arr
-
     # def init_visualise(self, direct):
     #     """
     #     生成初始化阶段相关的可视化结果并保存到目录。
@@ -128,9 +90,9 @@ class Visualisor:
     def _visualise_all_shapes_unwrap_and_fit(self, direct, save_dir):
         """
         在一张图中画出：
-        1) 当前 direct 下所有已保存的 unwrap 曲线；
-        2) 当前 global_fit_direct[direct] 中保存的 global fit；
-        3) 当前 individual_fits_direct[direct] 中保存的 individual fits。
+        1) 所有 shape 的 unwrap 曲线
+        2) 所有可参与拟合的 shape 的 global fit
+        3) 所有可参与拟合的 shape 的 individual fits
         """
 
         # ---------- 收集当前 direct 下所有 unwrap 数据 ----------
@@ -142,7 +104,7 @@ class Visualisor:
         # ---------- 收集当前 direct 下所有 individual fits ----------
         fit_data_by_shape = self.individual_fits_direct.get(direct, {})
 
-        # 当前 global fit 来自 Initialiser.rot_seg_fit() 中 fit_shapes 指定的数据；当前 fit_shapes 仅为 {'circ'}
+        # 当前 joint global fit（这是联合 circ/S/rot0 算出来的）
         global_fit = self.global_fit_direct.get(direct, None)
 
         # ---------- 拉平所有曲线 ----------
@@ -195,7 +157,6 @@ class Visualisor:
                 continue
             label = self._leaf_label(shape, path)
             ax_raw.plot(x, y, 'o-', markersize=3, alpha=0.8, label=label)
-            # print(f"Plotting unwrap curve: shape={shape}, path={path}, angles={y}")
 
         ax_raw.set_title(f"All Unwrapped Angle Curves (direct={direct})")
         ax_raw.set_xlabel("Sample Distance (m)")
@@ -266,9 +227,6 @@ class Visualisor:
         ax_ind.grid(alpha=0.3)
         ax_ind.legend(fontsize=8, ncol=2)
 
-        for ax in (ax_raw, ax_global, ax_ind):
-            ax.set_xlim(self.trim_eval_min, self.trim_eval_max)
-
         plt.tight_layout()
 
         save_path = os.path.join(save_dir, "All_Shapes_Unwrap_and_Fits.png")
@@ -302,7 +260,7 @@ class Visualisor:
             x = np.asarray(self.samp_dist[1:valid_length], dtype=float)
             y = angles[1:valid_length]
 
-        return self._trim_xy_by_x(x, y)
+        return x, y
 
 
     def _leaf_label(self, shape, path):
@@ -342,15 +300,17 @@ class Visualisor:
             ax = axes[idx]  # 当前子图
             for radius, data in self.plot_Data[calib_shape][direct].items():
                 if calib_shape in ['circ', 'S']:
-                    x, y = self._trim_xy_by_x(self.samp_dist[:len(data)], data[:, idx] / 1e-6)
+                    x = list(range(len(data[:, idx])))
+                    y = data[:, idx] / 1e-6
                     ax.plot(x, y, label=radius)
                 else:
                     for radius_end, data_end in data.items():
-                        x, y = self._trim_xy_by_x(self.samp_dist[:len(data_end)], data_end[:, idx] / 1e-6)
+                        x = x = list(range(len(data_end[:, idx])))
+                        y = data_end[:, idx]
                         ax.plot(x, y, label=f"{radius}-{radius_end}")
 
             ax.set_ylabel(f'Ch {phy_ch}') #限制y轴范围，便于观察细节
-            ax.set_ylim(-800, 800)  # 根据实际数据调整范围
+            ax.set_ylim(-300, 300)  # 根据实际数据调整范围
         # 显示图形
         safe_title = title.replace(" ", "_").replace("/", "_")
         save_path = os.path.join(save_dir, f"{safe_title}.png")
@@ -407,24 +367,19 @@ class Visualisor:
                     f"len(self.samp_dist)={len(x)}, len(angle)={len(y1)}, len(angle_unwrap)={len(y2)}"
                 )
 
-            mask = self._get_trim_mask_for_x(x)
-            x_plot = x[mask]
-            y1_plot = y1[mask]
-            y2_plot = y2[mask]
-
-            ax.plot(x_plot, y1_plot, 'r-o', label='angle')
-            ax.plot(x_plot, y2_plot, 'g-o', label='angle_unwrap')
+            ax.plot(x, y1, 'r-o', label='angle')
+            ax.plot(x, y2, 'g-o', label='angle_unwrap')
             ax.set_title(f"Radius = {radius}")
             ax.set_ylabel("Angle")
             ax.grid(True)
             ax.legend()
 
             # 显示 angle 数据点数值
-            for xi, yi in zip(x_plot, y1_plot):
+            for xi, yi in zip(x, y1):
                 ax.text(xi, yi, f'{yi:.2f}', color='red', fontsize=8, ha='right', va='bottom')
 
             # 显示 angle_unwrap 数据点数值
-            for xi, yi in zip(x_plot, y2_plot):
+            for xi, yi in zip(x, y2):
                 ax.text(xi, yi, f'{yi:.2f}', color='green', fontsize=8, ha='left', va='bottom')
 
         axes[-1].set_xlabel("Sample Distance")
@@ -638,12 +593,9 @@ class Visualisor:
         os.makedirs(base_save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        trim_mask = self._get_interp_trim_mask(interp_dist)
-        interp_dist_eval = np.asarray(interp_dist, dtype=float)[trim_mask]
-
         for shape in rs:
-            ideals = self._construct_ideals(calib_shape=shape, interp_dist=interp_dist_eval, val_len=self.ideal_len)
-            results = self._trim_result_tree(rs[shape], trim_mask)
+            ideals = self._construct_ideals(calib_shape=shape, interp_dist=interp_dist, val_len=self.ideal_len)
+            results = rs[shape]
 
             fig_anim = plt.figure(figsize=(10, 8))
             ax_anim = fig_anim.add_subplot(111, projection='3d')
@@ -769,7 +721,7 @@ class Visualisor:
         - T: ndarray (N x 3) 或 None，每个点处的切向量。如果为 None，则不绘制。
         - N: ndarray (N x 3) 或 None，每个点处的法向量。如果为 None，则不绘制。
         - B: ndarray (N x 3) 或 None，每个点处的副法向量。如果为 None，则不绘制。
-        - dist: 当前未使用，保留该参数仅用于兼容旧调用接口。
+        - dist: 螺距信息
         - scale: float，法向量和副法向量的缩放因子。
         - arrow_length: float，箭头的长度。
         """

@@ -1,7 +1,6 @@
 import pickle
 import queue
-#import datetime
-from datetime import datetime
+import datetime
 import time
 import vtk
 import threading
@@ -29,7 +28,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp, row_bad, calib_data):
+    def save(self, timestamp, r_results, end_pose, cur_interp):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -62,9 +61,7 @@ class DataRecorder:
                 'timestamp': timestamp,
                 'r_results': r_results.copy() if hasattr(r_results, 'copy') else r_results,
                 'end_pose': end_pose.copy() if hasattr(end_pose, 'copy') else end_pose,
-                'cur_interp': list(cur_interp) if cur_interp is not None else [],
-                'row_bad': row_bad if cur_interp is not None else [],
-                'calib_data': calib_data if calib_data is not None else []
+                'cur_interp': list(cur_interp) if cur_interp is not None else []
             }
             # 非阻塞放入，保证渲染实时性
             self.queue.put(data_packet, block=False)
@@ -405,10 +402,9 @@ class Demonstrator(QMainWindow):
             Data = self.recon.data_queue.get_nowait()
         except queue.Empty:
             return  # 队列为空，直接返回等待下一次定时器触发
-        
+
         # ---------- 处理数据 ----------
-        # calib_Data = Data[0] * 1e-6
-        calib_Data = Data[0]
+        calib_Data = Data[0] * 1e-6
 
         # 处理中心光纤的数据
         if self.recon.centre_fibre:
@@ -470,7 +466,7 @@ class Demonstrator(QMainWindow):
             r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, row_bad=row_bad, calib_data=calib_Data)
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp)
 
         self._update_frame(r_results_postrot)
 

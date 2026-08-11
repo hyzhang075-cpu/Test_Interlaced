@@ -49,6 +49,7 @@ class Sensor:
         #   把“按物理通道升序读出的列”重排成 active_channels 的输入顺序
         self.ch_order = [sorted(active_channels).index(phy_ch) for phy_ch in active_channels]
 
+        self.reverse = reverse
         self.rot_dir = rot_dir  # 标定实验时旋转传感器的方向，1对应逆时针，-1对应顺时针
         self.centre_fibre = centre_fibre
 
@@ -67,19 +68,12 @@ class Sensor:
         self.sensing_ranges = {phy_ch: (start, start + self.min_len) for phy_ch, (start, _) in sensing_ranges.items() if phy_ch in self.active_channels}
         self.smoothing_params = smoothing_params
 
-        # 数据存储结构
-        self.channel_change = channel_change
-        self.channel_layout = channel_layout
-        self.interlaced_grating = interlaced_grating
-        self.samp_dist_preset = samp_dist_preset
-        self.samp_dist_preset_sub = samp_dist_preset_sub
-        self.interlaced_offset = interlaced_offset # 确保这个也保存了
-
         # 传感器物理参数
         self.ideal_len = ideal_len
-        self.generate_samp_dist(reverse=reverse, start_value=start_value, end_value=end_value, straight_trim=straight_trim, samp_dist_preset=samp_dist_preset)  # 生成传感点在传感器上所处的实际位置（单位：米）
+        self.generate_samp_dist(reverse=reverse, start_value=start_value, end_value=end_value, straight_trim=straight_trim, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub, interlaced_grating=interlaced_grating)  # 生成传感点在传感器上所处的实际位置（单位：米）
         self.total_points = len(self.samp_dist)
         self.R = R
+        # print(self.samp_dist)
        
         # 动态数据接收相关参数
         self.IP = IP
@@ -93,83 +87,119 @@ class Sensor:
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
 
-        # 读取数据并进行预处理
+        # 数据存储结构
+        self.channel_change = channel_change
+        self.channel_layout = channel_layout
+        self.interlaced_grating = interlaced_grating
+        # 在 __init__ 中添加以下两行保存预设数组
+        self.samp_dist_preset = samp_dist_preset
+        self.samp_dist_preset_sub = samp_dist_preset_sub
+        self.interlaced_offset = interlaced_offset # 确保这个也保存了
+
         if self.interrogator in ['FiberTecc', 'Hippo']:
-            # 1. 仅读取和清洗原始数据，输出的矩阵按物理通道号升序排列
+            # 1. 读取和清洗原始数据
+            # read_data_FBG 只负责读取，输出矩阵按物理通道升序排列
             self.read_data_FBG(folder_path=folder_path, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub)
-            
-            # 2. 通道重排
+
+            # 2. 先做通道重排
+            # 注意：不要在这里之前裁剪，否则 channel_layout 的行段边界也可能被破坏
             if self.channel_change and self.channel_layout:
-                # 按照给定的 channel_layout 进行分段重排
                 self._reorder_channels_by_layout()
             else:
-                # 默认将升序排列的矩阵重排为 active_channels 输入的顺序
                 self._reorder_channels_by_active()
-            
-            # 由于交错刻栅会将外围通道压缩为原来的一半，而plot_data需要完整画出外围和中心通道，那么在此时plot_data即需要保存下来
-            self.plot_Data = copy.deepcopy(self.Data)  # 在重排后保存一份 plot_Data 用于后续绘图使用，保持与 processed_Data 的结构一致
 
-            # 3. 根据 interlaced_grating 执行交错刻栅数据合并与插值
+            # 3. 如果是交错刻栅，先把原始 Data 合并 / 插值成最终采样点结构
+            # 这样 Data 的行数和 generate_samp_dist() 里合并后的 samp_dist 参照系一致
             if self.interlaced_grating:
-                self._apply_interlaced_grating(samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub)
-                
-            # 4. 中心光纤补偿
+                self._apply_interlaced_grating(
+                    samp_dist_preset=samp_dist_preset,
+                    samp_dist_preset_sub=samp_dist_preset_sub
+                )
+
+            # 4. 最后再裁剪 Data
+            # 现在 self.raw_trim_idx 对应的就是当前 Data 的行索引
+            self.Data = dict_recur_extract(self.Data, lambda data: data[self.raw_trim_idx:, :])
+
+            # 5. 中心光纤补偿
             if self.centre_fibre:
-                self.centreData, self.outerData, self.processed_Data, _= self._process_centreData(data=self.Data)
+                self.centreData, self.outerData, self.processed_Data, self.plot_Data = self._process_centreData(data=self.Data)
                 self.num_channels_recon = self.num_channels - 1
-                if interlaced_grating:
+                if self.interlaced_grating:
                     self.num_channels_recon //= 2
             else:
                 self.processed_Data = self.Data
+                self.plot_Data = copy.deepcopy(self.Data)
         elif self.interrogator == 'LUNA':
             self.read_data_OFDR(folder_path=folder_path)
 
-        # straight_trim 不再在数据读取 / 处理端裁剪数据。
         # 这里只保留 reverse 对数据顺序的影响；trim 只在误差计算和可视化阶段使用。
         if reverse:
             self.processed_Data = dict_recur_extract(self.processed_Data, lambda arr: arr[::-1, :])
             self.plot_Data = dict_recur_extract(self.plot_Data, lambda arr: arr[::-1, :])
 
-    def generate_samp_dist(self, reverse, start_value, end_value, straight_trim, samp_dist_preset):
+    def generate_samp_dist(self, reverse, start_value, end_value, straight_trim, samp_dist_preset, samp_dist_preset_sub, interlaced_grating):
         """
-        根据当前解调仪类型生成采样距离数组，并更新实例成员。
+        生成传感点空间采样距离，并记录裁剪索引、虚拟起点和虚拟末端信息。
 
-        步骤：
-        1. 若 self.interrogator == 'LUNA'，则按 self.min_len 与 self.ss 直接生成等间距的 self.samp_dist。
-        2. 否则，对 samp_dist_preset 做差分并倒序，以 start_value 为起点逐步累加生成 self.samp_dist。
-        3. 若 self.zero_init=True，则在 self.samp_dist 开头额外插入 0，得到 self.ad_samp_dist；否则 self.ad_samp_dist 与 self.samp_dist 相同。
-        4. 检查生成结果是否为有限值，且 self.ad_samp_dist 是否严格递增。
+        该方法只处理空间坐标和索引，不直接修改 self.Data。实际静态数据的行裁剪在
+        __init__ 中完成，并且应位于通道重排和交错刻栅合并之后。
 
-        输入：
-        - start_value: 固定件到第一个有效采样点的距离
-        - samp_dist_preset: 原始光栅位置数组或预设距离数组
-        - samp_dist_preset_sub: 子组光栅位置数组或预设距离数组
-        - interlaced_grating: 是否交错排列
+        参数：
+        - reverse: 是否生成用于反向重构的空间坐标。
+        * False: 默认正向坐标；可保留原始 start_value 偏移，或在 straight_trim 非零时将保留段起点平移到 0。
+        * True: 将裁剪后的 raw_samp_dist 反向排列，并加上 end_value 对应的末端偏移。
+        - start_value: 固定端到第一个有效采样点的距离，单位 mm。
+        - end_value: 最后一个真实采样点到末端虚拟点的距离，单位 mm。
+        - straight_trim: 裁剪配置。
+        * float: 按物理长度裁剪。若 >=0，则保留 raw_samp_dist >= straight_trim 的部分；
+            若 <0，则使用 ideal_len + straight_trim 作为裁剪位置。
+        * int 或其他非 float 数值: 若不为 0，则作为负向点数索引使用，例如 -8 表示保留最后 8 个点。
+        * 0 / 0.0: 不裁剪，raw_trim_idx 保持为 0。
+        - samp_dist_preset: 主光栅位置预设，单位 mm。
+        - samp_dist_preset_sub: 交错刻栅第二组位置预设，单位 mm；interlaced_grating=True 时不能为空。
+        - interlaced_grating: 是否将 samp_dist_preset 与 samp_dist_preset_sub 合并后生成采样距离。
 
-        输出：
-        - 无显式返回
-        - 更新以下成员：
-            - self.samp_dist: 主采样距离数组，单位为 m
-            - self.ad_samp_dist: 若 self.zero_init=True 则在开头额外补 0，否则与 self.samp_dist 相同
+        生成逻辑：
+        1. LUNA 模式下，使用 np.arange(self.min_len) * self.ss 生成等间距 raw_samp_dist。
+        2. FBG/Hippo 模式下：
+        a. 若 interlaced_grating=True，先合并并排序两组位置预设；
+        b. 对位置预设做差分、倒序，以 start_value 为起点累加；
+        c. 将结果从 mm 转换为 m。
+        3. 根据 straight_trim 计算 self.raw_trim_idx，并裁剪 raw_samp_dist。
+        4. 根据 reverse 生成 self.samp_dist。
+        5. 根据 self.samp_dist[0] 判断 self.zero_init；若需要，在 ad_samp_dist 前插入 0.0。
+        6. reverse=False 且 end_value>0 时，在 ad_samp_dist 末尾追加末端虚拟点。
+        7. 检查 self.samp_dist 的有限性和 self.ad_samp_dist 的严格递增性。
+
+        更新的成员：
+        - self.straight_trim: 当前裁剪配置。
+        - self.trim_len: 当 straight_trim 为 float 时，对应的物理裁剪长度，单位 m。
+        - self.raw_trim_idx: Data 行裁剪使用的起始索引。
+        - self.samp_dist: 裁剪后的真实采样点坐标，单位 m。
+        - self.zero_init: 是否需要在 ad_samp_dist 前补起点虚拟点。
+        - self.end_point: 是否需要在 ad_samp_dist 后补末端虚拟点。
+        - self.ad_samp_dist: 加入虚拟点后的采样坐标，单位 m。
 
         异常：
-        - 当 interlaced_grating=True 且 samp_dist_preset_sub 为 None 时抛出 ValueError
-        - 当 self.samp_dist 包含 NaN / inf 时抛出 ValueError
-        - 当 self.ad_samp_dist 不是严格递增数组时抛出 ValueError
+        - interlaced_grating=True 但 samp_dist_preset_sub is None 时抛出 ValueError。
+        - raw_samp_dist 或 self.samp_dist 包含 NaN / inf 时抛出 ValueError。
+        - self.ad_samp_dist 非严格递增时抛出 ValueError。
 
-        说明：
-        - LUNA 模式下不使用 samp_dist_preset 的差分结果，而是直接按空间采样间隔生成
-        - self.samp_dist 本身可以包含 0；zero_init 只决定是否在 self.ad_samp_dist 中额外插入一个起始 0
+        注意：
+        - end_value 在 reverse=True 分支中直接参与计算，当前版本假定其不是 None。
+        - type(self.straight_trim) == float 的判断只识别 Python float；np.float64 等类型会进入非 float 分支。
+        - 当 reverse=False 且 straight_trim==0.0 时，本版本保留 raw_samp_dist 的原始 start_value 偏移；
+        当 straight_trim!=0 时，会将保留段起点平移到 0。
         """
         if self.interrogator == 'LUNA':
             raw_samp_dist = np.arange(self.min_len) * self.ss
         else:
             # 处理交错光栅逻辑
-            if self.interlaced_grating:
-                if self.samp_dist_preset_sub is None:
+            if interlaced_grating:
+                if samp_dist_preset_sub is None:
                     raise ValueError("当 interlaced_grating 为 True 时，samp_dist_preset_sub 不能为空")
                 # 统一转为 numpy 数组合并，并进行升序排序
-                combined_preset = np.concatenate((np.array(self.samp_dist_preset), np.array(self.samp_dist_preset_sub)))
+                combined_preset = np.concatenate((np.array(samp_dist_preset), np.array(samp_dist_preset_sub)))
                 preset_to_diff = np.sort(combined_preset)
             else:
                 preset_to_diff = np.array(samp_dist_preset)
@@ -185,112 +215,127 @@ class Sensor:
         if not np.all(np.isfinite(raw_samp_dist)):
             raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
 
-        # straight_trim 只记录为“优化/可视化时的有效区间”，不再裁剪 samp_dist 或数据本身。
+        # straight_trim 裁剪 samp_dist
         self.straight_trim = straight_trim
-        self.trim_len = straight_trim if straight_trim >= 0 else self.ideal_len + straight_trim
+        self.raw_trim_idx = 0
+        if type(self.straight_trim) == float:
+            self.trim_len = straight_trim if straight_trim >= 0 else self.ideal_len + straight_trim
 
-        if self.trim_len < raw_samp_dist[0]:
-            raw_trim_idx = 0
+            if self.trim_len < raw_samp_dist[0]:
+                raw_trim_idx = 0
+            else:
+                raw_trim_idx = np.searchsorted(raw_samp_dist, self.trim_len, side="left")
+
+            if raw_trim_idx >= len(raw_samp_dist):
+                raise ValueError(
+                    f"straight_trim={straight_trim} 对应的 trim_len={self.trim_len} 已超出采样范围，"
+                    f"最大采样距离为 {raw_samp_dist[-1]}"
+                )
+            self.raw_trim_idx = raw_trim_idx
         else:
-            raw_trim_idx = np.searchsorted(raw_samp_dist, self.trim_len, side="left")
+            if self.straight_trim != 0:
+                self.raw_trim_idx = -np.abs(self.straight_trim)
 
-        if raw_trim_idx >= len(raw_samp_dist):
-            raise ValueError(
-                f"straight_trim={straight_trim} 对应的 trim_len={self.trim_len} 已超出采样范围，"
-                f"最大采样距离为 {raw_samp_dist[-1]}"
-            )
-
-        self.raw_trim_idx = raw_trim_idx
+        raw_samp_dist = raw_samp_dist[self.raw_trim_idx:]
 
         # 先生成完整 samp_dist；reverse 只改变坐标方向，不与 straight_trim 耦合。
         if reverse:
             self.samp_dist = (raw_samp_dist[-1] - raw_samp_dist)[::-1] + end_value * 0.001
-
-            # raw 中 >= trim_len 的部分，在 reverse 后对应完整序列的前半段。
-            self.trim_eval_min = self.samp_dist[0]
-            self.trim_eval_max = raw_samp_dist[-1] - max(self.trim_len, 0.0) + end_value * 0.001
-            raw_keep_mask = raw_samp_dist >= self.trim_len
-            self.trim_sample_mask = raw_keep_mask[::-1]
-            self.trim_idx = 0
         else:
-            self.samp_dist = raw_samp_dist
-
-            self.trim_eval_min = max(self.trim_len, 0.0)
-            self.trim_eval_max = self.samp_dist[-1]
-            self.trim_sample_mask = self.samp_dist >= self.trim_eval_min
-            self.trim_idx = raw_trim_idx
-
-        if not np.any(self.trim_sample_mask):
-            raise ValueError("straight_trim 后没有剩余采样点")
+            if self.straight_trim != 0:
+                # self.samp_dist = raw_samp_dist - raw_samp_dist[0]
+                self.samp_dist = raw_samp_dist -  self.trim_len
+            else:
+                self.samp_dist = raw_samp_dist
 
         if not np.all(np.isfinite(self.samp_dist)):
             raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
         
-        self.zero_init = self.samp_dist[0] != 0
+        if np.abs(self.samp_dist[0]) < 1e-8:    # 处理浮点数精度问题，避免出现 -1e-16 之类的值
+            self.samp_dist[0] = 0.0
+        self.zero_init = self.samp_dist[0] != 0.0
+
+        # reverse=False 时，在最后一个真实传感点之后补一个虚拟末端点
+        # end_value 单位是 mm，这里转成 m
+        self.end_point = (not reverse) and (end_value is not None) and (end_value > 0)
+
+        self.ad_samp_dist = self.samp_dist.copy()
+
+        # 起点虚拟点：已有逻辑，复制第一个传感点的 magnitude/angle
         if self.zero_init:
-            self.ad_samp_dist = np.insert(self.samp_dist, 0, 0)
-        else:
-            self.ad_samp_dist = self.samp_dist
+            self.ad_samp_dist = np.insert(self.ad_samp_dist, 0, 0.0)
+
+        # 末端虚拟点：新增逻辑，复制最后一个传感点的 magnitude/angle，不参与分段，只参与最后重构和优化
+        if self.end_point:
+            self.ad_samp_dist = np.append(self.ad_samp_dist, self.ad_samp_dist[-1] + end_value * 0.001)
         if not np.all(np.diff(self.ad_samp_dist) > 0):
             raise ValueError("ad_samp_dist 必须是递增的数组")
+        
+        print(f"初始采样距离（m）：{raw_samp_dist}")
+        print(f"生成的采样距离（m）：{self.samp_dist}")
+        print(f"重构长度（m）：{self.ad_samp_dist}")
 
     
     # -------------------- FBG数据处理 --------------------
     def read_data_FBG(self, folder_path, samp_dist_preset, samp_dist_preset_sub=None):
         """
-        从 FBG 静态标定数据文件夹中读取各类子文件夹下的通道数据，清洗后整理为统一结构，并更新 self.Data。
+        读取 FiberTecc/Hippo 静态 FBG 标定数据，完成清洗、求均值和嵌套结构整理。
+
+        本函数只负责“读取与清洗”。它输出的每个 data_matrix 按物理通道号升序排列，
+        不在此处应用 active_channels 的输入顺序，也不在此处执行 channel_layout、交错刻栅合并、
+        中心补偿或 straight_trim 裁剪；这些步骤由 __init__ 后续流程统一处理。
 
         支持的子文件夹命名格式：
-        1. x-y
-        -> 保存到 self.Data["circ"][x][y]
-        2. x-y-S
-        -> 保存到 self.Data["S"][x][y]
-        3. x-y-z
-        -> 保存到 self.Data["end"][x][y][z]
-        4. x-y-z-R0
-        -> 保存到 self.Data["rot0"][x][y][z]
-        5. x-y-z-up
-        -> 保存到 self.Data["up"][x][y][z]
-        6. x-y-z-down
-        -> 保存到 self.Data["down"][x][y][z]
+        1. x-y             -> self.Data["circ"][x][y]
+        2. x-y-S           -> self.Data["S"][x][y]
+        3. x-y-z           -> self.Data["end"][x][y][z]
+        4. x-y-z-R0        -> self.Data["rot0"][x][y][z]
+        5. x-y-z-up        -> self.Data["up"][x][y][z]
+        6. x-y-z-down      -> self.Data["down"][x][y][z]
+        7. x-y-z-end3      -> self.Data["end3"][x][y][z]
 
-        步骤：
-        1. 初始化 self.Data 为包含 circ、S、end、rot0、up、down 六类数据的空字典。
-        2. 遍历 folder_path 下的各个子文件夹，并根据命名格式解析出 x、y、z 与 folder_type。
-        3. 对每个子文件夹中的各个 channel 文件：
-            - 根据解调仪类型匹配文件名；
-            - 读取 csv；
-            - 忽略只有表头没有数据行的空文件；
-            - 检查列数是否一致；
-            - 去除含缺数据的行；
-            - 使用 build_valid_row_mask 去除 outlier 行；
-            - 对剩余有效行按列求均值。
-        4. 若某个 channel 清洗后无有效行，则跳过该 channel。
-        5. 若整个 subfolder 最终没有任何有效 channel，则跳过该 subfolder，并调用 _edit_radii 撤销对应半径项。
-        6. 若 active_channels 所要求的任意必需 channel 缺失，则同样跳过该 subfolder，并调用 _edit_radii 撤销对应半径项。
-        7. 将保留下来的各必需 channel 均值向量按 active_channels 的输入顺序组装为 data_matrix，并做 1e-6 单位缩放。
-        8. 按 folder_type 将 data_matrix 写入 self.Data 的对应层级。
-        9. 对各层字典按半径键做降序排序，其中 0 被视为最大值参与排序。
+        其中：
+        - x 通常表示标定方向 direct。
+        - y 通常表示圆弧半径或对应实验半径，单位 mm。
+        - z 在 end/end3/rot0/up/down 中表示末级参数；对于 end3，z 表示圆弧平面相对 +y 的顺时针角度，单位度。
 
-        输入：
-        - folder_path: 标定数据总目录路径
+        参数：
+        - folder_path: 静态标定数据根目录。
+        - samp_dist_preset: 主光栅位置预设；用于确定每个 CSV 应有的数据列数。
+        - samp_dist_preset_sub: 交错刻栅第二组位置预设；本函数仅接收该参数以保持接口一致，
+        不在读取阶段直接使用。
 
-        输出：
-        - 无显式返回
-        - 更新以下成员：
-            - self.Data:
-                - circ / S 结构为 self.Data[shape][x][y]
-                - end / rot0 / up / down 结构为 self.Data[shape][x][y][z]
-                - 各叶子节点的值为形状为 (num_points, num_channels) 的 numpy 数组
+        读取规则：
+        - FiberTecc 文件名兼容 channel_{n}_*.csv、Channel_{n}_*.csv、CHANNEL_{n}_*.csv。
+        - Hippo 文件名兼容 CH{n}_*.csv、ch{n}_*.csv、Ch{n}_*.csv。
+        - 同一 channel 若匹配到多个 CSV，优先使用 _pick_first_nonempty_csv() 选择第一个非空文件。
+        - CSV 前两列视为非 FBG 数据列；从第 3 列开始到 expected_cols 为有效采样数据。
 
-        说明：
-        - 当前实现中，不仅当整个 subfolder 没有任何有效 channel 时会撤销 self.radii，
-        当构建 data_matrix 所需的必需 channel 缺失时也会撤销。
-        - 缺失非必需 channel 不影响当前 subfolder 保留。
-        - 最终 data_matrix 的列顺序由 active_channels 的输入顺序决定。
-        - 当前实现若同一 channel 匹配到多个文件，只取第一个文件。
+        清洗规则：
+        1. 读取 CSV 后删除全空列，避免表头列数多于实际数据列数时误判整行 NaN。
+        2. 若列数不等于 len(samp_dist_preset)+2，则整个 subfolder 判为无效并跳过。
+        3. 将 FBG 列转为数值，排除含缺数据或非数值的行。
+        4. 调用 build_valid_row_mask() 排除 outlier 行。
+        5. 对清洗后的有效行按列求均值。
+        6. 若 channel 清洗后为空或均值包含 NaN/inf，则跳过该 channel。
+        7. 若整个 subfolder 无有效 channel，或缺少构建矩阵所需的 active_channels，则跳过该 subfolder，
+        并通过 _edit_radii() 从 self.radii 中撤销对应配置。
+
+        输出/副作用：
+        - 无返回值。
+        - 更新 self.Data，结构为：
+        * circ/S: self.Data[shape][x][y] = data_matrix
+        * end/end3/rot0/up/down: self.Data[shape][x][y][z] = data_matrix
+        - data_matrix 的形状为 (num_points, num_required_channels)，单位缩放为 1e-6。
+        - data_matrix 的列顺序为 sorted(required_channels)，即物理通道升序。
+        - 读取完成后，对各级字典按半径键降序排序，其中键 0 视为最大值。
+
+        注意：
+        - 交错刻栅启用时，本函数仍按 samp_dist_preset 的长度检查单个 CSV 的列数；
+        两组交错位置的合并在 _apply_interlaced_grating() 中完成。
+        - 当前函数会记录详细清洗统计，便于定位数据缺失、outlier 过多或通道文件异常。
         """
-        self.Data = {"circ": {}, "S": {}, "end": {}, "rot0": {}, "up": {}, "down": {}}
+        self.Data = {"circ": {}, "S": {}, "end": {}, "end3": {}, "rot0": {}, "up": {}, "down": {}}
 
         expected_data_cols = len(samp_dist_preset)
         expected_cols = expected_data_cols + 2
@@ -308,95 +353,200 @@ class Sensor:
             channel_data = {}
             valid_subfolder = True
 
+            # 记录被清洗到全空的 channel，便于最后解释为什么 subfolder 被删
+            clean_empty_channels = {}
+
             for channel in range(max(self.active_channels) + 1):
                 if self.interrogator == 'FiberTecc':
-                    matched_files = glob.glob(os.path.join(subfolder_path, f"channel_{channel}_*.csv"))
+                    # 兼容 Windows / Linux 下大小写差异
+                    patterns = [
+                        os.path.join(subfolder_path, f"channel_{channel}_*.csv"),
+                        os.path.join(subfolder_path, f"Channel_{channel}_*.csv"),
+                        os.path.join(subfolder_path, f"CHANNEL_{channel}_*.csv"),
+                    ]
                 elif self.interrogator == 'Hippo':
-                    matched_files = glob.glob(os.path.join(subfolder_path, f"CH{channel}_*.csv"))
+                    patterns = [
+                        os.path.join(subfolder_path, f"CH{channel}_*.csv"),
+                        os.path.join(subfolder_path, f"ch{channel}_*.csv"),
+                        os.path.join(subfolder_path, f"Ch{channel}_*.csv"),
+                    ]
                 else:
                     logging.error(f"Unsupported interrogator type: {self.interrogator}")
                     valid_subfolder = False
                     break
 
+                matched_files = sorted(set(file for pattern in patterns for file in glob.glob(pattern)))
+
                 if not matched_files:
                     continue
 
-                file_path = matched_files[0]
+                # 优先使用已有工具函数：避免第一个匹配文件为空时误跳过有效文件
+                if hasattr(self, "_pick_first_nonempty_csv"):
+                    file_path = self._pick_first_nonempty_csv(matched_files)
+                    if file_path is None:
+                        logging.info(f"subfolder {subfolder} channel {channel} 的候选 CSV 都为空或读取失败，已跳过该 channel。")
+                        continue
+                else:
+                    file_path = matched_files[0]
 
                 try:
                     df = pd.read_csv(file_path)
+                    # 解决表头列数多于实际数据列数导致整行被误判为 NaN 的问题
                     df.dropna(axis=1, how='all', inplace=True)
                 except Exception as e:
                     logging.warning(f"文件 {file_path} 读取失败，跳过该 channel。error={e}")
                     continue
 
                 if df.empty:
+                    logging.info(f"文件 {file_path} 只有表头没有数据行，视为未连接通道，已跳过 channel {channel}。")
                     continue
 
                 current_num_cols = df.shape[1]
 
                 if current_num_cols != expected_cols:
-                    logging.warning(f"Column count mismatch in {subfolder} Channel {channel}: "
-                                    f"found {current_num_cols}, expected {expected_cols}.")
-                    if current_num_cols < expected_cols:
-                        logging.warning(f"文件 {file_path} 列数不足，缺少数据列")
-                        valid_subfolder = False
-                        break
+                    logging.warning(
+                        f"Column count mismatch in {subfolder} Channel {channel}: "
+                        f"found {current_num_cols}, expected {expected_cols}. "
+                        f"当前 subfolder 将被跳过。"
+                    )
+                    valid_subfolder = False
+                    break
 
+                # -------------------- 清洗 NaN / outlier --------------------
                 fbg_cols = list(enumerate(df.columns[col_start:col_end]))
                 fbg_col_names = [col for _, col in fbg_cols]
 
                 numeric_fbg = df[fbg_col_names].apply(pd.to_numeric, errors="coerce")
+
+                # 1) 缺数据 / 非数值行排除
                 non_missing_mask = ~numeric_fbg.isna().any(axis=1)
-                outlier_valid_mask = build_valid_row_mask(df=df, fbg_cols=fbg_cols, threshold=9000, half_window=5)
+                non_missing_mask_np = non_missing_mask.to_numpy(dtype=bool)
 
-                valid_rows = non_missing_mask.to_numpy() & outlier_valid_mask
+                # 2) outlier 行排除
+                outlier_valid_mask = np.asarray(build_valid_row_mask(df=df, fbg_cols=fbg_cols, threshold=9000, half_window=5), dtype=bool)
 
-                removed_missing_count = int((~non_missing_mask).sum())
-                removed_outlier_count = int((non_missing_mask.to_numpy() & ~outlier_valid_mask).sum())
+                if len(outlier_valid_mask) != len(df):
+                    logging.error(
+                        f"严重错误：文件 {file_path} 的 outlier_valid_mask 长度 "
+                        f"{len(outlier_valid_mask)} 与 df 行数 {len(df)} 不一致，当前 subfolder 将被跳过。"
+                    )
+                    valid_subfolder = False
+                    break
+
+                valid_rows = non_missing_mask_np & outlier_valid_mask
+
+                nan_row_mask = ~non_missing_mask_np
+                outlier_row_mask = ~outlier_valid_mask
+
+                removed_missing_count = int(np.sum(nan_row_mask))
+                removed_outlier_count = int(np.sum(non_missing_mask_np & outlier_row_mask))
+                removed_both_count = int(np.sum(nan_row_mask & outlier_row_mask))
+                kept_count = int(np.sum(valid_rows))
+                total_count = int(len(df))
 
                 if removed_missing_count > 0:
-                    logging.warning(f"警告：文件 {file_path} 中有 {removed_missing_count} 行存在缺数据，已跳过相关行。")
+                    logging.warning(f"警告：文件 {file_path} 中有 {removed_missing_count} 行存在缺数据或非数值，已跳过相关行。")
 
                 if removed_outlier_count > 0:
                     logging.warning(f"警告：文件 {file_path} 中有 {removed_outlier_count} 行被判定为 outlier，已跳过相关行。")
 
+                if removed_both_count > 0:
+                    logging.warning(f"警告：文件 {file_path} 中有 {removed_both_count} 行同时存在缺数据/非数值且被判为 outlier。")
+
+                if total_count != kept_count:
+                    logging.info(
+                        f"[CLEAN-STATS] {subfolder} channel={channel}: "
+                        f"rows={total_count}, kept={kept_count}, "
+                        f"missing_or_non_numeric={removed_missing_count}, "
+                        f"outlier={removed_outlier_count}, both={removed_both_count}"
+                    )
+
                 cleaned_df = df.loc[valid_rows].copy()
 
                 if cleaned_df.empty:
-                    logging.warning(f"文件 {file_path} 在缺数据 / outlier 清洗后已无有效行，该 channel 将被跳过。")
+                    reason = (
+                        f"rows={total_count}, kept=0, "
+                        f"missing_or_non_numeric={removed_missing_count}, "
+                        f"outlier={removed_outlier_count}, both={removed_both_count}"
+                    )
+                    clean_empty_channels[channel] = reason
+                    logging.warning(
+                        f"文件 {file_path} 在缺数据 / outlier 清洗后已无有效行，该 channel 将被跳过。"
+                        f"统计：{reason}"
+                    )
                     continue
 
                 data_slice = cleaned_df.iloc[:, col_start:col_end].apply(pd.to_numeric, errors="coerce")
                 channel_avg = data_slice.mean(axis=0).to_numpy()
 
+                if not np.all(np.isfinite(channel_avg)):
+                    logging.warning(f"文件 {file_path} 清洗后求均值仍包含 NaN / inf，该 channel 将被跳过。")
+                    clean_empty_channels[channel] = "channel_avg contains NaN or inf after cleaning"
+                    continue
+
                 channel_data[channel] = channel_avg
 
             if not valid_subfolder:
+                logging.error(f"严重错误：subfolder {subfolder} 被判定为无效，当前 subfolder 将被跳过。")
                 continue
 
+            # 整个 subfolder 没有任何有效 channel
             if len(channel_data) == 0:
+                if clean_empty_channels:
+                    logging.error(f"严重错误：subfolder {subfolder} 中所有可读 channel 都在清洗后无有效行。详情：")
+                    for ch, reason in clean_empty_channels.items():
+                        logging.error(f"  channel={ch}: {reason}")
+                else:
+                    logging.error(
+                        f"严重错误：subfolder {subfolder} 中没有任何有效 channel，"
+                        f"可能是没有匹配文件、文件为空、读取失败或列数问题。"
+                    )
+
+                logging.error(f"subfolder {subfolder} 将被跳过，并从 self.radii 中撤销对应项。")
                 self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
+            # 根据 active_channels 构造“必需 channel 列表”
             if self.interrogator == 'Hippo':
                 required_channels = [phy_ch - 1 for phy_ch in self.active_channels]
+                missing_channels = [ch for ch in required_channels if ch not in channel_data]
+                missing_display_channels = [ch + 1 for ch in missing_channels]
             elif self.interrogator == 'FiberTecc':
                 required_channels = list(self.active_channels)
+                missing_channels = [ch for ch in required_channels if ch not in channel_data]
+                missing_display_channels = missing_channels
+            else:
+                logging.error(f"Unsupported interrogator type: {self.interrogator}")
+                continue
 
-            missing_channels = [ch for ch in required_channels if ch not in channel_data]
+            # 只要缺少任一必需 channel，就撤销对应 radii
             if missing_channels:
+                logging.error(
+                    f"严重错误：subfolder {subfolder} 缺少构建 data_matrix 所需的必需通道 "
+                    f"{missing_display_channels}，当前 subfolder 将被跳过，并从 self.radii 中撤销对应项。"
+                )
+
+                clean_missing = {ch: clean_empty_channels[ch] for ch in missing_channels if ch in clean_empty_channels}
+                if clean_missing:
+                    logging.error(f"其中以下必需通道是因为 NaN / outlier 清洗后无有效行而缺失：")
+                    for ch, reason in clean_missing.items():
+                        display_ch = ch + 1 if self.interrogator == 'Hippo' else ch
+                        logging.error(f"  required channel={display_ch}: {reason}")
+                else:
+                    logging.error(f"当前已成功读取的 channel 为：{sorted(channel_data.keys())}")
+
                 self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
-            # 核心修改：将提取出的数据严格按照通道号从小到大排序拼接
+            # 当前新版设计：read_data_FBG 只输出“按物理通道升序”的矩阵；
+            # active_channels 输入顺序的重排，在 __init__ 后续 _reorder_channels_by_active/_layout 中完成。
             sorted_required_channels = sorted(required_channels)
             data_matrix = np.column_stack([channel_data[ch] for ch in sorted_required_channels]) * 1e-6
 
             if folder_type in ("circ", "S"):
                 self.Data[folder_type].setdefault(x, {})
                 self.Data[folder_type][x][y] = data_matrix
-            elif folder_type in ("end", "rot0", "up", "down"):
+            elif folder_type in ("end", "end3", "rot0", "up", "down"):
                 self.Data[folder_type].setdefault(x, {})
                 self.Data[folder_type][x].setdefault(y, {})
                 self.Data[folder_type][x][y][z] = data_matrix
@@ -407,17 +557,30 @@ class Sensor:
                 self.Data[shape][x] = dict(sorted(self.Data[shape][x].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
             self.Data[shape] = dict(sorted(self.Data[shape].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
 
-        for shape in ["end", "rot0", "up", "down"]:
+        for shape in ["end", "end3", "rot0", "up", "down"]:
             for x in list(self.Data[shape].keys()):
                 for y in list(self.Data[shape][x].keys()):
                     self.Data[shape][x][y] = dict(sorted(self.Data[shape][x][y].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
                 self.Data[shape][x] = dict(sorted(self.Data[shape][x].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
             self.Data[shape] = dict(sorted(self.Data[shape].items(), key=lambda item: float('inf') if item[0] == 0 else item[0], reverse=True))
 
-
     def _traverse_and_modify_data(self, data_dict, modify_func, *args, **kwargs):
         """
-        递归遍历 self.Data，并将最底层的 numpy 矩阵替换为 modify_func 的返回值。
+        递归遍历嵌套字典，并将所有叶子节点 numpy 矩阵替换为 modify_func 的返回值。
+
+        参数：
+        - data_dict: 待修改的嵌套字典，通常为 self.Data。
+        - modify_func: 作用于叶子节点 numpy.ndarray 的函数。
+        - *args, **kwargs: 传递给 modify_func 的额外参数。
+
+        输出/副作用：
+        - 无返回值。
+        - 原地修改 data_dict 中所有叶子矩阵。
+
+        用途：
+        - 通道重排：_reorder_channels_by_active()、_reorder_channels_by_layout()。
+        - 交错刻栅合并：_apply_interlaced_grating()。
+        - 也可用于其他需要对所有标定数据统一应用矩阵变换的场景。
         """
         for k, v in data_dict.items():
             if isinstance(v, dict):
@@ -429,7 +592,26 @@ class Sensor:
 
     def _reorder_channels_by_active(self):
         """
-        若无复杂排布变化 (channel_change=False)，则全局按照 active_channels 的输入顺序重排。
+        按 active_channels 的输入顺序全局重排 self.Data 中所有矩阵的列。
+
+        适用条件：
+        - channel_change=False，或没有提供 channel_layout。
+        - 每个采样点处的通道物理排布一致，不需要分段改变列顺序。
+
+        处理逻辑：
+        1. 根据 interrogator 将 active_channels 转换为读取阶段使用的内部通道号。
+        - Hippo: 物理通道号减 1。
+        - FiberTecc: 直接使用物理通道号。
+        2. read_data_FBG() 输出矩阵按 sorted(required_channels) 升序排列。
+        3. 根据 active_channels 的输入顺序计算 target_indices。
+        4. 对 self.Data 的每个叶子矩阵执行 matrix[:, target_indices]。
+
+        输出/副作用：
+        - 无返回值。
+        - 原地修改 self.Data。
+
+        说明：
+        - 该方法只改变列顺序，不改变行数、单位或嵌套结构。
         """
         if self.interrogator == 'Hippo':
             req_chs = [phy_ch - 1 for phy_ch in self.active_channels]
@@ -448,7 +630,29 @@ class Sensor:
 
     def _reorder_channels_by_layout(self):
         """
-        若存在复杂排布变化 (channel_change=True)，则按照 channel_layout 逐段重排。
+        按 channel_layout 对 self.Data 中所有矩阵执行分段式通道重排。
+
+        适用条件：
+        - channel_change=True 且 channel_layout 非空。
+        - 不同空间采样段的物理通道排列不同，例如交错焊接、接线变化或局部通道顺序改变。
+
+        channel_layout 格式：
+        - [(num_rows_1, [phy_ch_a, phy_ch_b, ...]), (num_rows_2, [...]), ...]
+        - 每个元组表示当前连续 num_rows 行应采用的物理通道顺序。
+
+        处理逻辑：
+        1. read_data_FBG() 输出矩阵按物理通道升序排列。
+        2. 将矩阵还原成 {内部通道号: 对应列数据} 的 channel_data。
+        3. 调用 _reorder_matrix_by_layout() 按行段重新组装矩阵。
+        4. 对 self.Data 的所有叶子矩阵重复此操作。
+
+        输出/副作用：
+        - 无返回值。
+        - 原地修改 self.Data。
+
+        注意：
+        - 该方法应在 straight_trim 裁剪之前执行；否则 channel_layout 的行段边界会与原始数据错位。
+        - channel_layout 中引用的通道必须存在于 active_channels 对应的数据中。
         """
         if self.interrogator == 'Hippo':
             req_chs = [phy_ch - 1 for phy_ch in self.active_channels]
@@ -467,33 +671,56 @@ class Sensor:
 
     def _apply_interlaced_grating(self, samp_dist_preset, samp_dist_preset_sub):
         """
-        遍历 self.Data，对所有的矩阵应用 _process_interlaced_grating。
+        对 self.Data 中所有叶子矩阵应用交错刻栅合并与中心通道插值。
+
+        参数：
+        - samp_dist_preset: 第一组采样位置，单位 mm。
+        - samp_dist_preset_sub: 第二组交错采样位置，单位 mm；不能为空。
+
+        处理逻辑：
+        1. 检查 samp_dist_preset_sub 是否存在。
+        2. 对 self.Data 的每个叶子矩阵调用 _process_interlaced_grating()。
+        3. 将原始交错排列的数据合并为按空间位置排序后的统一矩阵。
+
+        输出/副作用：
+        - 无返回值。
+        - 原地修改 self.Data。
+
+        注意：
+        - 该方法必须在 straight_trim 裁剪之前执行，使 Data 的行索引与 generate_samp_dist()
+        中基于合并 preset 得到的 raw_trim_idx 处于同一参照系。
+        - 当前实现假定输入矩阵列结构符合 _process_interlaced_grating() 的约定。
         """
         if samp_dist_preset_sub is None:
             logging.error("严重错误：启用了 interlaced_grating 但缺少 samp_dist_preset_sub。")
             return
 
         def interlaced_func(matrix):
-            return self._process_interlaced_grating(
-                data_matrix=matrix, 
-                samp_dist_preset=samp_dist_preset, 
-                samp_dist_preset_sub=samp_dist_preset_sub
-            )
+            return self._process_interlaced_grating(data_matrix=matrix, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub)
 
         self._traverse_and_modify_data(self.Data, interlaced_func)
 
     def _reorder_matrix_by_layout(self, channel_data, channel_layout):
         """
-        根据 channel_layout 针对不同采样点（行）重排物理通道（列）。
-        
-        输入：
-        - channel_data: 字典，key 为解调仪内部通道号，value 为该通道所有采样点的一维数组
-        - channel_layout: 列表嵌套元组，格式为 [(行数, [物理通道顺序]), ...]
-                          例如 [(6, [2, 1, 4, 3, 7, 5, 6]), ...]
-                          表示第0-5行，逻辑列0对应物理通道2，逻辑列1对应物理通道1...
-        
+        根据 channel_layout 对单个 data_matrix 执行分段式通道重排。
+
+        参数：
+        - channel_data: 字典，key 为解调仪内部通道号，value 为该通道的整列空间数据。
+        这些数据通常由按物理通道升序排列的 data_matrix 还原得到。
+        - channel_layout: 分段通道布局，格式为 [(行数, [物理通道顺序]), ...]。
+        例如 [(6, [2, 1, 4, 3, 7, 5, 6]), (10, [...])] 表示：
+        前 6 个采样点使用第一组通道顺序，后 10 个采样点使用第二组通道顺序。
+
         输出：
-        - data_matrix: 重排并垂直拼接后的 numpy 矩阵，形状为 (总行数, 逻辑通道数)，单位缩放为 1e-6
+        - data_matrix: 重排后的矩阵，形状为 (sum(num_rows), len(order))，单位为 1e-6 缩放后的值。
+
+        异常：
+        - 若 channel_layout 中引用的物理通道不存在于 channel_data，则抛出 ValueError。
+
+        说明：
+        - Hippo 模式下，物理通道号会转换为内部键 phy_ch-1。
+        - FiberTecc 模式下，物理通道号直接作为内部键。
+        - 本方法只处理单个矩阵；批量递归由 _reorder_channels_by_layout() 完成。
         """
         blocks = []
         current_row = 0
@@ -530,22 +757,32 @@ class Sensor:
 
     def _process_interlaced_grating(self, data_matrix, samp_dist_preset, samp_dist_preset_sub):
         """
-        专门处理交错刻栅数据的合并与插值逻辑。
+        处理单个交错刻栅 data_matrix，将两组空间采样位置合并为统一序列。
 
-        输入：
-        - data_matrix: 原始 data_matrix，包含两个预设位置集的数据，列顺序为 [p1_ch1, p1_ch2, ..., p2_ch1, p2_ch2, ...]
-        - samp_dist_preset: 第一个预设位置集
-        - samp_dist_preset_sub: 第二个预设位置集
+        参数：
+        - data_matrix: 原始交错刻栅矩阵。当前实现假定列顺序为：
+        * 第 0 列：中心通道在 samp_dist_preset 位置处的数据；
+        * 第 1、3、5 列：三个外围通道在 samp_dist_preset 位置处的数据；
+        * 第 2、4、6 列：三个外围通道在 samp_dist_preset_sub 位置处的数据。
+        - samp_dist_preset: 第一组位置预设，单位 mm。
+        - samp_dist_preset_sub: 第二组位置预设，单位 mm。
+
+        处理逻辑：
+        1. 将两组位置转换为 numpy 数组 p1、p2。
+        2. 对中心通道第 0 列建立 CubicSpline，用 p1 上的中心数据插值得到 p2 上的中心估计值。
+        3. 分别拼接中心通道与三个外围通道在 p1/p2 上的数据。
+        4. 合并 p1 和 p2，并按空间位置升序排序。
+        5. 根据排序结果重构统一的 interlaced_data_matrix。
 
         输出：
-        - merged_data_matrix: 经过合并与插值后的 data_matrix，列顺序为 [center, outer1, outer2, outer3]
+        - interlaced_data_matrix: 合并后的矩阵，列顺序为 [center, outer1, outer2, outer3]。
+        行顺序与 np.sort(concatenate([p1, p2])) 对应。
 
-        说明：
-        - 中心通道（假设为第0列）使用样条插值从第一个预设位置集估算第二个预设位置集的数据。
-        - 外围通道按照原始列顺序直接合并。
-        - 最后根据位置排序重构 data_matrix。
+        注意：
+        - p1 必须能够支持 CubicSpline 插值；若 p1 中有重复位置或有效点数不足，可能报错。
+        - 当前实现固定假定有 1 个中心通道和 3 个外围通道，且输入列数至少为 7。
+        - 该方法不做 straight_trim 裁剪；裁剪应在 __init__ 中交错合并之后统一执行。
         """
-        
         p1 = np.array(samp_dist_preset)
         p2 = np.array(samp_dist_preset_sub)
         
@@ -581,8 +818,38 @@ class Sensor:
         return interlaced_data_matrix
 
     def _classify_folder(self, subfolder):
+        """
+        解析静态标定数据子文件夹名称，判断其标定形状类型和参数。
+
+        参数：
+        - subfolder: 子文件夹名称，不包含父路径。
+
+        支持格式：
+        1. x-y             -> folder_type='circ', x=方向, y=半径, z=None
+        2. x-y-S           -> folder_type='S',    x=方向, y=半径, z=None
+        3. x-y-z           -> folder_type='end',  x=方向, y=半径, z=末级参数
+        4. x-y-z-R0        -> folder_type='rot0'
+        5. x-y-z-up        -> folder_type='up'
+        6. x-y-z-down      -> folder_type='down'
+        7. x-y-z-end3      -> folder_type='end3'
+
+        对于 end3：
+        - x 表示方向 direct；
+        - y 表示圆弧半径，单位 mm；
+        - z 表示圆弧平面相对 +y 的顺时针角度，单位度。
+
+        输出：
+        - (x, y, z, folder_type)
+        * x/y/z 为 int 或 None；
+        * folder_type 为字符串或 None。
+
+        说明：
+        - 匹配顺序为四段后缀、三段字母、三段数字、两段数字，避免 x-y-z-end3 被误识别为 x-y-z。
+        - 不支持的格式会打印提示并返回 (None, None, None, None)。
+        """
         # 注意顺序：先判四段，再判三段字母，再判三段数字，最后判两段
-        m_rot = re.fullmatch(r"(\d+)-(\d+)-(\d+)-(R0|up|down)", subfolder)
+        # x-y-z-end3: x=direct, y=圆弧半径(mm), z=圆弧平面相对 +y 的顺时针角度(度)
+        m_rot = re.fullmatch(r"(\d+)-(\d+)-(\d+)-(R0|up|down|end3)", subfolder)
         m_S = re.fullmatch(r"(\d+)-(\d+)-([A-Z]+)", subfolder)
         m_end = re.fullmatch(r"(\d+)-(\d+)-(\d+)", subfolder)
         m_circ = re.fullmatch(r"(\d+)-(\d+)", subfolder)
@@ -592,8 +859,10 @@ class Sensor:
             suffix = m_rot.group(4)
             if suffix == "R0":
                 folder_type = "rot0"
+            elif suffix in ("up", "down", "end3"):
+                folder_type = suffix
             else:
-                folder_type = suffix  # "up" 或 "down"
+                folder_type = None
 
         elif m_S:
             x, y = map(int, m_S.groups()[:2])
@@ -656,11 +925,12 @@ class Sensor:
             if folder_type in self.radii[x]:
                 _remove_from_container(self.radii[x][folder_type], y)
                 
-        elif folder_type in ("end", "rot0", "up", "down"):
+        elif folder_type in ("end", "end3", "rot0", "up", "down"):
             # 3. x-y-z       -> self.radii['end'][y]   去掉 z
             # 4. x-y-z-R0    -> self.radii['rot0'][y]  去掉 z
             # 5. x-y-z-up    -> self.radii['up'][y]    去掉 z
             # 6. x-y-z-down  -> self.radii['down'][y]  去掉 z
+            # 7. x-y-z-end3  -> self.radii['end3'][y]  去掉 z
             if folder_type in self.radii[x]:
                 # 如果 key 用的是字符串，可以把下面的 y_key 改成 str(y)
                 y_key = y if y in self.radii[x][folder_type] else str(y) if str(y) in self.radii[x][folder_type] else None
@@ -837,21 +1107,14 @@ class Sensor:
 
                 for specific_time in sorted(grouped_data.keys()):
                     if phy_ch not in grouped_data[specific_time]:
-                        raise ValueError(
-                            f"方向 {direct}、时间 {specific_time} 缺少物理通道 {phy_ch} 的 OFDR 文件。"
-                        )
+                        raise ValueError(f"方向 {direct}、时间 {specific_time} 缺少物理通道 {phy_ch} 的 OFDR 文件。")
 
                     ch_data = grouped_data[specific_time][phy_ch]
                     all_frame_data = ch_data.iloc[2:, 3:]
 
                     frame_data = self._process_dataframe(df=all_frame_data)
-                    frame_data_interp = pd.Series(frame_data).interpolate(
-                        method='linear',
-                        limit_direction='both'
-                    )
-                    processed_frame_data_interp = self._remove_outliers_by_ratio(
-                        array=frame_data_interp.to_numpy()
-                    )
+                    frame_data_interp = pd.Series(frame_data).interpolate(method='linear',limit_direction='both')
+                    processed_frame_data_interp = self._remove_outliers_by_ratio(array=frame_data_interp.to_numpy())
 
                     interp_data_ch[specific_time] = processed_frame_data_interp
 
@@ -877,14 +1140,9 @@ class Sensor:
             timestamps = sorted(next(iter(data_source.values())).keys())
 
             if len(timestamps) > len(self.radii[direct]['circ']):
-                raise ValueError(
-                    f"方向 {direct} 的时间组数 {len(timestamps)} 超过预设半径数 {len(self.radii[direct]['circ'])}。"
-                )
+                raise ValueError(f"方向 {direct} 的时间组数 {len(timestamps)} 超过预设半径数 {len(self.radii[direct]['circ'])}。")
 
-            timestamp_to_exp_samps = {
-                timestamp: self.radii[direct]['circ'][idx]
-                for idx, timestamp in enumerate(timestamps)
-            }
+            timestamp_to_exp_samps = {timestamp: self.radii[direct]['circ'][idx] for idx, timestamp in enumerate(timestamps)}
 
             restructured_data = {}
             for timestamp in timestamps:
@@ -894,9 +1152,7 @@ class Sensor:
                 new_key = timestamp_to_exp_samps[timestamp]
 
                 # 先按物理通道升序组装，语义与 read_data_FBG 的原始 data_matrix 保持一致
-                data_matrix = np.column_stack(
-                    [data_source[phy_ch][timestamp] for phy_ch in physical_channels_sorted]
-                ) * 1e-6
+                data_matrix = np.column_stack([data_source[phy_ch][timestamp] for phy_ch in physical_channels_sorted]) * 1e-6
 
                 # 再使用现有 read_data_FBG 同语义的 self.ch_order 重排到 active_channels 输入顺序
                 if isinstance(data_matrix, np.ndarray):
@@ -952,8 +1208,7 @@ class Sensor:
             next_value = array[i + 1]  # 后一个值
 
             # 判断当前值是否为突变点（与前后值的差值超过 ratio_threshold 倍）
-            if (abs(array[i] - prev_value) > ratio_threshold * abs(prev_value)) and \
-            (abs(array[i] - next_value) > ratio_threshold * abs(next_value)):
+            if (abs(array[i] - prev_value) > ratio_threshold * abs(prev_value)) and (abs(array[i] - next_value) > ratio_threshold * abs(next_value)):
                 # 如果是突变点，替换为相邻值的均值
                 corrected_array[i] = (prev_value + next_value) / 2
 
