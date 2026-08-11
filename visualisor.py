@@ -253,7 +253,7 @@ class Visualisor:
         angles = np.asarray(angles, dtype=float).reshape(-1)
         valid_length = min(len(angles), len(self.samp_dist))
 
-        if self.zero_init:
+        if self.zero_init or self.straight_trim != 0:
             x = np.asarray(self.samp_dist[:valid_length], dtype=float)
             y = angles[:valid_length]
         else:

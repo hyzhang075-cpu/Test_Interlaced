@@ -117,8 +117,83 @@
 
 ### 4.3 动态展示
 将对应的 params/--sensor_id.txt 中的内容复制并粘贴替代从 parser = argparse.ArgumentParser() 到 args = parser.parse_args() 的部分
-在main.py最下方的main()方法中找到动态展示参数并按照help中的说明修改其default值：
-在terminal中输入并运行指令 python main.py --task demo
+
+动态展示支持以下两种参数使用方式。
+
+#### 4.3.1 只使用精度最高的一套方向参数
+
+先从 0°、120°、240° 三套标定参数中选出重构精度最高的一套，并通过 `--direction_reference_direct` 指定方向。不要添加 `--direction_blend_enabled`，程序就会在整个动态过程中固定使用该方向的 `weights` 和 `slopes`。
+
+例如，120° 参数精度最高时：
+
+```powershell
+python main.py --task demo --direction_reference_direct 120
+```
+
+如果最高精度参数是 0° 或 240°，将命令末尾改为：
+
+```powershell
+--direction_reference_direct 0
+```
+
+或：
+
+```powershell
+--direction_reference_direct 240
+```
+
+该模式也用于三方向软过渡启用前的方向坐标校准。建议先使用最高精度的单套参数检查并确定 `rot_ang`，例如：
+
+```powershell
+python main.py --task demo `
+  --direction_reference_direct 120 `
+  --rot_ang 旋转角度
+```
+
+其中 `旋转角度` 应替换为实际数值。
+
+#### 4.3.2 打开 0°/120°/240° 三方向软过渡
+
+确认三套方向参数均已写入 `--weights` 和 `--slopes`，且使用最高精度单套参数完成 `rot_ang` 校准后，添加 `--direction_blend_enabled`：
+
+```powershell
+python main.py --task demo `
+  --direction_reference_direct 120 `
+  --rot_ang 旋转角度 `
+  --direction_blend_enabled
+```
+
+`--direction_reference_direct` 在软过渡模式中仍然需要：程序先用该方向的第 0 曲率等级 slope 粗略估计当前弯曲方向，再在相邻的 0°、120°、240° 参数之间进行半余弦插值，并用混合后的完整参数完成正式重构。
+
+软过渡的稳定参数可按需显式设置：
+
+```powershell
+python main.py --task demo `
+  --direction_reference_direct 120 `
+  --rot_ang 旋转角度 `
+  --direction_blend_enabled `
+  --direction_min_curvature 0.5 `
+  --direction_min_consecutive 3 `
+  --direction_consistency_threshold 0.6 `
+  --direction_smooth_alpha 0.15
+```
+
+各参数含义：
+
+- `direction_min_curvature`：方向估计所需的最小有效曲率；低于该值时冻结上一帧方向权重。
+- `direction_min_consecutive`：近端稳定弯曲区要求的最少连续点数。
+- `direction_consistency_threshold`：弯曲区最低方向一致性；低于该值时冻结上一帧方向权重。
+- `direction_smooth_alpha`：方向权重的跨帧指数平滑系数，越小越稳定但响应越慢，取值范围为 `(0, 1]`。
+
+注意：
+
+- `--direction_blend_enabled` 是开关参数，不带该参数即为关闭，不能写成 `--direction_blend_enabled False`。
+- 三套 `weights` 的数组形状必须一致，三套 `slopes` 的数组形状也必须一致。
+- 三方向参数需要采用相同的曲率等级数、阈值定义、分段方式和参数排列约定。
+- 应先关闭软过渡校准 `rot_ang`，再打开软过渡；否则角度坐标偏差可能导致程序稳定地混合错误方向的参数。
+- 单套模式和三方向软过渡都只影响动态展示，不改变静态参数优化流程。
+
+更完整的原理和排查方法见 [动态三方向参数软过渡：原理、注意事项与踩坑记录](docs/动态三方向参数软过渡_原理_注意事项与踩坑记录.md)。
 
 ## 5.当前版本信息
 版本号：v9
@@ -150,3 +225,6 @@
 | v8 | 2026-05-20 | 曹丹倩 | 加入交错刻栅、通道顺序改变对初始数据的重排 | 无 |
 | v9 | 2026-06-16 | 高至简 | 添加交错刻栅与分段通道重排；重构 straight_trim 裁剪逻辑；添加 end3 标定形状；将优化改为 slopes 理论曲率 + weights 正常曲率的两阶段流程；添加完整样机动态展示原型 | 无 |
 | v9.1 | 2026-07-07 | 曹丹倩 | 修正straight_trim剪裁后的原点问题 | 无 |
+| v10 | 2026-07-22 | 曹丹倩 | 动态增加3方向参数过渡算法 | 无 |
+| v10.1 | 2026-07-30 | 曹丹倩 | 修正初始化时global phase角度平均在边界处出错的问题 | 无 |
+| v10.2 | 2026-08-07 | 邱国翀 | 加了动态kalman滤波 | 无 |

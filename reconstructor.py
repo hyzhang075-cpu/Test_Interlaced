@@ -252,8 +252,15 @@ class Reconstructor(Initialiser):
             return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B
         elif self.frame_rule == 'TNN':
             # 平行标架重构
-            r, T, N1, N2 = self._parallel_frame(kappa=cur_interp, angles=ang_interp, ss=interp_ss, init_T=init_T, init_N=init_N)   
-            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N1, N2
+            r, T, N, B, _, _ = self._parallel_frame(
+                kappa=cur_interp,
+                angles=ang_interp,
+                ss=interp_ss,
+                init_T=init_T,
+                init_N=init_N,
+                return_principal_frame=True,
+            )
+            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B
 
     def _construct_ideal_magnitude_for_recon(self, keys, calib_shape, sample_dist):
         """
@@ -845,7 +852,7 @@ class Reconstructor(Initialiser):
         
         return r, T, N, B
     
-    def _parallel_frame(self, kappa, angles, ss, init_T, init_N):
+    def _parallel_frame(self, kappa, angles, ss, init_T, init_N, return_principal_frame=False):
         """
         使用平行标架 / TNN 形式递推计算三维曲线及 T/N1/N2 标架。
 
@@ -906,7 +913,53 @@ class Reconstructor(Initialiser):
 
             r[i] = ss[i] * T[i] + r[i-1]
 
-        return r, T, N1, N2
+        if not return_principal_frame:
+            return r, T, N1, N2
+
+        # dT/ds = kappa1*N1 + kappa2*N2 = kappa*N.
+        # N therefore points toward the local curvature center.
+        N = np.cos(angles_rel)[:, None] * N1 + np.sin(angles_rel)[:, None] * N2
+        N = N - np.sum(N * T, axis=1, keepdims=True) * T
+        N_norm = np.linalg.norm(N, axis=1, keepdims=True)
+        eps = np.finfo(float).eps
+        if np.any(N_norm <= eps):
+            raise ValueError("TNN principal normal is numerically degenerate")
+        N = N / N_norm
+
+        B = np.cross(T, N)
+        B_norm = np.linalg.norm(B, axis=1, keepdims=True)
+        if np.any(B_norm <= eps):
+            raise ValueError("TNN binormal is numerically degenerate")
+        B = B / B_norm
+
+        return r, T, N, B, N1, N2
+
+    @staticmethod
+    def _build_end_pose(T, N, B, rot_matrix):
+        """Return terminal T/N/B rows in the rotated curve coordinates."""
+        T = np.asarray(T, dtype=float)
+        N = np.asarray(N, dtype=float)
+        B = np.asarray(B, dtype=float)
+        rot_matrix = np.asarray(rot_matrix, dtype=float)
+
+        if T.ndim != 2 or N.ndim != 2 or B.ndim != 2:
+            raise ValueError("T, N and B must be two-dimensional frame arrays")
+        if T.shape[1] != 3 or N.shape[1] != 3 or B.shape[1] != 3:
+            raise ValueError("T, N and B must have shape (num_points, 3)")
+        if not (len(T) == len(N) == len(B)):
+            raise ValueError("T, N and B must contain the same number of points")
+        if rot_matrix.shape != (3, 3):
+            raise ValueError("rot_matrix must have shape (3, 3)")
+        if len(T) == 0:
+            return None
+
+        return np.stack(
+            (
+                T[-1] @ rot_matrix.T,
+                N[-1] @ rot_matrix.T,
+                B[-1] @ rot_matrix.T,
+            )
+        )
 
     def _get_rot_x(self, direct, rot_dir=-1):
         """

@@ -105,6 +105,7 @@ class Initialiser(Sensor):
 
         for direct in self.exp_directs:
             phase_pool = []
+            phase_pool_sources = []
             fit_angle_data_flat = {}
 
             if verbose:
@@ -154,13 +155,8 @@ class Initialiser(Sensor):
                     for path, bundle in bundled_flat.items():
                         angle_unwrap_i = bundle[2]
                         init_angle_i = bundle[3]
-
-                        if -np.pi <= init_angle_i <= np.pi:
-                            init_angle_i = init_angle_i
-                        elif init_angle_i < -np.pi:
-                            init_angle_i += 2 * np.pi
-                        else:
-                            init_angle_i -= 2 * np.pi
+                        # 先归一化到-pi~pi，便于比较理解
+                        init_angle_i = (init_angle_i + np.pi) % (2 * np.pi) - np.pi
 
                         # ---------- inline _phase_leaf_ok ----------
                         use_for_phase = True
@@ -172,6 +168,12 @@ class Initialiser(Sensor):
 
                         if use_for_phase:
                             phase_pool.append(init_angle_i)
+                            phase_pool_sources.append({
+                                'direct': direct,
+                                'calib_shape': calib_shape,
+                                'path': path,
+                                'angle': float(init_angle_i),
+                            })
 
                         fit_key = (calib_shape,) + path
                         fit_angle_data_flat[fit_key] = angle_unwrap_i
@@ -182,7 +184,22 @@ class Initialiser(Sensor):
 
             # ---------- 联合更新全局相位 ----------
             if direct == 0 and update_phase and len(phase_pool) > 0:
-                self.global_phases_set = -np.mean(phase_pool)
+                for source in phase_pool_sources:
+                    print(
+                        "phase_pool source: "
+                        f"direct={source['direct']}, "
+                        f"calib_shape={source['calib_shape']}, "
+                        f"path={source['path']}, "
+                        f"angle={source['angle']}"
+                    )
+
+                # 映射成单位圆上的向量做圆周平均，避免180度附近的角度平均为0度
+                phase_array = np.asarray(phase_pool, dtype=float)
+                mean_phase = np.arctan2(
+                    np.mean(np.sin(phase_array)),
+                    np.mean(np.cos(phase_array)),
+                )
+                self.global_phases_set = -float(mean_phase)
 
             # ---------- 联合做全局 / 个体分段拟合 ----------
             if len(fit_angle_data_flat) > 0:

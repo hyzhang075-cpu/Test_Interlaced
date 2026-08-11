@@ -903,7 +903,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], magnitude_ratio=1.0, init_T=init_T, verbose=False, 
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], magnitude_ratio=1.0, init_T=init_T, verbose=False,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
@@ -911,7 +911,7 @@ class Demonstrator(QMainWindow):
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
-        End_pose = T[-1] if len(T) > 0 else None
+        End_pose = self.recon._build_end_pose(T, N, B, rot_matrix)
 
         # ---------- 显示人体时的坐标截断 clipping ----------
         first_idx = self._get_entry_idx(len(r_results_postrot), curvature=cur_interp)
@@ -1034,4 +1034,3 @@ class Demonstrator(QMainWindow):
         self.colors.Modified()
         self.line_polydata.Modified()
         self.vtk_widget.GetRenderWindow().Render()
-

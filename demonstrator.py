@@ -1,8 +1,11 @@
 import pickle
 import queue
-import datetime
+from datetime import datetime
 import time
 import vtk
+import socket
+import struct
+import json
 import threading
 import numpy as np
 
@@ -14,6 +17,16 @@ from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from PyQt5.QtCore import Qt, QTimer
 
 import IMU
+
+# ==============================================================================
+# 电磁联调通讯配置（与 0605_电磁联调 相同的 UDP 协议）
+# 1) JSON 明文：每帧末端姿态 + 整根形状 + 曲率，发送给电磁对比程序
+# 2) 二进制定长包：发送给本机 C++ 程序用于与电磁传感器同步记录
+# ==============================================================================
+RECEIVER_IP = '192.168.110.52'
+RECEIVER_PORT = 8888
+SYNC_IP = '127.0.0.1'
+SYNC_PORT = 50000
 
 # ==============================================================================
 # 数据记录器类：用于后台异步保存数据，避免阻塞 VTK 渲染主线程
@@ -28,7 +41,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp):
+    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -61,7 +74,8 @@ class DataRecorder:
                 'timestamp': timestamp,
                 'r_results': r_results.copy() if hasattr(r_results, 'copy') else r_results,
                 'end_pose': end_pose.copy() if hasattr(end_pose, 'copy') else end_pose,
-                'cur_interp': list(cur_interp) if cur_interp is not None else []
+                'cur_interp': list(cur_interp) if cur_interp is not None else [],
+                'raw_data': list(raw_data) if raw_data is not None else []
             }
             # 非阻塞放入，保证渲染实时性
             self.queue.put(data_packet, block=False)
@@ -109,7 +123,12 @@ class DataRecorder:
         print(f"--- 数据记录结束，文件已关闭 ---")
 
 class Demonstrator(QMainWindow):
-    def __init__(self, recon, total_scale, unwrap_threshold, align_threshold, imu=False, imu_com='COM6', imu_maxlen=10, demo_recorder=False, title="Viewer"):
+    DIRECTION_ANCHORS = (0, 120, 240)
+
+    def __init__(self, recon, total_scale, unwrap_threshold, align_threshold, imu=False, imu_com='COM6', imu_maxlen=10, demo_recorder=False,
+                 direction_blend_enabled=False, direction_reference_direct=0, direction_min_curvature=0.5, direction_min_consecutive=3,
+                 direction_consistency_threshold=0.6, direction_smooth_alpha=0.15,
+                 demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5, title="Viewer"):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -136,6 +155,30 @@ class Demonstrator(QMainWindow):
         self.align_threshold = align_threshold
         self.angle_prev = None
         self.angle_unwrap_prev = None
+
+        # 跨帧卡尔曼滤波（动态展示专用）：开启后替代 curve_history 滑动平均。
+        # 状态为曲线各点三维坐标，采用恒定位置模型；kalman_x/kalman_p 在首帧惰性初始化。
+        self.demo_kalman_enabled = bool(demo_kalman_enabled)
+        self.demo_kalman_Rk = float(demo_kalman_Rk)
+        self.demo_kalman_Bk = float(demo_kalman_Bk)
+        self.kalman_x = None
+        self.kalman_p = None
+
+        # 三方向参数软过渡只服务于动态展示，不写入 Reconstructor / Optimiser 状态。
+        # 在 rot_ang 尚未确定时保持 direction_blend_enabled=False，并使用精度最高的
+        # direction_reference_direct 单套参数；完成 rot_ang 标定后再打开软过渡。
+        self.direction_blend_enabled = bool(direction_blend_enabled)
+        self.direction_reference_direct = int(direction_reference_direct)
+        self.direction_min_curvature = float(direction_min_curvature)
+        self.direction_min_consecutive = max(1, int(direction_min_consecutive))
+        self.direction_consistency_threshold = float(direction_consistency_threshold)
+        self.direction_smooth_alpha = float(direction_smooth_alpha)
+        self._validate_direction_blend_config()
+
+        self.direction_masses_prev = self._one_hot_direction_masses(self.direction_reference_direct)
+        self.current_direction_masses = self.direction_masses_prev.copy()
+        self.current_direction_angle_deg = float(self.direction_reference_direct)
+        self.current_direction_consistency = 1.0
 
         self.firstFocal = None
         self.firstPosition = None
@@ -183,6 +226,9 @@ class Demonstrator(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_vtk)
         self.timer.start(int(1000 / self.recon.data_freq))  
+
+        # 电磁联调 UDP 发送套接字（与 0605_电磁联调 相同）
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def add_ball(self):
         """
@@ -270,9 +316,9 @@ class Demonstrator(QMainWindow):
         orient_axes.SetZAxisLabelText("Z")  # 设置Z轴标签
 
         # 调整方向标记部件的标签字体大小
-        orient_axes.GetXAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(8)
-        orient_axes.GetYAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(8)
-        orient_axes.GetZAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(8)
+        orient_axes.GetXAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(4)
+        orient_axes.GetYAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(4)
+        orient_axes.GetZAxisCaptionActor2D().GetCaptionTextProperty().SetFontSize(4)
 
         orientation_widget = vtk.vtkOrientationMarkerWidget()
         orientation_widget.SetOrientationMarker(orient_axes)
@@ -356,6 +402,190 @@ class Demonstrator(QMainWindow):
             self.recorder.stop()
         super().closeEvent(event)
 
+    def _validate_direction_blend_config(self):
+        """校验仅供动态展示使用的三方向参数混合配置。"""
+        if self.direction_reference_direct not in self.DIRECTION_ANCHORS:
+            raise ValueError(
+                f"direction_reference_direct 必须属于 {self.DIRECTION_ANCHORS}，"
+                f"当前为 {self.direction_reference_direct}"
+            )
+
+        if not 0.0 < self.direction_smooth_alpha <= 1.0:
+            raise ValueError("direction_smooth_alpha 必须位于 (0, 1]")
+
+        if not 0.0 <= self.direction_consistency_threshold <= 1.0:
+            raise ValueError("direction_consistency_threshold 必须位于 [0, 1]")
+
+        required = self.DIRECTION_ANCHORS if self.direction_blend_enabled else (self.direction_reference_direct,)
+        missing_weights = [d for d in required if d not in self.recon.weights]
+        missing_slopes = [d for d in required if d not in self.recon.slopes]
+        if missing_weights or missing_slopes:
+            raise ValueError(
+                "动态方向参数不完整: "
+                f"weights 缺少 {missing_weights}, slopes 缺少 {missing_slopes}"
+            )
+
+        if self.direction_blend_enabled:
+            weight_shapes = {d: np.asarray(self.recon.weights[d]).shape for d in self.DIRECTION_ANCHORS}
+            slope_shapes = {d: np.asarray(self.recon.slopes[d]).shape for d in self.DIRECTION_ANCHORS}
+            if len(set(weight_shapes.values())) != 1:
+                raise ValueError(f"三方向 weights 形状不一致，无法插值: {weight_shapes}")
+            if len(set(slope_shapes.values())) != 1:
+                raise ValueError(f"三方向 slopes 形状不一致，无法插值: {slope_shapes}")
+
+    def _one_hot_direction_masses(self, direct):
+        masses = np.zeros(len(self.DIRECTION_ANCHORS), dtype=float)
+        masses[self.DIRECTION_ANCHORS.index(int(direct))] = 1.0
+        return masses
+
+    def _half_cosine_direction_masses(self, angle_deg):
+        """
+        在圆周上只混合当前角度两侧的两套参数。
+
+        例如 angle_deg 位于 [0, 120] 时，使用半余弦从 0 度参数平滑过渡到
+        120 度参数；240 到 360 度区间会自动过渡回 0 度参数。
+        """
+        angle_deg = float(angle_deg) % 360.0
+        sector = int(np.floor(angle_deg / 120.0)) % len(self.DIRECTION_ANCHORS)
+        left_direct = self.DIRECTION_ANCHORS[sector]
+        right_direct = self.DIRECTION_ANCHORS[(sector + 1) % len(self.DIRECTION_ANCHORS)]
+
+        t = np.clip((angle_deg - left_direct) / 120.0, 0.0, 1.0)
+        right_mass = 0.5 - 0.5 * np.cos(np.pi * t)
+        left_mass = 1.0 - right_mass
+
+        masses = np.zeros(len(self.DIRECTION_ANCHORS), dtype=float)
+        masses[sector] = left_mass
+        masses[(sector + 1) % len(self.DIRECTION_ANCHORS)] = right_mass
+        return masses
+
+    def _find_first_stable_bending_region(self, magnitude):
+        """返回近端起第一个满足曲率阈值和最少连续点数的完整连续弯曲区。"""
+        magnitude = np.asarray(magnitude, dtype=float)
+        valid = np.isfinite(magnitude) & (magnitude >= self.direction_min_curvature)
+
+        start = None
+        for idx, is_valid in enumerate(valid):
+            if is_valid and start is None:
+                start = idx
+            elif not is_valid and start is not None:
+                if idx - start >= self.direction_min_consecutive:
+                    return np.arange(start, idx, dtype=int)
+                start = None
+
+        if start is not None and len(valid) - start >= self.direction_min_consecutive:
+            # print(f"bend starts at {start}, length={valid}")
+            return np.arange(start, len(valid), dtype=int)
+        return None
+
+    def _estimate_direction_masses(self, calib_Data):
+        """
+        用指定的最佳方向参数做第一遍粗计算，并估计当前帧的方向质量。
+
+        只使用近端第一个稳定弯曲区。区域内采用曲率加权圆周平均；低曲率、
+        无稳定弯曲区或方向一致性不足时冻结上一帧质量。有效的新质量再进行
+        指数平滑，以减少跨帧边界抖动。
+        """
+        reference_slope = np.asarray(
+            self.recon.slopes[self.direction_reference_direct][0],
+            dtype=float,
+        )
+        _, magnitude, angle, _ = self.recon._get_base(
+            keys=None,
+            calib_Data=calib_Data,
+            base_slopes=reference_slope,
+            verbose=False,
+        )
+
+        region = self._find_first_stable_bending_region(magnitude)
+        if region is None:
+            return self.direction_masses_prev.copy()
+
+        region_magnitude = np.asarray(magnitude, dtype=float)[region]
+        region_angle = np.asarray(angle, dtype=float)[region]
+        finite = np.isfinite(region_magnitude) & np.isfinite(region_angle)
+        if not np.any(finite):
+            return self.direction_masses_prev.copy()
+
+        region_magnitude = region_magnitude[finite]
+        # 与现有注释中的方向判断保持同一角度约定：方向角加 rot_ang 后再映射到
+        # 0/120/240 度参数坐标。软过渡应在 rot_ang 完成标定后才启用。
+        region_angle = region_angle[finite] + np.deg2rad(self.recon.rot_ang)
+
+        magnitude_sum = float(np.sum(region_magnitude))
+        if magnitude_sum <= 0.0:
+            return self.direction_masses_prev.copy()
+
+        resultant = np.sum(region_magnitude * np.exp(1j * region_angle))
+        consistency = float(np.abs(resultant) / magnitude_sum)
+        self.current_direction_consistency = consistency
+        if consistency < self.direction_consistency_threshold:
+            return self.direction_masses_prev.copy()
+
+        angle_deg = float(np.rad2deg(np.angle(resultant)) % 360.0)
+        print(f"detected bending angle is {angle_deg}")
+        raw_masses = self._half_cosine_direction_masses(angle_deg)
+
+        alpha = self.direction_smooth_alpha
+        smoothed_masses = (1.0 - alpha) * self.direction_masses_prev + alpha * raw_masses
+        smoothed_masses /= np.sum(smoothed_masses)
+
+        self.direction_masses_prev = smoothed_masses
+        self.current_direction_masses = smoothed_masses.copy()
+        self.current_direction_angle_deg = angle_deg
+        return smoothed_masses
+
+    def _blend_direction_parameters(self, direction_masses):
+        """按当前帧方向质量混合三套完整 weights / slopes 参数。"""
+        direction_masses = np.asarray(direction_masses, dtype=float)
+        if direction_masses.shape != (len(self.DIRECTION_ANCHORS),):
+            raise ValueError(f"direction_masses 形状错误: {direction_masses.shape}")
+
+        reference = self.direction_reference_direct
+        blended_weights = np.zeros_like(np.asarray(self.recon.weights[reference], dtype=float))
+        blended_slopes = np.zeros_like(np.asarray(self.recon.slopes[reference], dtype=float))
+
+        for mass, direct in zip(direction_masses, self.DIRECTION_ANCHORS):
+            blended_weights += mass * np.asarray(self.recon.weights[direct], dtype=float)
+            blended_slopes += mass * np.asarray(self.recon.slopes[direct], dtype=float)
+
+        return blended_weights, blended_slopes
+
+    def _get_dynamic_parameters(self, calib_Data):
+        """返回当前帧参数；关闭软过渡时始终使用指定的最佳方向参数。"""
+        if not self.direction_blend_enabled:
+            direct = self.direction_reference_direct
+            masses = self._one_hot_direction_masses(direct)
+            self.current_direction_masses = masses
+            self.current_direction_angle_deg = float(direct)
+            return self.recon.weights[direct], self.recon.slopes[direct]
+
+        masses = self._estimate_direction_masses(calib_Data=calib_Data)
+        return self._blend_direction_parameters(direction_masses=masses)
+
+    def _apply_curve_kalman(self, r_frame):
+        """
+        对当前帧重构曲线做跨帧卡尔曼滤波（动态展示专用，逐点逐坐标独立）。
+
+        模型：恒定位置模型（状态即各点三维坐标，假设短时间内位置不变）。
+        - Rk 为观测噪声参数，越大越平滑、响应越慢；
+        - Bk 为状态转移误差参数，越大对新观测响应越快。
+        首帧或曲线点数变化时用观测值直接初始化状态。
+        """
+        z = np.asarray(r_frame, dtype=float)
+        if self.kalman_x is None or self.kalman_x.shape != z.shape:
+            self.kalman_x = z.copy()
+            self.kalman_p = np.full_like(z, self.demo_kalman_Bk)
+            return self.kalman_x.copy()
+
+        # 预测：恒定位置模型，状态不变，协方差累加过程噪声
+        p_pred = self.kalman_p + self.demo_kalman_Bk
+        # 更新
+        K = p_pred / (p_pred + self.demo_kalman_Rk)
+        self.kalman_x = self.kalman_x + K * (z - self.kalman_x)
+        self.kalman_p = (1.0 - K) * p_pred
+        return self.kalman_x.copy()
+
     def update_vtk(self):
         """
         从实时数据队列中读取一帧数据，完成预处理、重构、可选 IMU 姿态融合、平滑与 VTK 显示更新。
@@ -366,9 +596,9 @@ class Demonstrator(QMainWindow):
         3. 将读入数据按当前单位约定转换为 calib_Data。
         4. 若启用了中心光纤补偿，则调用 self.recon._process_centreData() 去除中心通道影响。
         5. 检查当前帧是否存在非有限值；若存在，则优先使用上一帧同位置数据进行替换，否则直接跳过本帧。
-        6. 设定当前重构方向 direct，并调用 self.recon._preprocess() 计算曲率、扭率、步长与初始法向量。
+        6. 若启用方向软过渡，用指定参考方向完成第一遍方向估计，经过冻结和指数平滑后混合三方向参数；否则使用参考方向单套参数。
         7. 若启用 IMU，则从 IMU 队列中读取最新姿态矩阵，并据此构造初始切向量 init_T；否则使用默认 init_T。
-        8. 调用 self.recon._F_S_frame() 执行 Frenet-Serret 重构，并调用 self.recon._get_rot_x() 做方向旋转补偿。
+        8. 使用当前帧混合参数调用 _reconstruct_frame() 完成最终重构，并保持 direct=0 的统一显示坐标系。
         9. 提取末端姿态 End_pose。
         10. 将最近若干帧重构结果存入 self.curve_history，并在达到窗口长度后做均值平滑。
         11. 若启用 recorder，则将当前帧结果写入后台记录器。
@@ -386,7 +616,8 @@ class Demonstrator(QMainWindow):
             - 触发一次 VTK 场景刷新
 
         说明：
-        - 当前实现中 direct 被固定为 0，方向自动判定逻辑仍处于注释状态
+        - 三方向参数过渡仅在本动态路径中生效，不修改静态优化和静态重构参数
+        - 参数方向软分配与最终显示坐标系相互独立，显示旋转始终使用 direct=0
         - 当前实现对含 NaN / inf 的坏行会优先尝试用上一帧对应行替换
         - 当前实现中 IMU 姿态只用于更新初始切向量 init_T
         """
@@ -405,6 +636,7 @@ class Demonstrator(QMainWindow):
 
         # ---------- 处理数据 ----------
         calib_Data = Data[0] * 1e-6
+        raw_data = calib_Data.copy()
 
         # 处理中心光纤的数据
         if self.recon.centre_fibre:
@@ -423,16 +655,11 @@ class Demonstrator(QMainWindow):
                 return
         self.prev_reordered_data = calib_Data.copy()
 
-        # ---------- 判定当前方向 ----------
-        # _, _, angle = self.recon._get_base(radius=None, calib_Data=calib_Data, base_slopes=self.recon.slopes[0][0], verbose=False) # 这个地方要再看，初始方向判定固定使用得是0方向的base_slope
-        # init_ang = (angle[0] + np.deg2rad(self.recon.rot_ang)) % (2 * np.pi)
-        # if -np.pi / 3 <= init_ang < np.pi / 3:
-        #     direct = 0
-        # elif np.pi / 3 <= init_ang < np.pi:
-        #     direct = 120
-        # else:
-        #     direct = 240
-        direct = 0  
+        # ---------- 动态三方向参数软分配 ----------
+        # 方向软过渡关闭时使用 direction_reference_direct 对应的最佳单套参数；
+        # 打开时先估计当前弯曲方向，再将三方向完整参数混合。曲率等级的第二维
+        # 软分配仍由 _Strain_2_Cur() 在最终重构中完成。
+        weight, slope = self._get_dynamic_parameters(calib_Data=calib_Data)
 
         # ---------- 预处理 ----------
         if self.imu:
@@ -451,24 +678,78 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, _, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], init_T=init_T, verbose=False, 
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
-        End_pose = T[-1] if len(T) > 0 else None
+        End_pose = self.recon._build_end_pose(T, N, B, rot_matrix)
         
         # --------------  平滑滤波 --------------
-        self.curve_history.append(r_results_postrot.copy())
-        if len(self.curve_history) == self.recon.move_filter:
-            r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
+        if self.demo_kalman_enabled:
+            # 跨帧卡尔曼滤波（替代滑动平均）
+            r_results_postrot = self._apply_curve_kalman(r_results_postrot)
+        else:
+            self.curve_history.append(r_results_postrot.copy())
+            if len(self.curve_history) == self.recon.move_filter:
+                r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp)
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data)
 
         self._update_frame(r_results_postrot)
+
+        # ---------------- 电磁联调通讯（与 0605_电磁联调 相同协议） ----------------
+        # 坐标单位换算为 mm 后发送
+        r_results_postrot = r_results_postrot * 1000
+
+        # 1) 通过 UDP 以 JSON 明文推送给电磁对比程序
+        try:
+            sendObj = {
+                "end_pose": End_pose.tolist() if End_pose is not None else [0.0, 0.0, 0.0],
+                "data": r_results_postrot.tolist(),
+                "cur_interp": cur_interp.tolist() if cur_interp is not None else []
+            }
+            self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
+        except Exception as e:
+            print(f"JSON发送错误: {e}")
+
+        # 2) 通过 UDP 以定长二进制包发送给本机 C++ 程序用于同步记录
+        # 数据格式: 时间戳(1) + 每点位置(3*interp_num) + 末端姿态(3) + 曲率(interp_num) + 原始数据(total_points*num_channels) 个 double
+        # 当前配置下与旧版一致: 1 + 180 + 3 + 60 + 112 = 356 个 double
+        try:
+            data_save = Data[0] * 1e-6
+            n_pts = int(self.recon.interp_num)
+            n_raw = int(self.recon.total_points * self.recon.num_channels)
+
+            # 1. 每点位置 (3*interp_num)
+            r_flat = np.asarray(r_results_postrot, dtype=float).flatten()
+            if len(r_flat) < 3 * n_pts: r_flat = np.pad(r_flat, (0, 3 * n_pts - len(r_flat)))
+            else: r_flat = r_flat[:3 * n_pts]
+
+            # 2. 末端姿态 (3)
+            ep = np.array(End_pose).flatten() if End_pose is not None else np.array([0.0, 0.0, 0.0])
+            if len(ep) < 3: ep = np.pad(ep, (0, 3 - len(ep)))
+            else: ep = ep[:3]
+
+            # 3. 曲率 (interp_num)
+            cur_flat = np.array(cur_interp).flatten() if cur_interp is not None else np.array([])
+            if len(cur_flat) < n_pts: cur_flat = np.pad(cur_flat, (0, n_pts - len(cur_flat)))
+            else: cur_flat = cur_flat[:n_pts]
+
+            # 4. 原始数据 (total_points*num_channels)
+            cd_flat = data_save.flatten()
+            if len(cd_flat) < n_raw: cd_flat = np.pad(cd_flat, (0, n_raw - len(cd_flat)))
+            else: cd_flat = cd_flat[:n_raw]
+
+            n_double = 1 + 3 * n_pts + 3 + n_pts + n_raw
+            pack_data = struct.pack('<' + 'd' * n_double, frame_timestamp, *r_flat, *ep, *cur_flat, *cd_flat)
+            self.udp_socket.sendto(pack_data, (SYNC_IP, SYNC_PORT))
+        except Exception:
+            pass
+        # -------------------------------------------------------------------------
 
     def _update_frame(self, data):
         """
