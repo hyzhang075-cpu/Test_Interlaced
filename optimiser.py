@@ -50,11 +50,15 @@ class Optimiser(Reconstructor):
             raise ValueError(f"freeze index 超出 slopes 范围: freeze={freeze_idx}, slopes第一维长度={n_slopes}")
 
         return freeze_idx
-
+    
     def _get_weight_freeze_mask(self):
         mask = np.zeros(len(self.weights[self.direct]), dtype=bool)
         freeze_idx = self._get_freeze_idx()
         mask[freeze_idx] = True
+
+        if self.end_weights:
+            mask[freeze_idx + int(len(self.weights[self.direct]) / 2)] = True
+
         return mask
 
     def _get_slope_freeze_mask(self):
@@ -62,82 +66,64 @@ class Optimiser(Reconstructor):
         freeze_idx = self._get_freeze_idx()
         mask[freeze_idx, ...] = True
         return mask
-
-    def optim_coeff(self, coeff="slopes", verbose=True):
+    
+    def optim_coeff(self, verbose=True):
         """
-        交替优化 slopes 和 weights。
-        coeff 决定先优化哪个参数：
-            coeff == "slopes": slopes -> weights -> slopes -> weights ...
-            coeff == "weights": weights -> slopes -> weights -> slopes ...
+        按固定顺序执行两阶段优化：先优化 slopes，再优化 weights。
+
+        处理流程：
+        1. 根据 self.method 和 self.hyper_params 构造 scipy.optimize.minimize 的 options；
+        2. 第一阶段优化 slopes，并设置 force_ideal_magnitude=True：
+        - 重构时强制使用理论曲率大小；
+        - 主要让 slopes 优化集中于曲率方向、扭转系数和空间形状；
+        3. 第二阶段优化 weights，并设置 force_ideal_magnitude=False：
+        - 恢复正常由应变估计 magnitude 的重构流程；
+        - 主要调整不同曲率等级下的应变幅值权重；
+        4. 使用最终参数对所有 calib_shapes 正常重构一次；
+        5. 调用 _compute_error() 计算并打印最终误差统计。
+
+        输出：
+        - 无显式返回值。优化结果写回 self.weights[self.direct] 和 self.slopes[self.direct]。
+
+        说明：
+        - 第二阶段 init_loss 必须重新计算，不能沿用 slopes 阶段 loss；
+        - 两个阶段的 loss 定义不同，因为第一阶段强制使用理论 magnitude；
+        - 最终误差始终使用正常重构，即 force_ideal_magnitude=False。
         """
-
-        if coeff not in ("slopes", "weights"):
-            raise ValueError("coeff must be 'slopes' or 'weights'")
-
         if self.method == 'Powell':
             max_evals, xtol, ftol = self.hyper_params
             options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose),}
         else:
             options = None
 
-        order = ["slopes", "weights"] if coeff == "slopes" else ["weights", "slopes"]
-
-        init_loss = None
-
-        current_loss = init_loss
-        best_loss = init_loss
-
         start = time.time()
-        print(f"-------------------- 交替优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 先优化: {coeff} --------------------")
+        print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: slopes(强制理想曲率) -> weights(正常曲率) --------------------")
 
-        for outer_i in range(self.max_iter):
-            print(f"========== 第{outer_i}轮交替优化开始 ==========")
+        # ---------- 第一阶段：优化 slopes，强制使用理想 magnitude ----------
+        slopes_loss, slopes_status, slopes_start_loss = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
 
-            loss_before_outer = best_loss
+        print(f"slopes 阶段结束: status={slopes_status}, start_loss={slopes_start_loss}, final_loss={slopes_loss}")
+        print()
 
-            for c in order:
-                new_loss, status, coeff_start_loss = self._optim_one_coeff_until_stop(coeff=c, init_loss=best_loss, options=options, verbose=verbose,)
+        # ---------- 第二阶段：优化 weights，恢复正常 magnitude ----------
+        # 注意：这里必须 init_loss=None，不能沿用 slopes_loss。
+        # 因为 slopes 阶段和 weights 阶段使用的是不同 loss 定义。
+        weights_loss, weights_status, weights_start_loss = self._optim_one_coeff_until_stop(coeff="weights", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=False,)
 
-                if loss_before_outer is None:
-                    loss_before_outer = coeff_start_loss
+        print(f"weights 阶段结束: status={weights_status}, start_loss={weights_start_loss}, final_loss={weights_loss}")
+        print()
 
-                best_loss = new_loss
-                current_loss = new_loss
-
-                if status == "diverge":
-                    print(f"{c} 优化发散，已回滚到上一轮最优变量，进入另一个参数优化")
-                    continue
-
-            if loss_before_outer is None or best_loss is None:
-                print("未能得到有效初始误差，停止优化")
-                break
-
-            improvement = loss_before_outer - best_loss
-
-            print(f"第{outer_i}轮交替优化整体提升: {improvement}")
-
-            if improvement < 0:
-                print("整体优化发生发散，停止")
-                break
-
-            if 0 <= improvement <= self.min_loss_diff:
-                print("整体交替优化已收敛")
-                break
-
-            print(f"========== 第{outer_i}轮交替优化结束 ==========")
-            print()
-
-        else:
-            print("交替优化已达最大轮数")
+        current_loss = weights_loss
 
         end = time.time()
         print(f"优化耗时: {end - start}")
-        print(f"-------------------- 交替优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
+        print(f"-------------------- 两阶段优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
         print()
 
+        # ---------- 最终误差：必须使用正常重构，不强制 magnitude ----------
         rs = {}
         for calib_shape in self.calib_shapes:
-            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False,)
+            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False, force_ideal_magnitude=False)
             rs[calib_shape] = r_results_postrot
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
@@ -145,13 +131,36 @@ class Optimiser(Reconstructor):
         print(f"当前最优应变权重: {self.weights[self.direct].tolist()}")
         print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
         print(f"最小误差: {current_loss}")
-        self._print_errors()      
+        self._print_errors()
 
-    def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True):
+    def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True, force_ideal_magnitude=False):
         """
-        对单一参数 coeff 循环优化，直到该参数收敛、发散或达到最大轮数。
-        """
+        对单一参数类型连续优化，直到收敛、发散或达到最大轮数。
 
+        参数：
+        - coeff: 要优化的参数类型，只能为 'slopes' 或 'weights'。
+        - init_loss: 本阶段已知的初始 loss；为 None 时由 _optim_coeff_iter() 内部计算。
+        - options: 传递给 scipy.optimize.minimize 的 options。
+        - verbose: 是否打印详细优化信息。当前主要由外层 optim_coeff() 控制 options。
+        - force_ideal_magnitude: 当前阶段重构时是否强制使用理论曲率大小。
+
+        处理流程：
+        1. 保存每轮开始前的 weights 和 slopes，用于发散回滚；
+        2. 将当前 slopes 按 slope_upper_bound 归一化；
+        3. 调用 _optim_coeff_iter() 执行一轮优化；
+        4. 若本轮 loss 大于上一轮 best_loss，则认为发散并回滚到上一轮参数；
+        5. 若 loss 改善量处于 [0, min_loss_diff]，则认为收敛；
+        6. 否则继续下一轮，直到达到 max_iter。
+
+        输出：
+        - current_loss: 阶段结束时的最佳 loss。
+        - status: 字符串，取值为 'diverge'、'converge' 或 'max_iter'。
+        - first_loss: 本阶段第一次实际计算得到的初始 loss。
+
+        说明：
+        - 该函数负责阶段级别的循环、回滚和停止判定；
+        - 单轮参数向量构造、bounds 和 scipy minimize 调用由 _optim_coeff_iter() 完成。
+        """
         coeff_name = "扭转系数" if coeff == "slopes" else "应变权重"
 
         current_loss = init_loss
@@ -168,7 +177,7 @@ class Optimiser(Reconstructor):
             slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
             slopes_normalised = slopes_flattened / slope_upper_bound
 
-            new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options)
+            new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options, force_ideal_magnitude=force_ideal_magnitude,)
 
             # 核心改动：第一次进入时，best_loss 可能还是 None
             if best_loss is None:
@@ -200,7 +209,41 @@ class Optimiser(Reconstructor):
         print(f"{coeff_name}优化已达最大轮数")
         return current_loss, "max_iter", first_loss   
     
-    def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound, options):
+    def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound,options, force_ideal_magnitude=False):
+        """
+        执行一轮指定参数类型的 scipy 优化，并将最优结果写回对象状态。
+
+        参数：
+        - coeff: 要优化的参数类型，只能为 'slopes' 或 'weights'。
+        - i: 当前连续优化轮次编号，仅用于打印日志。
+        - init_loss: 本轮初始 loss；若为 None，则先用当前参数计算一次 loss。
+        - slopes_normalised: 当前 slopes 展平并归一化后的数组。
+        - slope_upper_bound: slopes 归一化和恢复原始量级使用的尺度。
+        - options: 传递给 scipy.optimize.minimize 的 options。
+        - force_ideal_magnitude: 本轮 loss 计算时是否强制使用理论曲率大小。
+
+        处理流程：
+        1. 复制当前 weights 与归一化 slopes，作为本轮优化基准；
+        2. 根据 coeff 生成冻结掩码和待优化掩码：
+        - coeff == 'slopes': 优化未冻结的归一化 slope 元素，bounds 为 [-1, 1]；
+        - coeff == 'weights': 优化未冻结的 weight 元素，bounds 为 self.weight_bounds；
+        3. 构造只接收自由变量 x 的 loss_fn，并在内部还原完整 weights/slopes；
+        4. 若所有变量都被冻结，则跳过 minimize 并直接返回 init_loss；
+        5. 调用 scipy.optimize.minimize；
+        6. 将最优自由变量写回完整 weights 或 slopes，并保存到 self。
+
+        输出：
+        - current_loss: 本轮优化结束后的 loss。
+        - init_loss: 本轮优化开始时的 loss。
+
+        异常：
+        - coeff 不是 'slopes' 或 'weights' 时抛出 ValueError；
+        - bounds 数量与自由变量数量不一致时抛出 ValueError。
+
+        说明：
+        - slopes 始终以归一化形式交给优化器，写回 self.slopes 时再乘以 slope_upper_bound；
+        - weights 不做额外归一化，直接在实际数值边界内优化。
+        """
         print(f"---------- 第{i}轮优化开始 ----------")
         start = time.time()
 
@@ -217,7 +260,7 @@ class Optimiser(Reconstructor):
             def loss_fn(x):
                 slopes_full = base_slopes_normalised.copy()
                 slopes_full[optimise_mask] = x
-                return self._loss_fn(self.rot_ang, base_weights, slopes_full.reshape(-1), slope_upper_bound)
+                return self._loss_fn(self.rot_ang, base_weights, slopes_full.reshape(-1), slope_upper_bound, force_ideal_magnitude=force_ideal_magnitude)
 
         elif coeff == "weights":
             freeze_mask = self._get_weight_freeze_mask()
@@ -229,7 +272,7 @@ class Optimiser(Reconstructor):
             def loss_fn(x):
                 weights_full = base_weights.copy()
                 weights_full[optimise_mask] = x
-                return self._loss_fn(self.rot_ang, weights_full, base_slopes_normalised.reshape(-1), slope_upper_bound)
+                return self._loss_fn(self.rot_ang, weights_full, base_slopes_normalised.reshape(-1), slope_upper_bound, force_ideal_magnitude=force_ideal_magnitude)
 
         else:
             raise ValueError(f"Unknown coeff: {coeff}")
@@ -306,100 +349,91 @@ class Optimiser(Reconstructor):
         print(f"半径误差: {self.avg_radius_err}")
         print()
 
-    def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound):
+    def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound, force_ideal_magnitude=False):
         """
-        给定当前参数，计算优化器使用的损失函数值。
+        给定当前候选参数，计算优化器使用的总损失值。
 
-        步骤：
-        1. 将 rot_ang、weights 写回当前对象状态。
-        2. 将 slopes_normalised 乘以 slope_upper_bound 后 reshape 回 self.slopes_shape，并写回 self.slopes[self.direct]。
-        3. 使用当前参数对所有可用标定形状执行一次形状重构。
-        4. 调用 _compute_error() 计算逐点误差、末端误差，以及 rot0 的螺距/半径误差。
-        5. 返回加权损失：
+        参数：
+        - rot_ang: 当前旋转角补偿，单位为度。
+        - weights: 当前候选应变权重向量。
+        - slopes_normalised: 当前候选归一化 slopes，通常为展平数组。
+        - slope_upper_bound: 将 slopes_normalised 恢复为实际 slopes 的尺度。
+        - force_ideal_magnitude: 重构时是否强制使用理论曲率大小。
+
+        处理流程：
+        1. 将 rot_ang 写回 self.rot_ang；
+        2. 将 weights 写回 self.weights[self.direct]；
+        3. 将 slopes_normalised * slope_upper_bound reshape 为 self.slopes_shape，并写回 self.slopes[self.direct]；
+        4. 使用当前参数对 self.calib_shapes 中的所有形状执行重构；
+        5. 调用 _compute_error() 更新逐点误差、末端误差、rot0 螺距误差和半径误差；
+        6. 返回加权总损失：
         k_point * avg_point_err['calib']
         + k_end * avg_end_err['calib']
         + k_pitch * avg_pitch_err
-        + k_radius * avg_radius_err
+        + k_radius * avg_radius_err。
 
-        输入：
-        - rot_ang: 当前旋转角补偿
-        - weights: 当前应变权重向量
-        - slopes_normalised: 归一化后的展平扭转系数
-        - slope_upper_bound: 用于恢复扭转系数原始量级的尺度
+        输出：
+        - loss: 标量浮点数，总优化损失。
 
         说明：
-        - 当前 avg_point_err['calib'] 与 avg_end_err['calib'] 汇总 circ / S / end。
-        - rot0 不参与 calib 的逐点/末端误差汇总，而是通过 avg_pitch_err 与 avg_radius_err 进入损失。
+        - force_ideal_magnitude=True 时，曲率大小不再来自应变幅值估计，主要用于 slopes 阶段；
+        - 当前 'calib' 汇总误差由 _compute_error() 中的 calib_error_shapes 决定，通常包括 circ、S、end、end3；
+        - rot0 不参与 'calib' 的逐点/末端误差汇总，而通过 avg_pitch_err 与 avg_radius_err 单独进入损失。
         """
         # ---------- unpack parameters ----------
         self.rot_ang = rot_ang
         self.weights[self.direct] = weights
+        # self.weights[self.direct] = np.ones(self.num_levels)
         self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape)
         # ---------- 计算误差 ----------
         rs = {}
         for calib_shape in self.calib_shapes:
-            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False)
+            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False, force_ideal_magnitude=force_ideal_magnitude,)
             rs[calib_shape] = r_results_postrot
 
         self._compute_error(interp_dist=interp_dist, rs=rs)
 
         return self.k_point * self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
 
-    def _get_trim_interp_mask(self, interp_dist):
-        """
-        返回当前 straight_trim 对应的插值点 mask。
-        straight_trim 不影响重构本身，只在误差统计阶段筛选参与评价的点。
-        """
-        interp_dist = np.asarray(interp_dist, dtype=float)
-        trim_min = getattr(self, "trim_eval_min", interp_dist[0])
-        trim_max = getattr(self, "trim_eval_max", interp_dist[-1])
-
-        mask = (interp_dist >= trim_min) & (interp_dist <= trim_max)
-        if not np.any(mask):
-            raise ValueError(
-                f"straight_trim 后没有可用于误差计算的插值点: "
-                f"trim_eval_min={trim_min}, trim_eval_max={trim_max}, "
-                f"interp范围=({interp_dist[0]}, {interp_dist[-1]})"
-            )
-        return mask
-
-    def _trim_result_tree(self, results, mask):
-        """递归裁剪重构/理想轨迹树。"""
-        mask = np.asarray(mask, dtype=bool)
-        return dict_recur_extract(results, lambda arr: arr[mask] if len(arr) == len(mask) else arr)
-
     def _compute_error(self, interp_dist, rs):
         """
         计算各类标定形状下的重构结果相对于理论标定曲线的误差。
 
-        步骤：
-        1. 根据 interp_dist 与当前 calib_shape 构造对应的理想标定曲线 ideals。
-        2. 对每个标定形状，使用递归字典操作对重构结果与理想曲线逐点计算欧氏距离误差，并按 val_len 归一化。
-        3. 从逐点误差中进一步提取：
-            - 每组曲线的末端误差
-            - 每组曲线的平均逐点误差
-        4. 对每个标定形状分别汇总其内部所有曲线的平均逐点误差与平均末端误差。
-        5. 对 circ、S、end 三类常规校准形状汇总，得到键 'calib' 对应的整体平均逐点误差与平均末端误差。rot0 不进入该 calib 汇总，而是单独计算螺距误差和半径误差。
+        当前版本假设 straight_trim 已经在 Sensor 阶段直接裁剪：
+        - self.Data / self.processed_Data / self.plot_Data 已经只保留有效段；
+        - self.samp_dist / self.ad_samp_dist 已经对应有效段；
+        - 因此这里不再使用 trim_mask，也不再对重构结果做二次裁剪。
 
-        输入：
-        - interp_dist: 插值后的弧长坐标数组
-        - rs: 按标定形状组织的重构结果字典，结构为：
-            - circ / S: {calib_shape: {radius: 轨迹数组}}
-            - end / rot0 / up / down: {calib_shape: {key1: {key2: 轨迹数组}}}
+        参数：
+        - interp_dist: 当前重构使用的插值弧长坐标数组，单位为 m。
+        - rs: 按标定形状组织的重构结果字典，通常由 reconstruct_shapes() 生成。
 
-        输出：
-        - 无显式返回
-        - 更新以下成员：
-            - self.point_errors
-            - self.point_errors_avg
-            - self.end_errors
-            - self.avg_point_err
-            - self.avg_end_err
+        处理流程：
+        1. 初始化各类误差缓存字典；
+        2. 将 interp_dist 转为相对弧长，并检查有效评估长度；
+        3. 对 rot0：
+        - 根据 self.cur_interp 识别旋转段；
+        - 估计旋转轴；
+        - 计算螺距误差和半径误差；
+        4. 对其他标定形状：
+        - 调用 _construct_ideals() 构造理论曲线；
+        - 调用 _compute_point_err() 计算归一化逐点误差；
+        - 提取末端误差和平均逐点误差；
+        5. 汇总 circ、S、end、end3 的 calib 平均逐点误差和末端误差。
 
-        说明：
-        - self.avg_point_err 与 self.avg_end_err 中额外包含的聚合键为 'calib'，而不是 'all'；
-        - 'calib' 当前仅汇总 circ、S、end；
-        - rot0 单独更新 self.rot0_pitch_errors、self.rot0_radius_errors、self.avg_pitch_err 与 self.avg_radius_err。
+        副作用：
+        - 更新 self.point_errors；
+        - 更新 self.point_errors_avg；
+        - 更新 self.end_errors；
+        - 更新 self.avg_point_err；
+        - 更新 self.avg_end_err；
+        - 更新 self.rot0_pitch_errors；
+        - 更新 self.rot0_radius_errors；
+        - 更新 self.avg_pitch_err；
+        - 更新 self.avg_radius_err。
+
+        异常：
+        - interp_dist 为空、有效长度非正，或 rot0 段识别失败时会抛出 ValueError。
         """
         self.point_errors = {}
         self.point_errors_avg = {}
@@ -412,19 +446,35 @@ class Optimiser(Reconstructor):
         self.avg_pitch_err = 0
         self.avg_radius_err = 0
 
-        trim_mask = self._get_trim_interp_mask(interp_dist)
-        interp_dist_eval = np.asarray(interp_dist, dtype=float)[trim_mask]
-        val_len = interp_dist_eval[-1]
-        if val_len < 0:
-            print(f"val_len: {val_len}")
+        # 现在 interp_dist 本身已经对应裁剪后的有效段
+        interp_dist_eval = np.asarray(interp_dist, dtype=float)
+
+        if len(interp_dist_eval) == 0:
+            raise ValueError("interp_dist 为空，无法计算误差")
+
+        # 保险起见，统一从 0 开始；如果 Sensor 中已经归零，这里不会改变结果
+        interp_dist_eval = interp_dist_eval - interp_dist_eval[0]
+
+        if len(interp_dist_eval) == 1:
+            val_len = 0.0
+        else:
+            val_len = float(interp_dist_eval[-1])
+
+        if val_len <= 0:
+            raise ValueError(
+                f"有效评估长度 val_len={val_len} 非正，"
+                f"请检查裁剪后的 samp_dist / interp_dist 是否至少包含两个不同位置的点。"
+            )
 
         for calib_shape in self.calib_shapes:
-            results = self._trim_result_tree(rs[calib_shape], trim_mask)
-            
-            if calib_shape == "rot0":
-                cur_interp_eval = self.cur_interp[trim_mask] if len(self.cur_interp) == len(trim_mask) else self.cur_interp
-                rot0_errors = dict_recur_extract_path(d=results, f=lambda x, path: self._compute_rot0_err(result=x, cur_interp=cur_interp_eval, radius_m=path[-2] * 0.001))
+            if calib_shape not in rs:
+                continue
 
+            results = rs[calib_shape]
+
+            if calib_shape == "rot0":
+                cur_interp_eval = np.asarray(self.cur_interp, dtype=float)
+                rot0_errors = dict_recur_extract_path(d=results, f=lambda x, path: self._compute_rot0_err(result=x, cur_interp=cur_interp_eval, radius_m=path[-2] * 0.001))
                 pitch_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[0])
                 radius_errors = dict_recur_extract(d=rot0_errors, f=lambda x: x[1])
 
@@ -437,13 +487,9 @@ class Optimiser(Reconstructor):
                 self.avg_pitch_err = np.nanmean(pitch_vals)
                 self.avg_radius_err = np.nanmean(radius_vals)
 
-            else:    
-                point_errors = {}
-                end_errors = {}
-                point_errors_avg = {}
+            else:
                 ideals = self._construct_ideals(calib_shape=calib_shape, interp_dist=interp_dist_eval, val_len=val_len)
-
-                point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: self._compute_point_err(result=x, ideal=y, interp_dist=interp_dist_eval, val_len=val_len))
+                point_errors = dict_recur_operate(d1=results, d2=ideals, f=lambda x, y: self._compute_point_err(result=x, ideal=y, interp_dist=interp_dist_eval, val_len=val_len) )
                 end_errors = dict_recur_extract(d=point_errors, f=lambda x: x[-1])
                 point_errors_avg = dict_recur_extract(d=point_errors, f=lambda x: np.nanmean(x))
 
@@ -451,20 +497,62 @@ class Optimiser(Reconstructor):
                 self.end_errors[calib_shape] = end_errors
                 self.point_errors_avg[calib_shape] = point_errors_avg
 
-                # 统一处理 circ / S / end
                 point_vals = dict_recur_value(point_errors_avg)
                 end_vals = dict_recur_value(end_errors)
+
                 self.avg_point_err[calib_shape] = np.nanmean(point_vals)
                 self.avg_end_err[calib_shape] = np.nanmean(end_vals)
-            
-        calib_point_errors_avg = {k: self.point_errors_avg[k] for k in ['circ', 'S', 'end'] if k in self.point_errors_avg}
-        calib_end_errors = {k: self.end_errors[k] for k in ['circ', 'S', 'end'] if k in self.end_errors}
+
+        calib_error_shapes = ["circ", "S", "end", "end3"]
+        calib_point_errors_avg = {k: self.point_errors_avg[k] for k in calib_error_shapes if k in self.point_errors_avg}
+        calib_end_errors = {k: self.end_errors[k] for k in calib_error_shapes if k in self.end_errors}
+
         calib_point_vals = dict_recur_value(calib_point_errors_avg)
         calib_end_vals = dict_recur_value(calib_end_errors)
-        self.avg_point_err['calib'] = np.nanmean(calib_point_vals)
-        self.avg_end_err['calib'] = np.nanmean(calib_end_vals)
+
+        self.avg_point_err["calib"] = np.nanmean(calib_point_vals)
+        self.avg_end_err["calib"] = np.nanmean(calib_end_vals)
 
     def _construct_ideals(self, calib_shape, interp_dist, val_len):
+        """
+        计算各类标定形状下的重构结果相对于理论标定曲线的误差。
+
+        当前版本假设 straight_trim 已经在 Sensor 阶段直接裁剪：
+        - self.Data / self.processed_Data / self.plot_Data 已经只保留有效段；
+        - self.samp_dist / self.ad_samp_dist 已经对应有效段；
+        - 因此这里不再使用 trim_mask，也不再对重构结果做二次裁剪。
+
+        参数：
+        - interp_dist: 当前重构使用的插值弧长坐标数组，单位为 m。
+        - rs: 按标定形状组织的重构结果字典，通常由 reconstruct_shapes() 生成。
+
+        处理流程：
+        1. 初始化各类误差缓存字典；
+        2. 将 interp_dist 转为相对弧长，并检查有效评估长度；
+        3. 对 rot0：
+        - 根据 self.cur_interp 识别旋转段；
+        - 估计旋转轴；
+        - 计算螺距误差和半径误差；
+        4. 对其他标定形状：
+        - 调用 _construct_ideals() 构造理论曲线；
+        - 调用 _compute_point_err() 计算归一化逐点误差；
+        - 提取末端误差和平均逐点误差；
+        5. 汇总 circ、S、end、end3 的 calib 平均逐点误差和末端误差。
+
+        副作用：
+        - 更新 self.point_errors；
+        - 更新 self.point_errors_avg；
+        - 更新 self.end_errors；
+        - 更新 self.avg_point_err；
+        - 更新 self.avg_end_err；
+        - 更新 self.rot0_pitch_errors；
+        - 更新 self.rot0_radius_errors；
+        - 更新 self.avg_pitch_err；
+        - 更新 self.avg_radius_err。
+
+        异常：
+        - interp_dist 为空、有效长度非正，或 rot0 段识别失败时会抛出 ValueError。
+        """
         ideals = {}
         for radius in self.radii[self.direct][calib_shape]:
             radius_m = radius * 0.001
@@ -477,9 +565,13 @@ class Optimiser(Reconstructor):
                 for idx in self.radii[self.direct][calib_shape][radius]:
                     idx_m = idx * 0.001
                     ideals[radius][idx] = self._construct_ideal_shape(calib_shape=calib_shape, interp_dist=interp_dist, val_len=val_len, radius_m=radius_m, idx_m=idx_m)
+            elif calib_shape == 'end3':
+                ideals[radius] = {}
+                for angle_deg in self.radii[self.direct][calib_shape][radius]:
+                    ideals[radius][angle_deg] = self._construct_ideal_shape(calib_shape=calib_shape, interp_dist=interp_dist, val_len=val_len, radius_m=radius_m, idx_m=None, angle_deg=angle_deg)
         return ideals
                 
-    def _construct_ideal_shape(self, calib_shape, interp_dist, val_len, radius_m, idx_m):
+    def _construct_ideal_shape(self, calib_shape, interp_dist, val_len, radius_m, idx_m, angle_deg=None):
         ideal_shape = []
         for arc_len in interp_dist:
             if arc_len <= val_len:
@@ -496,6 +588,8 @@ class Optimiser(Reconstructor):
                         real_point = self._construct_ideal_rot0(radius_m=radius_m, rot_pos=idx_m, arc_len=arc_len)
                     elif calib_shape in ['up', 'down']:
                         real_point = self._construct_ideal_rot(radius_m=radius_m, pitch=idx_m, dir=calib_shape, arc_len=arc_len)
+                    elif calib_shape == 'end3':
+                        real_point = self._construct_ideal_end3(radius_m=radius_m, angle_deg=angle_deg, arc_len=arc_len)
                 ideal_shape.append(real_point)
         return np.array(ideal_shape)
 
@@ -504,6 +598,29 @@ class Optimiser(Reconstructor):
         y = radius_m * (1.0 - np.cos(arc_len / radius_m))
         real_point = np.array([x, y, 0.0])
         return real_point
+
+    def _construct_ideal_end3(self, radius_m, angle_deg, arc_len):
+        """
+        构造 x-y-z-end3 的理论圆弧。
+
+        约定：
+        - x 已经作为 direct 进入外层数据结构；
+        - y 是圆弧半径，已在调用处转换为 radius_m；
+        - z 是圆弧平面相对 +y 方向的顺时针夹角，单位为度；
+        - z=0 时退化为现有 circ 基准，即位于 x-y 平面并向 +y 弯曲。
+        """
+        if angle_deg is None:
+            raise ValueError("end3 ideal requires angle_deg, but got None")
+
+        base_point = self._construct_ideal_circ(radius_m=radius_m, arc_len=arc_len)
+        angle_rad = np.deg2rad(float(angle_deg))
+
+        x = base_point[0]
+        lateral = base_point[1]
+        y = lateral * np.cos(angle_rad)
+        z = -lateral * np.sin(angle_rad)
+
+        return np.array([x, y, z])
 
     def _construct_ideal_S(self, radius_m, arc_len):
         straight_len = 0.1

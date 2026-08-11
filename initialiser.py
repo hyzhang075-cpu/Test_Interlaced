@@ -9,7 +9,7 @@ class Initialiser(Sensor):
     """
     形状重构的初始化模块
     """
-    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, unwrap_direct = 0, *args, **kwargs):
+    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.discont = discont
@@ -18,7 +18,6 @@ class Initialiser(Sensor):
         self.connect = connect
         self.global_phases_set = global_phases_set
         self.interlaced_offset = interlaced_offset
-        self.unwrap_direct = unwrap_direct
         if not self.global_phases_set:
             self.global_phases_set = 0.0
             self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
@@ -135,9 +134,7 @@ class Initialiser(Sensor):
 
                     magnitude, angle = self._calculate_curvature_and_angle(epsilon=strain_data, alpha_dynamic=theta_dynamic)
 
-                    # angle_unwrap_i = np.unwrap(angle, discont=self.discont)
-                    angle_unwrap_i = self._directional_unwrap(angle)
-                    # print(f"calib_shape: {calib_shape}, path: {path}, \n raw angle: {angle}, \n unwrap angle: {angle_unwrap_i}")
+                    angle_unwrap_i = np.unwrap(angle, discont=self.discont)
                     init_angle_i = angle_unwrap_i[0]
 
                     bundled_flat[path] = (magnitude, angle, angle_unwrap_i, init_angle_i)
@@ -255,66 +252,6 @@ class Initialiser(Sensor):
         - 当交错刻栅开启时，theta_0 可能本身就是二维矩阵，形状为
         (num_channels_recon, total_points)，以支持不同采样点处通道角度不同。
         """
-        # # 获取 active_angles 参数，如果不存在则为 None
-        # active_angles = self.active_angles
-        
-        # # 判断是否传入了有效的 active_angles
-        # if active_angles is not None and len(active_angles) == self.num_channels_recon:
-        #     # 将传入的角度(度)转换为弧度，并加上全局相位
-        #     theta_0_list = [self.global_phases_set + np.deg2rad(ang) for ang in active_angles]
-        #     theta_0 = np.array([theta_0_list]).T
-        # else:
-        #     if self.interlaced_grating:
-        #         if self.samp_dist_preset_sub is None:
-        #             raise ValueError("交错刻栅模式下，samp_dist_preset_sub 不能为空")
-        #         # 交错刻栅时，由于将外围通道的数据按照pre_samp_dist和sub_samp_dist的顺序合并，因此重建通道的角度也需要按照相同的顺序进行交错排列
-        #         # self.num_channels_recon 已经在 Sensor 类的 __init__ 中根据是否交错刻栅进行了调整，因此这里直接使用 self.num_channels_recon 来计算均匀分布的角度即可，无需额外处理
-        #         # 如果需要在全局相位基础上进行交错排列，可以在计算均匀分布的基础上添加一个交错偏移，例如：
-        #         theta_0_1 = np.array([[self.global_phases_set + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
-        #         theta_0_2 = np.array([[self.global_phases_set + self.interlaced_offset + i * 2*np.pi/(self.num_channels_recon) for i in range(self.num_channels_recon)]]).T
-
-        #         p1 = np.array(self.samp_dist_preset)
-        #         p2 = np.array(self.samp_dist_preset_sub)
-                
-        #         # 按照各自的采样点数量进行水平平铺
-        #         theta_0_1_full = np.repeat(theta_0_1, len(p1), axis=1)
-        #         theta_0_2_full = np.repeat(theta_0_2, len(p2), axis=1)
-                
-        #         # 拼接后根据位置排序索引进行穿插重排
-        #         theta_0_combined = np.concatenate((theta_0_1_full, theta_0_2_full), axis=1)
-        #         p_combined = np.concatenate((p1, p2))
-        #         sort_idx = np.argsort(p_combined)
-                
-        #         # 此时 theta_0 是一个形状为 (num_channels_recon, total_points) 的矩阵
-        #         theta_0 = theta_0_combined[:, sort_idx]
-            
-        #     else:# 默认的均匀分布逻辑
-        #         theta_0 = np.array([[self.global_phases_set + i * 2*np.pi/self.num_channels_recon for i in range(self.num_channels_recon)]]).T
-            
-        # theta = np.zeros((self.num_channels_recon, len(self.samp_dist)))
-        # if mode == 'init':
-        #     theta_dynamic = theta_0 + theta
-        # elif mode == 'recon':
-        #     seg_frequencies = [slope for slope in seg_slopes]
-        #     current_phase = theta_0
-        #     last_position = self.samp_dist[0]
-        #     # 按顺序处理每个分段
-        #     for seg, freq in zip(segments, seg_frequencies):
-        #         seg_start, seg_end = seg
-        #         seg_slice = slice(seg_start, seg_end)
-                
-        #         if seg_start >= len(self.samp_dist) or seg_end > len(self.samp_dist):
-        #             continue
-
-        #         # 计算相对距离（相对于累积基准位置）
-        #         delta_dist = (self.samp_dist[seg_slice] - last_position)  #m
-        #         # 计算当前分段相位（所有相同时计算）
-        #         theta[:, seg_slice] = current_phase + np.ones((self.num_channels_recon, 1)) * (freq * delta_dist)
-        #         # 更新基准相位和位置
-        #         last_position = self.samp_dist[seg_end-1] if seg_end <= len(self.samp_dist) else last_position
-        #         current_phase = theta[:, seg_end-1:seg_end] if seg_end <= len(self.samp_dist) else current_phase
-        #     theta_dynamic = theta
-
         # 获取 active_angles 参数，如果不存在则为 None
         active_angles = self.active_angles
         
@@ -622,11 +559,10 @@ class Initialiser(Sensor):
         - self.zero_init 的语义来自 Sensor.generate_samp_dist()：当 ad_samp_dist 中需要补起点虚拟点时，
         这里保留第 0 个真实采样点；否则跳过第 0 个点以避免起点对拟合造成影响。
         """
-        # unwrapped = np.unwrap(angles, discont=self.discont)
-        unwrapped = self._directional_unwrap(angles)
+        unwrapped = np.unwrap(angles, discont=self.discont)
         raw_valid_length = min(len(unwrapped), len(self.samp_dist))
 
-        if self.zero_init:
+        if self.zero_init or self.straight_trim != 0:   #如果是裁剪了，那第一个点也要保留
             x_data = self.samp_dist[:raw_valid_length]
             y_data = unwrapped[:raw_valid_length]
         else:
@@ -743,63 +679,3 @@ class Initialiser(Sensor):
             start = end
 
         return segments if segments else [(0, total_points)]
-
-
-    def _directional_unwrap(self, angles):
-        """
-        自定义的定向 unwrap 函数。
-        根据 self.unwrap_direct 的值限制 unwrap 的方向：
-        0  : 不限制跳变方向（标准 unwrap）
-        1  : 限制所有相位跳变只能向增加的方向 unwrap
-        -1 : 限制所有相位跳变只能向减小的方向 unwrap
-        """
-        angles = np.asarray(angles, dtype=np.float64)
-        
-        # 如果不限制方向，直接返回标准 unwrap 结果
-        if self.unwrap_direct == 0:
-            return np.unwrap(angles, discont=self.discont)
-
-        # 如果点数少于2，直接返回原数组副本
-        if len(angles) < 2:
-            return angles.copy()
-
-        unwrapped = np.zeros_like(angles)
-        unwrapped[0] = angles[0]
-
-        # 直接使用类属性指定的趋势
-        trend = self.unwrap_direct
-
-        # 既然趋势已明确，从第二个点（索引1）开始就应用方向限制
-        for i in range(1, len(angles)):
-            # 计算当前点与前一个 unwrapped 点的原始差值
-            diff = angles[i] - (unwrapped[i-1] % (2 * np.pi))
-
-            # 将差值映射到 [-pi, pi] 之间
-            diff = (diff + np.pi) % (2 * np.pi) - np.pi
-            # print(f"i: {i}, raw diff: {angles[i] - unwrapped[i-1]}, mapped diff: {diff}")
-            # 根据指定的趋势强制限制跳变方向
-            if trend == 1:
-                if diff < 0:
-                    # 强制正向增长
-                    diff += 2 * np.pi
-                # # 仅螺旋七芯光纤强栅情况生效    
-                # # 仅前10个点（i < 10）生效：若限制跳变方向后，diff的绝对值仍小于0.9375*np.pi，则再多增加2pi
-                #     if i < 10 and abs(diff) < 0.90*np.pi:
-                #         diff += 2 * np.pi
-                # elif diff > 0 and i < 10 and abs(diff) < 0.9*np.pi:
-                #     diff += 2 * np.pi
-
-            elif trend == -1:
-                if diff > 0:
-                    # 强制负向增长
-                    diff -= 2 * np.pi
-                #     # 仅前10个点（i < 10）生效：若限制跳变方向后，diff的绝对值仍小于0.9375*np.pi，则再多减少2pi
-                #     if i < 10 and abs(diff) < 0.9*np.pi:
-                #         diff -= 2 * np.pi
-                # elif diff < 0 and i < 10 and abs(diff) < 0.9*np.pi:
-                #     diff -= 2 * np.pi
-
-            unwrapped[i] = unwrapped[i-1] + diff
-
-        return unwrapped
-
