@@ -111,7 +111,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates, insert_value):
+    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates, insert_value=None):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -900,7 +900,12 @@ class Demonstrator(QMainWindow):
 
         #----------------- 保存pickle数据 -----------------
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=self.insert_dis)
+            # 安全获取推进量数据
+            if hasattr(self, 'insert_dis') and self.insert_dis is not None:
+                insert_value = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
+            else:
+                insert_value = None
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=insert_value)
 
         self._update_frame(r_results_postrot, End_pose)
 
