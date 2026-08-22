@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.ndimage import uniform_filter1d
-from scipy.interpolate import CubicHermiteSpline
+from scipy.interpolate import CubicHermiteSpline, PchipInterpolator
 
 from initialiser import Initialiser
 
@@ -11,7 +11,8 @@ class Reconstructor(Initialiser):
     形状重构模块
     """
     def __init__(self, soft=True, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
-                 TNB_threshold=0.15, interp_num=60, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},  
+                 TNB_threshold=0.15, interp_num=60, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
+                 curvature_interp='hermite', nonnegative_curvature=False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -49,6 +50,33 @@ class Reconstructor(Initialiser):
         self.move_filter = move_filter
         self.kalman_params = kalman_params
         self.interp_num = interp_num
+        self.curvature_interp = self._normalise_curvature_interp(curvature_interp)
+        self.nonnegative_curvature = bool(nonnegative_curvature)
+
+    @staticmethod
+    def _normalise_curvature_interp(method):
+        """Return the canonical production curvature interpolation mode."""
+        aliases = {'pchip': 'scalar_pchip'}
+        canonical = aliases.get(method, method)
+        supported = {'hermite', 'scalar_pchip', 'vector_linear', 'vector_pchip'}
+        if canonical not in supported:
+            raise ValueError(
+                "curvature_interp must be one of: hermite, pchip, "
+                "scalar_pchip, vector_linear, vector_pchip"
+            )
+        return canonical
+
+    @staticmethod
+    def _vector_curvature_method(mode):
+        """Map a production vector mode to its component interpolation method."""
+        methods = {
+            'vector_linear': 'linear',
+            'vector_pchip': 'pchip',
+        }
+        try:
+            return methods[mode]
+        except KeyError as exc:
+            raise ValueError(f"unsupported vector curvature mode: {mode}") from exc
 
     def reconstruct_shapes(self, calib_shape, direct, verbose=False, force_ideal_magnitude=False):
         """
@@ -111,7 +139,7 @@ class Reconstructor(Initialiser):
             if isinstance(magnitude_ratio, dict):
                 magnitude_ratio = magnitude_ratio[keys[1]]
 
-            _, _, _, interp_dist, r, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, init_T=[1.0, 0.0, 0.0], verbose=verbose, force_ideal_magnitude=force_ideal_magnitude)
+            _, _, _, interp_dist, r, _, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, init_T=[1.0, 0.0, 0.0], verbose=verbose, force_ideal_magnitude=force_ideal_magnitude)
 
             r_postrot = r @ rot_matrix.T
             flat_results[path] = r_postrot
@@ -181,6 +209,8 @@ class Reconstructor(Initialiser):
         """
         # ---------- 计算重构使用的曲率大小与方向 ----------
         magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, verbose=verbose)
+        magnitude_raw = magnitude.copy()
+        angle_raw = angle.copy()
         if force_ideal_magnitude:
             magnitude = self._construct_ideal_magnitude_for_recon(keys=keys, calib_shape=calib_shape, sample_dist=self.samp_dist)
         if angle_prev is not None and magnitude[0] < align_threshold:
@@ -212,17 +242,36 @@ class Reconstructor(Initialiser):
 
         # 使用 try-except 捕获插值过程中的报错并追加上下文信息
         try:
-            ang_interp, interp_dist = self._KT_Hermit_interp_tang(data=ang_filter)
-
-            if force_ideal_magnitude:
-                cur_interp = self._construct_ideal_magnitude_for_recon(keys=keys, calib_shape=calib_shape, sample_dist=interp_dist)
+            if self.curvature_interp in {'vector_linear', 'vector_pchip'}:
+                if force_ideal_magnitude:
+                    curvature_samples = self._construct_ideal_magnitude_for_recon(
+                        keys=keys,
+                        calib_shape=calib_shape,
+                        sample_dist=self.ad_samp_dist,
+                    )
+                else:
+                    curvature_samples = cur_kal
+                cur_interp, ang_interp, interp_dist = self._interpolate_curvature_vector(
+                    magnitude=curvature_samples,
+                    angle=angle_unwrap,
+                    method=self._vector_curvature_method(self.curvature_interp),
+                )
             else:
-                cur_kal = self._Kalman_filter(data=magnitude, Rk=self.kalman_params['magnitude']['Rk'], Bk=self.kalman_params['magnitude']['Bk'])
+                # Preserve the historical scalar path: angle Hermite plus an
+                # independently interpolated scalar curvature magnitude.
+                ang_interp, interp_dist = self._KT_Hermit_interp_tang(data=ang_filter)
 
-                if not np.all(np.isfinite(cur_kal)):
-                    raise ValueError(f"[{context_str}] cur_kal 包含 NaN 或 inf。请检查 _Strain_2_Cur 的输出。")
+                if force_ideal_magnitude:
+                    cur_interp = self._construct_ideal_magnitude_for_recon(keys=keys, calib_shape=calib_shape, sample_dist=interp_dist)
+                else:
+                    if not np.all(np.isfinite(cur_kal)):
+                        raise ValueError(f"[{context_str}] cur_kal 包含 NaN 或 inf。请检查 _Strain_2_Cur 的输出。")
 
-                cur_interp, interp_dist = self._KT_Hermit_interp_tang(data=cur_kal)
+                    cur_interp, interp_dist = self._interpolate_curvature(
+                        data=cur_kal,
+                        method=self.curvature_interp,
+                        nonnegative=self.nonnegative_curvature,
+                    )
 
             if not np.all(np.isfinite(cur_interp)):
                 raise ValueError(f"[{context_str}] cur_interp 包含 NaN 或 inf。")
@@ -233,7 +282,7 @@ class Reconstructor(Initialiser):
             raise ValueError(f"数据追踪信息 -> {context_str} | 原始报错: {e}")
         interp_ss = np.diff(interp_dist)
 
-        # 计算初始N向量
+        # Frenet-Serret 路径仍以首点曲率方向作为初始主法向。
         init_N = np.array([0, np.cos(ang_interp[0]), np.sin(ang_interp[0])])
 
         if verbose:
@@ -242,6 +291,15 @@ class Reconstructor(Initialiser):
             print(f"cur_interp: {cur_interp}")
             print(f"init_N: {init_N}")
 
+        intermediates = {
+            'magnitude': magnitude_raw.copy(),
+            'angle': angle_raw.copy(),
+            'cur_kal': cur_kal.copy(),
+            'ang_filter': ang_filter.copy(),
+            'cur_interp': cur_interp.copy(),
+            'ang_interp': ang_interp.copy(),
+        }
+
         if self.frame_rule == 'TNB':
             # Frenet-Serret重构
             ang_diff = np.diff(ang_interp)
@@ -249,10 +307,10 @@ class Reconstructor(Initialiser):
             if verbose:
                 print(f"torsion: {torsion}")
             r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)  
-            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B
+            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B, intermediates
         elif self.frame_rule == 'TNN':
             # 平行标架重构
-            r, T, N, B, _, _ = self._parallel_frame(
+            r, T, Y, Z, _, _ = self._parallel_frame(
                 kappa=cur_interp,
                 angles=ang_interp,
                 ss=interp_ss,
@@ -260,7 +318,7 @@ class Reconstructor(Initialiser):
                 init_N=init_N,
                 return_principal_frame=True,
             )
-            return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B
+            return angle, angle_unwrap, cur_interp, interp_dist, r, T, Y, Z, intermediates
 
     def _construct_ideal_magnitude_for_recon(self, keys, calib_shape, sample_dist):
         """
@@ -757,6 +815,80 @@ class Reconstructor(Initialiser):
         interp_data = hermite_spline(interp_samp_dist)
         
         return interp_data, interp_samp_dist
+
+    def _interpolate_curvature(self, data, method=None, nonnegative=None):
+        """按选定策略对曲率进行空间插值。
+
+        ``hermite`` 保留历史实现；``pchip`` 使用单调保形插值，避免在
+        相邻采样点之间因三次 Hermite 斜率而产生额外过冲。非负约束只在
+        曲率插值结果上执行，不改变方向角，因此可单独比较插值与约束的影响。
+        """
+        method = self.curvature_interp if method is None else method
+        nonnegative = self.nonnegative_curvature if nonnegative is None else bool(nonnegative)
+        if method == 'hermite':
+            interp_data, interp_samp_dist = self._KT_Hermit_interp_tang(data)
+        elif method in {'pchip', 'scalar_pchip'}:
+            samp_dist = np.asarray(self.ad_samp_dist, dtype=float)
+            data = np.asarray(data, dtype=float)
+            if samp_dist.ndim != 1 or data.ndim != 1 or data.shape[0] != samp_dist.size:
+                raise ValueError("曲率数据与采样距离必须是一维且长度一致")
+            if samp_dist.size < 2 or not np.all(np.isfinite(samp_dist)) or not np.all(np.diff(samp_dist) > 0):
+                raise ValueError("samp_dist 必须包含至少两个严格递增的有限值")
+            if not np.all(np.isfinite(data)):
+                raise ValueError("曲率数据包含 NaN 或 inf")
+            interp_samp_dist = np.linspace(samp_dist[0], samp_dist[-1], num=self.interp_num)
+            interp_data = PchipInterpolator(samp_dist, data)(interp_samp_dist)
+        else:
+            raise ValueError("scalar curvature interpolation method must be 'hermite' or 'scalar_pchip'")
+
+        if nonnegative:
+            interp_data = np.maximum(np.asarray(interp_data, dtype=float), 0.0)
+        return np.asarray(interp_data, dtype=float), np.asarray(interp_samp_dist, dtype=float)
+
+    def _interpolate_curvature_vector(self, magnitude, angle, method):
+        """Filter and interpolate the two circularly invariant curvature components."""
+        samp_dist = np.asarray(self.ad_samp_dist, dtype=float)
+        magnitude = np.asarray(magnitude, dtype=float)
+        angle = np.asarray(angle, dtype=float)
+        if magnitude.ndim != 1 or angle.ndim != 1 or magnitude.shape != angle.shape:
+            raise ValueError("magnitude and angle must be one-dimensional arrays with equal length")
+        if magnitude.size != samp_dist.size:
+            raise ValueError("curvature-vector samples must match ad_samp_dist")
+        if (
+            samp_dist.size < 2
+            or not np.all(np.isfinite(samp_dist))
+            or not np.all(np.diff(samp_dist) > 0.0)
+            or not np.all(np.isfinite(magnitude))
+            or not np.all(np.isfinite(angle))
+        ):
+            raise ValueError("curvature-vector interpolation inputs must be finite and ordered")
+        if method not in {'linear', 'pchip'}:
+            raise ValueError("curvature-vector interpolation method must be 'linear' or 'pchip'")
+
+        components = np.column_stack(
+            (magnitude * np.cos(angle), magnitude * np.sin(angle))
+        )
+        filtered = np.column_stack(
+            [
+                self._moving_average_scipy(
+                    data=components[:, component],
+                    window_size=self.move_filter,
+                    mode='reflect',
+                )
+                for component in range(2)
+            ]
+        )
+        interp_dist = np.linspace(samp_dist[0], samp_dist[-1], num=self.interp_num)
+        if method == 'linear':
+            interpolated = np.column_stack(
+                [np.interp(interp_dist, samp_dist, filtered[:, component]) for component in range(2)]
+            )
+        else:
+            interpolated = PchipInterpolator(samp_dist, filtered, axis=0)(interp_dist)
+
+        cur_interp = np.hypot(interpolated[:, 0], interpolated[:, 1])
+        ang_interp = np.arctan2(interpolated[:, 1], interpolated[:, 0])
+        return cur_interp, ang_interp, interp_dist
     
     def _Kalman_filter(self, data, Rk, Bk):
         """
@@ -854,6 +986,11 @@ class Reconstructor(Initialiser):
     
     def _parallel_frame(self, kappa, angles, ss, init_T, init_N, return_principal_frame=False):
         """
+        With ``return_principal_frame=False`` (default), return
+        ``(r, T, N1, N2)`` for backward compatibility. When enabled, return
+        ``(r, T, Y, Z, N1, N2)``, where Y and Z are the fiber-local y/z axes
+        expressed in the global coordinate system.
+
         使用平行标架 / TNN 形式递推计算三维曲线及 T/N1/N2 标架。
 
         说明：
@@ -891,6 +1028,8 @@ class Reconstructor(Initialiser):
         N1[0] = init_N
         N2[0] = np.cross(init_T, init_N) # 也可以反过来init_N\times init_T
 
+        # 首个测点的 Fiber A 方向定义为局部零度；从局部 +Y
+        # 向 +Z 为正方向。所以曲率分量使用相对首点的角度。
         angles_rel = angles - angles[0]
         kappa1 = kappa * np.cos(angles_rel)
         kappa2 = kappa * np.sin(angles_rel)
@@ -916,23 +1055,25 @@ class Reconstructor(Initialiser):
         if not return_principal_frame:
             return r, T, N1, N2
 
-        # dT/ds = kappa1*N1 + kappa2*N2 = kappa*N.
-        # N therefore points toward the local curvature center.
-        N = np.cos(angles_rel)[:, None] * N1 + np.sin(angles_rel)[:, None] * N2
-        N = N - np.sum(N * T, axis=1, keepdims=True) * T
-        N_norm = np.linalg.norm(N, axis=1, keepdims=True)
+        # N1/N2 的初始方向相对全局 Y/Z 轴旋转了 angles[0]。
+        # 将该固定初始旋转取消，得到光纤局部 y 轴在全局
+        # 坐标系中的方向；再用 T x Y 得到右手系的局部 z 轴。
+        initial_angle = angles[0]
+        Y = np.cos(initial_angle) * N1 - np.sin(initial_angle) * N2
+        Y = Y - np.sum(Y * T, axis=1, keepdims=True) * T
+        Y_norm = np.linalg.norm(Y, axis=1, keepdims=True)
         eps = np.finfo(float).eps
-        if np.any(N_norm <= eps):
-            raise ValueError("TNN principal normal is numerically degenerate")
-        N = N / N_norm
+        if np.any(Y_norm <= eps):
+            raise ValueError("TNN local y axis is numerically degenerate")
+        Y = Y / Y_norm
 
-        B = np.cross(T, N)
-        B_norm = np.linalg.norm(B, axis=1, keepdims=True)
-        if np.any(B_norm <= eps):
-            raise ValueError("TNN binormal is numerically degenerate")
-        B = B / B_norm
+        Z = np.cross(T, Y)
+        Z_norm = np.linalg.norm(Z, axis=1, keepdims=True)
+        if np.any(Z_norm <= eps):
+            raise ValueError("TNN local z axis is numerically degenerate")
+        Z = Z / Z_norm
 
-        return r, T, N, B, N1, N2
+        return r, T, Y, Z, N1, N2
 
     @staticmethod
     def _build_end_pose(T, N, B, rot_matrix):
