@@ -61,6 +61,43 @@ def _build_send_obj(end_pose, r_results_postrot, raw_data, intermediates):
         'cur_interp': intermediates['cur_interp'].tolist(),
     }
 
+
+def _build_end_pose_arrow_matrices(endpoint, end_pose, scale_factor, axis_length):
+    """Build three VTK actor matrices from the terminal point and frame axes."""
+    endpoint = np.asarray(endpoint, dtype=float)
+    end_pose = np.asarray(end_pose, dtype=float)
+
+    if endpoint.shape != (3,):
+        raise ValueError("endpoint must have shape (3,)")
+    if end_pose.shape != (3, 3):
+        raise ValueError("end_pose must have shape (3, 3)")
+    if not np.all(np.isfinite(endpoint)) or not np.all(np.isfinite(end_pose)):
+        raise ValueError("endpoint and end_pose must contain finite values")
+    if not np.isfinite(scale_factor) or not np.isfinite(axis_length) or axis_length <= 0:
+        raise ValueError("scale_factor must be finite and axis_length must be positive")
+
+    origin = endpoint * float(scale_factor)
+    matrices = []
+    for axis in end_pose:
+        norm = float(np.linalg.norm(axis))
+        if norm <= np.finfo(float).eps:
+            raise ValueError("end_pose axes must be non-zero")
+
+        local_x = axis / norm
+        reference = np.array([0.0, 0.0, 1.0])
+        if abs(float(np.dot(local_x, reference))) > 0.9:
+            reference = np.array([0.0, 1.0, 0.0])
+        local_z = np.cross(local_x, reference)
+        local_z /= np.linalg.norm(local_z)
+        local_y = np.cross(local_z, local_x)
+
+        matrix = np.eye(4)
+        matrix[:3, :3] = np.column_stack((local_x, local_y, local_z)) * float(axis_length)
+        matrix[:3, 3] = origin
+        matrices.append(matrix)
+
+    return np.asarray(matrices)
+
 # ==============================================================================
 # 数据记录器类：用于后台异步保存数据，避免阻塞 VTK 渲染主线程
 # ==============================================================================
@@ -239,6 +276,7 @@ class Demonstrator(QMainWindow):
 
         self.add_ball()
         self.add_axes()
+        self.add_end_pose_arrows()
 
         self.points = vtk.vtkPoints()
         self.lines = vtk.vtkCellArray()
@@ -432,6 +470,64 @@ class Demonstrator(QMainWindow):
         orientation_widget.SetViewport(0.8, 0.0, 1.0, 0.2)  # 设置方向标记的位置（右下角）
         orientation_widget.SetEnabled(1)
         orientation_widget.InteractiveOn()
+
+    def add_end_pose_arrows(self):
+        """Add independent X/Y/Z arrows for the reconstructed terminal pose."""
+        self.end_pose_axis_length = 250.0
+        self.end_pose_arrow_sources = []
+        self.end_pose_arrow_actors = []
+        self.end_pose_arrow_matrices = []
+
+        for color in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
+            arrow = vtk.vtkArrowSource()
+            arrow.SetShaftResolution(24)
+            arrow.SetTipResolution(24)
+
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputConnection(arrow.GetOutputPort())
+
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(*color)
+            actor.SetVisibility(False)
+
+            matrix = vtk.vtkMatrix4x4()
+            actor.SetUserMatrix(matrix)
+
+            self.end_pose_arrow_sources.append(arrow)
+            self.end_pose_arrow_actors.append(actor)
+            self.end_pose_arrow_matrices.append(matrix)
+            self.renderer.AddActor(actor)
+
+    def _update_end_pose_arrows(self, endpoint, end_pose, scale_factor):
+        """Move and rotate the terminal-pose arrows without touching global axes."""
+        if end_pose is None:
+            for actor in self.end_pose_arrow_actors:
+                actor.SetVisibility(False)
+            return
+
+        try:
+            matrices = _build_end_pose_arrow_matrices(
+                endpoint,
+                end_pose,
+                scale_factor=scale_factor,
+                axis_length=self.end_pose_axis_length,
+            )
+        except ValueError:
+            for actor in self.end_pose_arrow_actors:
+                actor.SetVisibility(False)
+            return
+
+        for actor, vtk_matrix, matrix in zip(
+            self.end_pose_arrow_actors,
+            self.end_pose_arrow_matrices,
+            matrices,
+        ):
+            for row in range(4):
+                for column in range(4):
+                    vtk_matrix.SetElement(row, column, matrix[row, column])
+            vtk_matrix.Modified()
+            actor.SetVisibility(True)
 
     def receive_IMU(self):
         """
@@ -806,7 +902,7 @@ class Demonstrator(QMainWindow):
         if hasattr(self, 'recorder') and self.recorder:
             self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=self.insert_dis)
 
-        self._update_frame(r_results_postrot)
+        self._update_frame(r_results_postrot, End_pose)
 
         # ---------------- 电磁联调通讯（与 0605_电磁联调 相同协议） ----------------
         # 坐标单位换算为 mm 后发送
@@ -842,7 +938,7 @@ class Demonstrator(QMainWindow):
             pass
         # -------------------------------------------------------------------------
 
-    def _update_frame(self, data):
+    def _update_frame(self, data, end_pose=None):
         """
         将当前三维重构曲线写入 VTK 点集与连线结构，并刷新显示。
 
@@ -852,10 +948,12 @@ class Demonstrator(QMainWindow):
         3. 若当前 VTK 点数与 num_points 不一致，则重新初始化点集与线段拓扑结构。
         4. 遍历所有点，将三维坐标按缩放因子写入 vtkPoints。
         5. 根据 self.indexArr 计算各标记球体对应的曲线索引，并更新球体中心位置。
-        6. 标记 vtkPoints 与 polydata 已修改，并触发渲染窗口刷新。
+        6. 用曲线末端点与 End_pose 更新三根末端姿态箭头。
+        7. 标记 vtkPoints 与 polydata 已修改，并触发渲染窗口刷新。
 
         输入：
         - data: 当前三维重构曲线，形状通常为 (num_points, 3)
+        - end_pose: _build_end_pose(T, Y, Z, rot_matrix) 返回的末端局部 X/Y/Z 方向
 
         输出：
         - 无显式返回
@@ -893,6 +991,9 @@ class Demonstrator(QMainWindow):
             idx = round((len_num / self.indexArr[0]) * num_points)
             idx = max(0, min(num_points - 1, idx))
             self.sphereArr[i].SetCenter(data[idx][0] * scale_factor, data[idx][1] * scale_factor, data[idx][2] * scale_factor)
+
+        if num_points > 0:
+            self._update_end_pose_arrows(data[-1], end_pose, scale_factor)
 
         # 标记数据已修改，触发 VTK 渲染管线更新
         self.points.Modified()
