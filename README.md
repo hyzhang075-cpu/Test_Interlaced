@@ -34,6 +34,32 @@
 
 ## 4. 使用说明
 
+### 曲率空间插值模式
+
+`main.py` 的 `--curvature_interp` 参数会同时作用于正式重构、slopes 优化和 weights 优化：
+
+- `hermite`：原始角度 Hermite + 标量曲率 Hermite，默认基线。
+- `scalar_pchip`：角度保持 Hermite，标量曲率改用 PCHIP。
+- `pchip`：`scalar_pchip` 的兼容别名。
+- `vector_linear`：构造曲率向量分量后分别做线性插值。
+- `vector_pchip`：构造曲率向量分量后分别做 PCHIP 插值。
+
+例如，使用曲率向量 + 分量 PCHIP 重新优化当前方向的 weight/slope：
+
+```bash
+python main.py --task optim --curvature_interp vector_pchip --weights None --slopes None --direct 0
+```
+
+若要与原始算法对比，只需保持其余参数一致并切换模式：
+
+```bash
+python main.py --task recon --curvature_interp hermite
+python main.py --task recon --curvature_interp vector_linear
+python main.py --task recon --curvature_interp vector_pchip
+```
+
+`nonnegative_curvature` 仅改变标量曲率模式；曲率向量模式通过 `hypot` 恢复曲率大小，结果天然非负。
+
 ### 4.1. 参数优化
 #### 4.1.1. 初始化
 在main.py最下方的main()方法中找到硬件参数、标定实验参数以及优化使用的超参数并按照说明修改其default值。

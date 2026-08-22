@@ -903,7 +903,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], magnitude_ratio=1.0, init_T=init_T, verbose=False,
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B, _ = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=self.recon.weights[direct], slope=self.recon.slopes[direct], magnitude_ratio=1.0, init_T=init_T, verbose=False,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T

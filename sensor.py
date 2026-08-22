@@ -17,6 +17,7 @@ from collections import defaultdict
 from scipy.signal import savgol_filter
 
 from utils import build_valid_row_mask, dict_recur_extract
+from zero_reference import load_zero_reference
 
 
 class Sensor:
@@ -28,7 +29,8 @@ class Sensor:
                        'rot0': {100: [10, 40, 70]}, 'up': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}, 'down': {200: [0, 25, 50, 100], 100: [0, 25, 50, 100]}}, 
                 samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None, reverse=False, straight_trim=0.0,
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
-                IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0):
+                IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
+                use_stored_zero=False, zero_reference_path=None):
         
         # 实验参数
         self.exp_directs = exp_directs
@@ -84,6 +86,7 @@ class Sensor:
         # 动态数据处理相关参数
         self.zero_points = {ch: [None] * self.total_points for ch in active_channels}
         self.is_zero_set = {ch: False for ch in active_channels}
+        self._configure_zero_reference(use_stored_zero, zero_reference_path)
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
 
@@ -276,6 +279,24 @@ class Sensor:
         print(f"重构长度（m）：{self.ad_samp_dist}")
 
     
+    def _configure_zero_reference(self, use_stored_zero, zero_reference_path):
+        """加载严格校验的存储零状态，或保留原有首帧归零模式。"""
+        self.use_stored_zero = bool(use_stored_zero)
+        self.zero_reference_path = zero_reference_path
+        if not self.use_stored_zero:
+            return
+        if not zero_reference_path:
+            raise ValueError("use_stored_zero=True 时必须提供 zero_reference_path")
+        loaded = load_zero_reference(
+            zero_reference_path,
+            sensor_id=self.sensor_id,
+            active_channels=list(self.active_channels),
+            total_points=self.total_points,
+        )
+        self.zero_points = {channel: loaded[channel].tolist() for channel in self.active_channels}
+        self.is_zero_set = {channel: True for channel in self.active_channels}
+        print(f"已加载 SensorID={self.sensor_id} 的存储零状态: {zero_reference_path}")
+
     # -------------------- FBG数据处理 --------------------
     def read_data_FBG(self, folder_path, samp_dist_preset, samp_dist_preset_sub=None):
         """

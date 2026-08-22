@@ -23,10 +23,43 @@ import IMU
 # 1) JSON 明文：每帧末端姿态 + 整根形状 + 曲率，发送给电磁对比程序
 # 2) 二进制定长包：发送给本机 C++ 程序用于与电磁传感器同步记录
 # ==============================================================================
-RECEIVER_IP = '192.168.110.52'
+RECEIVER_IP = '192.168.110.71'
 RECEIVER_PORT = 8888
 SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
+
+
+def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
+                       raw_data, n_pts, n_raw):
+    """Build the legacy fixed-length binary packet used by the C++ recorder."""
+    r_flat = np.asarray(r_results_postrot, dtype=float).flatten()
+    r_flat = np.pad(r_flat, (0, max(0, 3 * n_pts - len(r_flat))))[:3 * n_pts]
+    ep = np.asarray(end_pose if end_pose is not None else [0.0, 0.0, 0.0], dtype=float).flatten()
+    ep = np.pad(ep, (0, max(0, 3 - len(ep))))[:3]
+    cur_flat = np.asarray(cur_interp if cur_interp is not None else [], dtype=float).flatten()
+    cur_flat = np.pad(cur_flat, (0, max(0, n_pts - len(cur_flat))))[:n_pts]
+    raw_flat = np.asarray(raw_data if raw_data is not None else [], dtype=float).flatten()
+    raw_flat = np.pad(raw_flat, (0, max(0, n_raw - len(raw_flat))))[:n_raw]
+    values = np.concatenate((np.asarray([timestamp], dtype=float), r_flat, ep, cur_flat, raw_flat))
+    return struct.pack('<' + 'd' * len(values), *values)
+
+
+def _build_send_obj(end_pose, r_results_postrot, raw_data, intermediates):
+    """构造包含重构结果、原始数据及六项中间变量的 JSON 发送对象。"""
+    return {
+        'end_pose': end_pose.tolist() if end_pose is not None else [0.0, 0.0, 0.0],
+        'data': r_results_postrot.tolist(),
+        'raw_data': raw_data.tolist() if raw_data is not None else [],
+        'intermediates': {
+            'magnitude': intermediates['magnitude'].tolist(),
+            'angle': intermediates['angle'],
+            'cur_kal': intermediates['cur_kal'].tolist(),
+            'ang_filter': intermediates['ang_filter'].tolist(),
+            'cur_interp': intermediates['cur_interp'].tolist(),
+            'ang_interp': intermediates['ang_interp'].tolist(),
+        },
+        'cur_interp': intermediates['cur_interp'].tolist(),
+    }
 
 # ==============================================================================
 # 数据记录器类：用于后台异步保存数据，避免阻塞 VTK 渲染主线程
@@ -41,7 +74,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data):
+    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -74,8 +107,14 @@ class DataRecorder:
                 'timestamp': timestamp,
                 'r_results': r_results.copy() if hasattr(r_results, 'copy') else r_results,
                 'end_pose': end_pose.copy() if hasattr(end_pose, 'copy') else end_pose,
-                'cur_interp': list(cur_interp) if cur_interp is not None else [],
-                'raw_data': list(raw_data) if raw_data is not None else []
+                'cur_interp': intermediates['cur_interp'].tolist(),
+                'raw_data': list(raw_data) if raw_data is not None else [],
+                'magnitude': intermediates['magnitude'].tolist(),
+                #'angle': intermediates['angle'].tolist(),
+                'angle': intermediates['angle'],
+                'cur_kal': intermediates['cur_kal'].tolist(),
+                'ang_filter': intermediates['ang_filter'].tolist(),
+                'ang_interp': intermediates['ang_interp'].tolist(),
             }
             # 非阻塞放入，保证渲染实时性
             self.queue.put(data_packet, block=False)
@@ -678,7 +717,7 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
@@ -697,7 +736,7 @@ class Demonstrator(QMainWindow):
                 r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data)
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates)
 
         self._update_frame(r_results_postrot)
 
@@ -705,47 +744,31 @@ class Demonstrator(QMainWindow):
         # 坐标单位换算为 mm 后发送
         r_results_postrot = r_results_postrot * 1000
 
-        # 1) 通过 UDP 以 JSON 明文推送给电磁对比程序
+        # 1) 通过 UDP 以 JSON 明文推送给软件端
         try:
-            sendObj = {
-                "end_pose": End_pose.tolist() if End_pose is not None else [0.0, 0.0, 0.0],
-                "data": r_results_postrot.tolist(),
-                "cur_interp": cur_interp.tolist() if cur_interp is not None else []
-            }
+            sendObj = _build_send_obj(End_pose, r_results_postrot, raw_data, intermediates)
+            #print("send=======")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
             print(f"JSON发送错误: {e}")
 
         # 2) 通过 UDP 以定长二进制包发送给本机 C++ 程序用于同步记录
-        # 数据格式: 时间戳(1) + 每点位置(3*interp_num) + 末端姿态(3) + 曲率(interp_num) + 原始数据(total_points*num_channels) 个 double
-        # 当前配置下与旧版一致: 1 + 180 + 3 + 60 + 112 = 356 个 double
+        # 数据格式: 时间戳(1) + 每点位置(3*interp_num) + 末端姿态(3)
+        # + 曲率(interp_num) + 原始数据(total_points*num_channels) 个 double。
+        # 当前配置下: 1 + 180 + 3 + 60 + 112 = 356 个 double。
         try:
             data_save = Data[0] * 1e-6
             n_pts = int(self.recon.interp_num)
             n_raw = int(self.recon.total_points * self.recon.num_channels)
-
-            # 1. 每点位置 (3*interp_num)
-            r_flat = np.asarray(r_results_postrot, dtype=float).flatten()
-            if len(r_flat) < 3 * n_pts: r_flat = np.pad(r_flat, (0, 3 * n_pts - len(r_flat)))
-            else: r_flat = r_flat[:3 * n_pts]
-
-            # 2. 末端姿态 (3)
-            ep = np.array(End_pose).flatten() if End_pose is not None else np.array([0.0, 0.0, 0.0])
-            if len(ep) < 3: ep = np.pad(ep, (0, 3 - len(ep)))
-            else: ep = ep[:3]
-
-            # 3. 曲率 (interp_num)
-            cur_flat = np.array(cur_interp).flatten() if cur_interp is not None else np.array([])
-            if len(cur_flat) < n_pts: cur_flat = np.pad(cur_flat, (0, n_pts - len(cur_flat)))
-            else: cur_flat = cur_flat[:n_pts]
-
-            # 4. 原始数据 (total_points*num_channels)
-            cd_flat = data_save.flatten()
-            if len(cd_flat) < n_raw: cd_flat = np.pad(cd_flat, (0, n_raw - len(cd_flat)))
-            else: cd_flat = cd_flat[:n_raw]
-
-            n_double = 1 + 3 * n_pts + 3 + n_pts + n_raw
-            pack_data = struct.pack('<' + 'd' * n_double, frame_timestamp, *r_flat, *ep, *cur_flat, *cd_flat)
+            pack_data = _build_sync_packet(
+                timestamp=frame_timestamp,
+                r_results_postrot=r_results_postrot,
+                end_pose=End_pose,
+                cur_interp=cur_interp,
+                raw_data=data_save,
+                n_pts=n_pts,
+                n_raw=n_raw,
+            )
             self.udp_socket.sendto(pack_data, (SYNC_IP, SYNC_PORT))
         except Exception:
             pass
