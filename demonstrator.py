@@ -269,9 +269,6 @@ class Demonstrator(QMainWindow):
 
         # 电磁联调 UDP 发送套接字（与 0605_电磁联调 相同）
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # 电磁联调 UDP 发送套接字（与 0605_电磁联调 相同）
-        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if hasattr(socket, "SIO_UDP_CONNRESET") and hasattr(self.udp_socket, "ioctl"):
             self.udp_socket.ioctl(socket.SIO_UDP_CONNRESET, False)
         local_address = ('0.0.0.0', 8888)  # 请替换为你实际监听的端口
@@ -787,14 +784,14 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, N, B, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, Y, Z, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
-        End_pose = self.recon._build_end_pose(T, N, B, rot_matrix)
+        End_pose = self.recon._build_end_pose(T, Y, Z, rot_matrix)
         
         # --------------  平滑滤波 --------------
         if self.demo_kalman_enabled:
@@ -815,7 +812,7 @@ class Demonstrator(QMainWindow):
         # 坐标单位换算为 mm 后发送
         r_results_postrot = r_results_postrot * 1000
 
-        # 1) 通过 UDP 以 JSON 明文推送给软件端
+        # 1) 通过 UDP 以 JSTON 明文推送给软件端
         try:
             sendObj = _build_send_obj(End_pose, r_results_postrot, raw_data, intermediates)
             print("send=======")
