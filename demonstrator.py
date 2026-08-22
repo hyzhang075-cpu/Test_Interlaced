@@ -74,7 +74,7 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates):
+    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates, insert_value):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -115,6 +115,7 @@ class DataRecorder:
                 'cur_kal': intermediates['cur_kal'].tolist(),
                 'ang_filter': intermediates['ang_filter'].tolist(),
                 'ang_interp': intermediates['ang_interp'].tolist(),
+                'insert_value':insert_value.copy() if hasattr(insert_value, 'copy') else insert_value
             }
             # 非阻塞放入，保证渲染实时性
             self.queue.put(data_packet, block=False)
@@ -268,6 +269,75 @@ class Demonstrator(QMainWindow):
 
         # 电磁联调 UDP 发送套接字（与 0605_电磁联调 相同）
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # 电磁联调 UDP 发送套接字（与 0605_电磁联调 相同）
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if hasattr(socket, "SIO_UDP_CONNRESET") and hasattr(self.udp_socket, "ioctl"):
+            self.udp_socket.ioctl(socket.SIO_UDP_CONNRESET, False)
+        local_address = ('0.0.0.0', 8888)  # 请替换为你实际监听的端口
+        self.udp_socket.bind(local_address)
+
+            # 2. 创建一个标志位，用于控制后台线程的启动和停止
+        self.udp_running = True
+
+        # 3. 创建并启动后台线程
+        # target 指向我们要在线程中运行的函数
+        # daemon=True 表示这是一个守护线程，主程序退出时它会自动结束
+        self.udp_thread = threading.Thread(target=self._receive_udp_data, daemon=True)
+        self.udp_thread.start()
+
+
+    def _receive_udp_data(self):
+        """
+        这个函数将在后台线程中运行，专门负责接收UDP数据。
+        它不会阻塞主界面。
+        """
+        print("后台UDP接收线程已启动...")
+        while self.udp_running:
+            try:
+                # 设置一个超时时间，这样循环可以定期检查 self.udp_running 标志
+                self.udp_socket.settimeout(1.0) 
+                data, addr = self.udp_socket.recvfrom(1024)
+                
+                json_str = data.decode('utf-8')
+                response = json.loads(json_str)
+                
+                if response.get("cmd") == "insert_dis":
+                    insert_dis_value = response["data"]
+                    # 使用 print 在控制台输出，或者通过 PyQt 的信号(Signal)更新界面
+                    print(f"收到来自 {addr} 的推进量: {insert_dis_value}")
+                    self.insert_dis = insert_dis_value
+                else:
+                    print(f"收到未知指令: {response.get('cmd')}")
+                    
+            except socket.timeout:
+                # settimeout 后会定期抛出这个异常，我们忽略它，继续循环即可
+                continue
+            except Exception as e:
+                if self.udp_running: # 只有在程序正常运行时才打印错误
+                    print(f"UDP接收错误: {e}")
+                break # 发生其他错误时退出循环
+
+        print("后台UDP接收线程已停止。")
+
+    # --- 修改关闭事件，确保程序退出时能正确停止线程 ---
+    def closeEvent(self, event):
+        # 1. 停止UDP接收线程
+        self.udp_running = False
+        # 等待线程结束，确保资源被正确释放
+        if hasattr(self, 'udp_thread'):
+            self.udp_thread.join()
+        
+        # 2. 停止数据记录器线程 (原有的代码)
+        if hasattr(self, 'recorder') and self.recorder:
+            self.recorder.stop()
+            
+        # 3. 关闭UDP套接字
+        if hasattr(self, 'udp_socket'):
+            self.udp_socket.close()
+
+        # 4. 调用父类的关闭事件
+        super().closeEvent(event)
 
     def add_ball(self):
         """
@@ -735,8 +805,9 @@ class Demonstrator(QMainWindow):
             if len(self.curve_history) == self.recon.move_filter:
                 r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
+        #----------------- 保存pickle数据 -----------------
         if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates)
+            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=self.insert_dis)
 
         self._update_frame(r_results_postrot)
 
@@ -747,7 +818,7 @@ class Demonstrator(QMainWindow):
         # 1) 通过 UDP 以 JSON 明文推送给软件端
         try:
             sendObj = _build_send_obj(End_pose, r_results_postrot, raw_data, intermediates)
-            #print("send=======")
+            print("send=======")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
             print(f"JSON发送错误: {e}")
@@ -769,7 +840,7 @@ class Demonstrator(QMainWindow):
                 n_pts=n_pts,
                 n_raw=n_raw,
             )
-            self.udp_socket.sendto(pack_data, (SYNC_IP, SYNC_PORT))
+            # self.udp_socket.sendto(pack_data, (SYNC_IP, SYNC_PORT))
         except Exception:
             pass
         # -------------------------------------------------------------------------
