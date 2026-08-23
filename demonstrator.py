@@ -17,6 +17,7 @@ from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from PyQt5.QtCore import Qt, QTimer
 
 import IMU
+from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
 
 # ==============================================================================
 # 电磁联调通讯配置（与 0605_电磁联调 相同的 UDP 协议）
@@ -205,7 +206,8 @@ class Demonstrator(QMainWindow):
     def __init__(self, recon, total_scale, unwrap_threshold, align_threshold, imu=False, imu_com='COM6', imu_maxlen=10, demo_recorder=False,
                  direction_blend_enabled=False, direction_reference_direct=0, direction_min_curvature=0.5, direction_min_consecutive=3,
                  direction_consistency_threshold=0.6, direction_smooth_alpha=0.15,
-                 demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5, title="Viewer"):
+                 demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5,
+                 anchor_constraint_enabled=False, title="Viewer"):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -240,6 +242,12 @@ class Demonstrator(QMainWindow):
         self.demo_kalman_Bk = float(demo_kalman_Bk)
         self.kalman_x = None
         self.kalman_p = None
+
+        # 支气管入口锚点：首帧末端沿 -X 方向 7 cm，后续只平移整条曲线。
+        self.insert_dis = None
+        self.entrance_anchor_constraint = EntranceAnchorConstraint(
+            enabled=anchor_constraint_enabled,
+        )
 
         # 三方向参数软过渡只服务于动态展示，不写入 Reconstructor / Optimiser 状态。
         # 在 rot_ang 尚未确定时保持 direction_blend_enabled=False，并使用精度最高的
@@ -898,13 +906,17 @@ class Demonstrator(QMainWindow):
             if len(self.curve_history) == self.recon.move_filter:
                 r_results_postrot = np.mean(np.array(self.curve_history), axis=0)
 
+        # ---------- 支气管入口锚点约束 ----------
+        # 必须位于跨帧滤波之后、所有保存/显示/通讯之前，保证下游坐标一致。
+        r_results_postrot = apply_entrance_anchor(
+            self.entrance_anchor_constraint,
+            r_results_postrot,
+            self.insert_dis,
+        )
+
         #----------------- 保存pickle数据 -----------------
         if hasattr(self, 'recorder') and self.recorder:
-            # 安全获取推进量数据
-            if hasattr(self, 'insert_dis') and self.insert_dis is not None:
-                insert_value = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
-            else:
-                insert_value = None
+            insert_value = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
             self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=insert_value)
 
         self._update_frame(r_results_postrot, End_pose)

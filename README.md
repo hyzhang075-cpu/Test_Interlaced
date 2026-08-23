@@ -144,6 +144,36 @@ python main.py --task recon --curvature_interp vector_pchip
 ### 4.3 动态展示
 将对应的 params/--sensor_id.txt 中的内容复制并粘贴替代从 parser = argparse.ArgumentParser() 到 args = parser.parse_args() 的部分
 
+#### 4.3.0 支气管入口锚点约束
+
+动态展示可通过以下开关固定支气管入口位置：
+
+```powershell
+python main.py --task demo --anchor_constraint_enabled
+```
+
+约束约定如下：
+
+- 第一帧光纤末端视为已到达主隆突；入口坐标取该末端点沿全局 X 轴负方向 7 cm。
+- 机械臂 UDP 数据和 Pickle 中的 `insert_value` 单位为 mm。
+- 开头的 0 是通讯占位值；首个有限非零值作为推进量零点，当前相对推进量为“当前值减零点值”。
+- 每帧从光纤末端沿三维折线弧长反推 `7 cm + 相对推进量`，将该位置仅通过平移固定到入口坐标。
+- 约束不会旋转或重采样光纤，输出仍为 60 个三维点。
+- 不添加 `--anchor_constraint_enabled` 时保持原来的动态坐标行为。
+
+对 Demonstrator 已记录的旧 Pickle 可使用相同算法离线回放：
+
+```powershell
+python tools/render_anchored_pickles.py `
+  'E:\shape_exp\0820光明豬肺實測\待分析的数据' `
+  --from-time 1922 `
+  --to-time 1956 `
+  --trajectory-output 'E:\shape_exp\0820光明豬肺實測\fiber_tip_trajectories' `
+  --video-output 'E:\shape_exp\0820光明豬肺實測\pickle_videos'
+```
+
+工具会生成带 `_anchored_` 后缀的新 PNG 和 MP4，不覆盖原始 Pickle 或原有结果。可用 `--max-frames` 控制每个视频的最大采样帧数，并用 `--overwrite` 覆盖已有的锚点结果。
+
 动态展示支持以下两种参数使用方式。
 
 #### 4.3.1 只使用精度最高的一套方向参数

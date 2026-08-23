@@ -135,3 +135,10 @@ class EntranceAnchorConstraint:
             used_distance_m=used_distance_m,
             clamped=clamped,
         )
+
+
+def apply_entrance_anchor(constraint, curve_m, insert_value_mm=None):
+    """Apply the shared live-pipeline stage and return only the output curve."""
+    if not isinstance(constraint, EntranceAnchorConstraint):
+        raise TypeError("constraint must be an EntranceAnchorConstraint")
+    return constraint.apply(curve_m, insert_value_mm).curve_m

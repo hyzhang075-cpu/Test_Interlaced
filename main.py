@@ -133,6 +133,7 @@ def main():
     parser.add_argument('--demo_kalman_enabled', type=_str2bool, default=True, help='动态展示中对重构曲线启用跨帧卡尔曼滤波（True开启，开启后替代原有的curve_history滑动平均；False关闭）')
     parser.add_argument('--demo_kalman_Rk', type=float, default=1e-4, help='跨帧卡尔曼滤波的观测噪声参数，越大越平滑、响应越慢，量纲为m^2')
     parser.add_argument('--demo_kalman_Bk', type=float, default=1e-5, help='跨帧卡尔曼滤波的状态转移误差参数，越大对新观测响应越快，量纲为m^2')
+    parser.add_argument('--anchor_constraint_enabled', action='store_true', help='动态展示中启用支气管入口7cm锚点约束；只平移曲线，不旋转或改变60点输出')
     # 动态样机展示相关参数
     # parser.add_argument('--body_model_path', type=str, default="./model.stl", help='人体STL模型路径')
     # parser.add_argument('--entry_length_cm', type=float, default=0.0, help='初始手动入体长度，单位cm')
@@ -257,6 +258,7 @@ def main():
         'direction_blend_enabled', 'direction_reference_direct', 'direction_min_curvature', 'direction_min_consecutive',
         'direction_consistency_threshold', 'direction_smooth_alpha',
         'demo_kalman_enabled', 'demo_kalman_Rk', 'demo_kalman_Bk',
+        'anchor_constraint_enabled',
     ]
 
     optim_exclude_keys = ['task', 'ang_step', 'ang_range'] + demo_param_keys

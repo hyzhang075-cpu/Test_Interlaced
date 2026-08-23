@@ -27,7 +27,10 @@
 # -*- encoding:utf-8 -*-
 #!/usr/bin/env python3
 
-import serial
+try:
+	import serial
+except ModuleNotFoundError:
+	serial = None
 import time
 
 #class yesense_product:
@@ -392,6 +395,8 @@ def get_int64_lit(data):
 ##   返回值：串口示例                                                                      ##
 ##--------------------------------------------------------------------------------------##			
 def open_serial(port, baud):
+	if serial is None:
+		raise RuntimeError("pyserial is required when IMU support is enabled")
 	ser = serial.Serial(port, baud, timeout = 0.002)
 	if (ser.is_open):
 		print("open %s with baudrate %d suc!" %(port, baud))
