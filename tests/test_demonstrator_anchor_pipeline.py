@@ -1,8 +1,15 @@
+import argparse
+import io
+import threading
 import unittest
+from contextlib import redirect_stderr
+from types import SimpleNamespace
 
 import numpy as np
 
 from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
+from demonstrator import Demonstrator
+from main import add_anchor_arguments
 
 
 class DemonstratorAnchorPipelineTests(unittest.TestCase):
@@ -21,6 +28,95 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         np.testing.assert_allclose(disabled, curve)
         np.testing.assert_allclose(enabled[:, 0], [0.01, 0.11])
         np.testing.assert_allclose(enabled[:, 1:], 0.0)
+
+    def test_main_anchor_arguments_default_to_7cm_and_accept_override(self):
+        parser = argparse.ArgumentParser()
+        add_anchor_arguments(parser)
+
+        defaults = parser.parse_args([])
+        overridden = parser.parse_args(["--anchor_offset_m", "0.085"])
+
+        self.assertFalse(defaults.anchor_constraint_enabled)
+        self.assertAlmostEqual(defaults.anchor_offset_m, 0.07)
+        self.assertAlmostEqual(overridden.anchor_offset_m, 0.085)
+
+    def test_main_anchor_arguments_reject_invalid_offset_before_runtime_setup(self):
+        parser = argparse.ArgumentParser()
+        add_anchor_arguments(parser)
+
+        for invalid in ("-0.01", "nan", "inf"):
+            with self.subTest(invalid=invalid), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    parser.parse_args(["--anchor_offset_m", invalid])
+
+    def test_process_interface_reconfigures_and_applies_under_shared_lock(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(enabled=False),
+            entrance_anchor_lock=threading.RLock(),
+        )
+        curve = np.array([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])
+
+        Demonstrator.configure_anchor_constraint(
+            harness,
+            enabled=True,
+            entrance_offset_m=0.08,
+        )
+        first = Demonstrator._apply_anchor_constraint(harness, curve, 0.0)
+        Demonstrator._apply_anchor_constraint(harness, curve, 200.0)
+        advanced = Demonstrator._apply_anchor_constraint(harness, curve, 210.0)
+
+        np.testing.assert_allclose(first, curve)
+        np.testing.assert_allclose(advanced[:, 0], [0.01, 0.31])
+        np.testing.assert_allclose(harness.entrance_anchor_constraint.anchor_m, [0.22, 0.0, 0.0])
+        self.assertAlmostEqual(harness.entrance_anchor_constraint.insertion_baseline_mm, 200.0)
+
+    def test_configuration_waits_for_inflight_frame_application(self):
+        apply_entered = threading.Event()
+        release_apply = threading.Event()
+        configure_finished = threading.Event()
+
+        class BlockingConstraint(EntranceAnchorConstraint):
+            def apply(self, curve_m, insert_value_mm=None):
+                apply_entered.set()
+                self.assert_released = release_apply.wait(timeout=2.0)
+                return super().apply(curve_m, insert_value_mm)
+
+        constraint = BlockingConstraint(enabled=True)
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=constraint,
+            entrance_anchor_lock=threading.RLock(),
+        )
+        curve = np.array([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])
+
+        apply_thread = threading.Thread(
+            target=Demonstrator._apply_anchor_constraint,
+            args=(harness, curve, 156.8),
+        )
+        configure_thread = threading.Thread(
+            target=lambda: (
+                Demonstrator.configure_anchor_constraint(
+                    harness,
+                    enabled=True,
+                    entrance_offset_m=0.08,
+                ),
+                configure_finished.set(),
+            )
+        )
+        apply_thread.start()
+        self.assertTrue(apply_entered.wait(timeout=1.0))
+        configure_thread.start()
+        self.assertFalse(configure_finished.wait(timeout=0.05))
+
+        release_apply.set()
+        apply_thread.join(timeout=2.0)
+        configure_thread.join(timeout=2.0)
+
+        self.assertFalse(apply_thread.is_alive())
+        self.assertFalse(configure_thread.is_alive())
+        self.assertTrue(constraint.assert_released)
+        self.assertTrue(configure_finished.is_set())
+        self.assertAlmostEqual(constraint.entrance_offset_m, 0.08)
+        self.assertIsNone(constraint.anchor_m)
 
 
 if __name__ == "__main__":

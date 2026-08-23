@@ -92,6 +92,42 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite"):
             constraint.apply(np.array([[0.0, 0.0, 0.0], [np.nan, 0.0, 0.0]]), None)
 
+    def test_configure_new_distance_resets_anchor_and_insertion_zero(self):
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.07)
+        old_curve = np.array([[0.0, 0.0, 0.0], [0.20, 0.0, 0.0]])
+        constraint.apply(old_curve, 156.8)
+        constraint.apply(old_curve, 166.8)
+
+        constraint.configure(enabled=True, entrance_offset_m=0.08)
+
+        self.assertTrue(constraint.enabled)
+        self.assertAlmostEqual(constraint.entrance_offset_m, 0.08)
+        self.assertIsNone(constraint.anchor_m)
+        self.assertIsNone(constraint.insertion_baseline_mm)
+        self.assertEqual(constraint.last_relative_insert_mm, 0.0)
+
+        new_curve = np.array([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])
+        placeholder = constraint.apply(new_curve, 0.0)
+        baseline = constraint.apply(new_curve, 200.0)
+
+        np.testing.assert_allclose(placeholder.anchor_m, [0.22, 0.0, 0.0])
+        self.assertAlmostEqual(baseline.relative_insert_mm, 0.0)
+        self.assertAlmostEqual(constraint.insertion_baseline_mm, 200.0)
+
+    def test_invalid_configure_is_atomic(self):
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.07)
+        curve = np.array([[0.0, 0.0, 0.0], [0.20, 0.0, 0.0]])
+        constraint.apply(curve, 156.8)
+        original_anchor = constraint.anchor_m.copy()
+
+        with self.assertRaisesRegex(ValueError, "finite nonnegative"):
+            constraint.configure(enabled=False, entrance_offset_m=np.nan)
+
+        self.assertTrue(constraint.enabled)
+        self.assertAlmostEqual(constraint.entrance_offset_m, 0.07)
+        np.testing.assert_allclose(constraint.anchor_m, original_anchor)
+        self.assertAlmostEqual(constraint.insertion_baseline_mm, 156.8)
+
 
 if __name__ == "__main__":
     unittest.main()

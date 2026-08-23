@@ -38,6 +38,22 @@ class EntranceAnchorConstraint:
         self.insertion_baseline_mm = None
         self.last_relative_insert_mm = 0.0
 
+    def configure(self, enabled=None, entrance_offset_m=None, reset=True):
+        """Atomically update runtime settings and optionally start a fresh anchor session."""
+        new_enabled = self.enabled if enabled is None else bool(enabled)
+        new_offset_m = self.entrance_offset_m
+        if entrance_offset_m is not None:
+            new_offset_m = float(entrance_offset_m)
+            if not np.isfinite(new_offset_m) or new_offset_m < 0.0:
+                raise ValueError("entrance_offset_m must be a finite nonnegative value")
+
+        self.enabled = new_enabled
+        self.entrance_offset_m = new_offset_m
+        if reset:
+            self.anchor_m = None
+            self.insertion_baseline_mm = None
+            self.last_relative_insert_mm = 0.0
+
     @staticmethod
     def _validate_curve(curve_m):
         curve = np.asarray(curve_m, dtype=float)

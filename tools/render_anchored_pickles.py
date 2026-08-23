@@ -24,6 +24,7 @@ matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial", 
 
 from matplotlib import pyplot as plt
 from matplotlib.animation import FFMpegWriter
+import plotly.graph_objects as go
 
 
 @dataclass(frozen=True)
@@ -131,8 +132,18 @@ def load_anchored_pickle(path):
 def output_paths_for(trajectory_output, video_output, source_path):
     stem = Path(source_path).stem
     png_path = Path(trajectory_output) / f"{stem}_anchored_tip_trajectory.png"
+    html_path = Path(trajectory_output) / f"{stem}_anchored_tip_trajectory.html"
     video_path = Path(video_output) / stem / f"{stem}_anchored_full.mp4"
-    return png_path, video_path
+    top_video_path = Path(video_output) / stem / f"{stem}_anchored_top_view.mp4"
+    return png_path, html_path, video_path, top_video_path
+
+
+def video_render_specs(video_path, top_video_path):
+    """Return the preserved original camera and the added batch-style top camera."""
+    return (
+        (Path(video_path), 20.0, 45.0),
+        (Path(top_video_path), 90.0, 0.0),
+    )
 
 
 def _configure_equal_axes(ax, points_mm):
@@ -177,13 +188,69 @@ def render_tip_trajectory_png(data, output_path, title=None):
     return output_path
 
 
+def render_tip_trajectory_html(data, output_path, title=None):
+    """Write a self-contained Plotly document for rotating and inspecting the tip path."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tips_mm = data.shapes_m[:, -1, :] * 1000.0
+    anchor_mm = data.anchor_m * 1000.0
+    customdata = np.column_stack((data.times_s, data.relative_inserts_mm))
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter3d(
+            x=tips_mm[:, 0],
+            y=tips_mm[:, 1],
+            z=tips_mm[:, 2],
+            mode="lines",
+            name="Anchored tip trajectory",
+            line={"color": "red", "width": 5},
+            customdata=customdata,
+            hovertemplate=(
+                "Time: %{customdata[0]:.2f} s<br>"
+                "Relative insertion: %{customdata[1]:.2f} mm<br>"
+                "X: %{x:.2f} mm<br>Y: %{y:.2f} mm<br>Z: %{z:.2f} mm<extra></extra>"
+            ),
+        )
+    )
+    for point, name, color in (
+        (tips_mm[0], "Start tip", "green"),
+        (tips_mm[-1], "End tip", "blue"),
+        (anchor_mm, "Fixed entrance anchor", "black"),
+    ):
+        figure.add_trace(
+            go.Scatter3d(
+                x=[point[0]],
+                y=[point[1]],
+                z=[point[2]],
+                mode="markers",
+                name=name,
+                marker={"size": 6, "color": color, "symbol": "x" if name.startswith("Fixed") else "circle"},
+                hovertemplate=f"{name}<br>X: %{{x:.2f}} mm<br>Y: %{{y:.2f}} mm<br>Z: %{{z:.2f}} mm<extra></extra>",
+            )
+        )
+    figure.update_layout(
+        title=title or f"{data.source_path.stem} - Anchored Fiber Tip Trajectory",
+        scene={
+            "xaxis_title": "X / mm",
+            "yaxis_title": "Y / mm",
+            "zaxis_title": "Z / mm",
+            "aspectmode": "data",
+        },
+        legend={"x": 0.01, "y": 0.99},
+        margin={"l": 0, "r": 0, "b": 0, "t": 50},
+    )
+    figure.write_html(str(output_path), include_plotlyjs=True, full_html=True)
+    return output_path
+
+
 def _frame_indices(frame_count, max_frames):
     if frame_count <= 0 or max_frames <= 0:
         raise ValueError("frame_count and max_frames must be positive")
     return np.unique(np.linspace(0, frame_count - 1, min(frame_count, max_frames), dtype=int))
 
 
-def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100):
+def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100, elev=20, azim=45):
     """Render sampled full-shape frames, fixed entrance marker, and accumulated tip path."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +261,7 @@ def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100):
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection="3d")
     _configure_equal_axes(ax, np.vstack((shapes_mm.reshape(-1, 3), anchor_mm)))
-    ax.view_init(elev=20, azim=45)
+    ax.view_init(elev=float(elev), azim=float(azim))
     shape_line, = ax.plot([], [], [], color="blue", linewidth=2.0, label="Anchored fibre")
     tip_line, = ax.plot([], [], [], color="red", linewidth=1.0, alpha=0.8, label="Tip trajectory")
     tip_dot = ax.scatter([], [], [], color="red", s=35)
@@ -267,8 +334,13 @@ def _atomic_render(render, final_path):
 
 
 def process_file(source, trajectory_output, video_output, max_frames, fps, overwrite=False):
-    png_path, video_path = output_paths_for(trajectory_output, video_output, source)
-    if not overwrite and png_path.exists() and video_path.exists():
+    png_path, html_path, video_path, top_video_path = output_paths_for(
+        trajectory_output,
+        video_output,
+        source,
+    )
+    output_paths = (png_path, html_path, video_path, top_video_path)
+    if not overwrite and all(path.exists() for path in output_paths):
         print(f"[skip] outputs already exist for {Path(source).name}")
         return None
 
@@ -276,11 +348,21 @@ def process_file(source, trajectory_output, video_output, max_frames, fps, overw
     data = load_anchored_pickle(source)
     if overwrite or not png_path.exists():
         _atomic_render(lambda path: render_tip_trajectory_png(data, path), png_path)
-    if overwrite or not video_path.exists():
-        _atomic_render(
-            lambda path: render_shape_video(data, path, max_frames=max_frames, fps=fps),
-            video_path,
-        )
+    if overwrite or not html_path.exists():
+        _atomic_render(lambda path: render_tip_trajectory_html(data, path), html_path)
+    for target_path, elev, azim in video_render_specs(video_path, top_video_path):
+        if overwrite or not target_path.exists():
+            _atomic_render(
+                lambda path, elev=elev, azim=azim: render_shape_video(
+                    data,
+                    path,
+                    max_frames=max_frames,
+                    fps=fps,
+                    elev=elev,
+                    azim=azim,
+                ),
+                target_path,
+            )
 
     unclamped = ~data.clamped
     max_residual = float(np.max(data.anchor_residuals_m[unclamped])) if np.any(unclamped) else float("nan")
@@ -290,7 +372,9 @@ def process_file(source, trajectory_output, video_output, max_frames, fps, overw
         f"max_anchor_residual={max_residual:.3e} m"
     )
     print(f"       PNG={png_path}")
+    print(f"       HTML={html_path}")
     print(f"       MP4={video_path}")
+    print(f"       TOP_MP4={top_video_path}")
     return data
 
 

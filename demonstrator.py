@@ -207,7 +207,7 @@ class Demonstrator(QMainWindow):
                  direction_blend_enabled=False, direction_reference_direct=0, direction_min_curvature=0.5, direction_min_consecutive=3,
                  direction_consistency_threshold=0.6, direction_smooth_alpha=0.15,
                  demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5,
-                 anchor_constraint_enabled=False, title="Viewer"):
+                 anchor_constraint_enabled=False, title="Viewer", anchor_offset_m=0.07):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -243,10 +243,12 @@ class Demonstrator(QMainWindow):
         self.kalman_x = None
         self.kalman_p = None
 
-        # 支气管入口锚点：首帧末端沿 -X 方向 7 cm，后续只平移整条曲线。
+        # 支气管入口锚点：长度可在启动时配置，也可经进程接口原子更新。
         self.insert_dis = None
+        self.entrance_anchor_lock = threading.RLock()
         self.entrance_anchor_constraint = EntranceAnchorConstraint(
             enabled=anchor_constraint_enabled,
+            entrance_offset_m=anchor_offset_m,
         )
 
         # 三方向参数软过渡只服务于动态展示，不写入 Reconstructor / Optimiser 状态。
@@ -362,6 +364,23 @@ class Demonstrator(QMainWindow):
                 break # 发生其他错误时退出循环
 
         print("后台UDP接收线程已停止。")
+
+    def configure_anchor_constraint(self, enabled=None, entrance_offset_m=None):
+        """Thread-safe protocol-independent hook for future external control adapters."""
+        with self.entrance_anchor_lock:
+            self.entrance_anchor_constraint.configure(
+                enabled=enabled,
+                entrance_offset_m=entrance_offset_m,
+                reset=True,
+            )
+
+    def _apply_anchor_constraint(self, curve_m, insert_value_mm=None):
+        with self.entrance_anchor_lock:
+            return apply_entrance_anchor(
+                self.entrance_anchor_constraint,
+                curve_m,
+                insert_value_mm,
+            )
 
     # --- 修改关闭事件，确保程序退出时能正确停止线程 ---
     def closeEvent(self, event):
@@ -908,8 +927,7 @@ class Demonstrator(QMainWindow):
 
         # ---------- 支气管入口锚点约束 ----------
         # 必须位于跨帧滤波之后、所有保存/显示/通讯之前，保证下游坐标一致。
-        r_results_postrot = apply_entrance_anchor(
-            self.entrance_anchor_constraint,
+        r_results_postrot = self._apply_anchor_constraint(
             r_results_postrot,
             self.insert_dis,
         )
