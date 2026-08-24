@@ -99,6 +99,30 @@ def _build_end_pose_arrow_matrices(endpoint, end_pose, scale_factor, axis_length
 
     return np.asarray(matrices)
 
+
+def _build_anchor_marker_segments(anchor_m, scale_factor, half_size):
+    """Build four body-diagonal line segments for a view-independent 3D star marker."""
+    anchor = np.asarray(anchor_m, dtype=float)
+    scale_factor = float(scale_factor)
+    half_size = float(half_size)
+    if anchor.shape != (3,) or not np.all(np.isfinite(anchor)):
+        raise ValueError("anchor_m must be a finite 3D point")
+    if not np.isfinite(scale_factor):
+        raise ValueError("scale_factor must be finite")
+    if not np.isfinite(half_size) or half_size <= 0.0:
+        raise ValueError("half_size must be finite and positive")
+
+    center = anchor * scale_factor
+    diagonals = np.array(
+        [
+            [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]],
+            [[-1.0, -1.0, 1.0], [1.0, 1.0, -1.0]],
+            [[-1.0, 1.0, -1.0], [1.0, -1.0, 1.0]],
+            [[-1.0, 1.0, 1.0], [1.0, -1.0, -1.0]],
+        ]
+    )
+    return center + diagonals * half_size
+
 # ==============================================================================
 # 数据记录器类：用于后台异步保存数据，避免阻塞 VTK 渲染主线程
 # ==============================================================================
@@ -287,6 +311,7 @@ class Demonstrator(QMainWindow):
         self.add_ball()
         self.add_axes()
         self.add_end_pose_arrows()
+        self.add_anchor_marker()
 
         self.points = vtk.vtkPoints()
         self.lines = vtk.vtkCellArray()
@@ -525,6 +550,61 @@ class Demonstrator(QMainWindow):
             self.end_pose_arrow_actors.append(actor)
             self.end_pose_arrow_matrices.append(matrix)
             self.renderer.AddActor(actor)
+
+    def add_anchor_marker(self):
+        """Add a hidden white 3D star that marks the fixed bronchial entrance."""
+        self.anchor_marker_half_size = 45.0
+        self.anchor_marker_points = vtk.vtkPoints()
+        self.anchor_marker_points.SetNumberOfPoints(8)
+        for point_index in range(8):
+            self.anchor_marker_points.SetPoint(point_index, 0.0, 0.0, 0.0)
+
+        self.anchor_marker_lines = vtk.vtkCellArray()
+        for segment_index in range(4):
+            line = vtk.vtkLine()
+            line.GetPointIds().SetId(0, 2 * segment_index)
+            line.GetPointIds().SetId(1, 2 * segment_index + 1)
+            self.anchor_marker_lines.InsertNextCell(line)
+
+        self.anchor_marker_polydata = vtk.vtkPolyData()
+        self.anchor_marker_polydata.SetPoints(self.anchor_marker_points)
+        self.anchor_marker_polydata.SetLines(self.anchor_marker_lines)
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(self.anchor_marker_polydata)
+        self.anchor_marker_actor = vtk.vtkActor()
+        self.anchor_marker_actor.SetMapper(mapper)
+        self.anchor_marker_actor.GetProperty().SetColor(1.0, 1.0, 1.0)
+        self.anchor_marker_actor.GetProperty().SetLineWidth(3.0)
+        self.anchor_marker_actor.SetVisibility(False)
+        self.renderer.AddActor(self.anchor_marker_actor)
+
+    def _update_anchor_marker(self, scale_factor):
+        """Show the fixed anchor on the next GUI frame, or hide it when unavailable."""
+        with self.entrance_anchor_lock:
+            enabled = self.entrance_anchor_constraint.enabled
+            anchor = self.entrance_anchor_constraint.anchor_m
+            anchor = None if anchor is None else np.asarray(anchor, dtype=float).copy()
+
+        if not enabled or anchor is None:
+            self.anchor_marker_actor.SetVisibility(False)
+            return
+
+        try:
+            segments = _build_anchor_marker_segments(
+                anchor,
+                scale_factor=scale_factor,
+                half_size=self.anchor_marker_half_size,
+            )
+        except ValueError:
+            self.anchor_marker_actor.SetVisibility(False)
+            return
+
+        for point_index, point in enumerate(segments.reshape(-1, 3)):
+            self.anchor_marker_points.SetPoint(point_index, *point)
+        self.anchor_marker_points.Modified()
+        self.anchor_marker_polydata.Modified()
+        self.anchor_marker_actor.SetVisibility(True)
 
     def _update_end_pose_arrows(self, endpoint, end_pose, scale_factor):
         """Move and rotate the terminal-pose arrows without touching global axes."""
@@ -1029,6 +1109,7 @@ class Demonstrator(QMainWindow):
 
         if num_points > 0:
             self._update_end_pose_arrows(data[-1], end_pose, scale_factor)
+        self._update_anchor_marker(scale_factor)
 
         # 标记数据已修改，触发 VTK 渲染管线更新
         self.points.Modified()

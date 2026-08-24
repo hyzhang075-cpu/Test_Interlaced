@@ -6,13 +6,66 @@ from contextlib import redirect_stderr
 from types import SimpleNamespace
 
 import numpy as np
+import vtk
 
 from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
-from demonstrator import Demonstrator
+from demonstrator import Demonstrator, _build_anchor_marker_segments
 from main import add_anchor_arguments
 
 
 class DemonstratorAnchorPipelineTests(unittest.TestCase):
+    def test_anchor_marker_segments_form_four_scaled_3d_diagonals(self):
+        segments = _build_anchor_marker_segments(
+            anchor_m=np.array([1.0, 2.0, 3.0]),
+            scale_factor=10.0,
+            half_size=2.0,
+        )
+
+        np.testing.assert_array_equal(
+            segments,
+            np.array(
+                [
+                    [[8.0, 18.0, 28.0], [12.0, 22.0, 32.0]],
+                    [[8.0, 18.0, 32.0], [12.0, 22.0, 28.0]],
+                    [[8.0, 22.0, 28.0], [12.0, 18.0, 32.0]],
+                    [[8.0, 22.0, 32.0], [12.0, 18.0, 28.0]],
+                ]
+            ),
+        )
+
+    def test_vtk_anchor_marker_tracks_constraint_visibility_and_position(self):
+        constraint = EntranceAnchorConstraint(enabled=False)
+        harness = SimpleNamespace(
+            renderer=vtk.vtkRenderer(),
+            entrance_anchor_constraint=constraint,
+            entrance_anchor_lock=threading.RLock(),
+        )
+        Demonstrator.add_anchor_marker(harness)
+
+        self.assertEqual(harness.anchor_marker_actor.GetVisibility(), 0)
+        np.testing.assert_allclose(harness.anchor_marker_actor.GetProperty().GetColor(), [1.0, 1.0, 1.0])
+        self.assertAlmostEqual(harness.anchor_marker_actor.GetProperty().GetLineWidth(), 3.0)
+        self.assertEqual(harness.anchor_marker_points.GetNumberOfPoints(), 8)
+        self.assertEqual(harness.anchor_marker_lines.GetNumberOfCells(), 4)
+
+        curve = np.array([[0.0, 0.0, 0.0], [0.20, 0.0, 0.0]])
+        Demonstrator._update_anchor_marker(harness, scale_factor=100.0)
+        self.assertEqual(harness.anchor_marker_actor.GetVisibility(), 0)
+
+        constraint.configure(enabled=True, entrance_offset_m=0.07)
+        constraint.apply(curve, 156.8)
+        Demonstrator._update_anchor_marker(harness, scale_factor=100.0)
+
+        self.assertEqual(harness.anchor_marker_actor.GetVisibility(), 1)
+        rendered_points = np.array(
+            [harness.anchor_marker_points.GetPoint(index) for index in range(8)]
+        )
+        np.testing.assert_allclose(np.mean(rendered_points, axis=0), [13.0, 0.0, 0.0])
+
+        constraint.configure(enabled=False)
+        Demonstrator._update_anchor_marker(harness, scale_factor=100.0)
+        self.assertEqual(harness.anchor_marker_actor.GetVisibility(), 0)
+
     def test_stage_is_noop_when_disabled_and_translates_when_enabled(self):
         curve = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
 
