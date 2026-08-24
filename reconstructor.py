@@ -1076,11 +1076,12 @@ class Reconstructor(Initialiser):
         return r, T, Y, Z, N1, N2
 
     @staticmethod
-    def _build_end_pose(T, Y, Z, rot_ang_deg=0.0):
-        """Rotate terminal Y/Z about the local terminal T axis by a right-hand angle."""
+    def _build_end_pose(T, Y, Z, rot_matrix, rot_ang_deg):
+        """Rotate the terminal frame globally, then undo rot_ang about its rotated T axis."""
         T = np.asarray(T, dtype=float)
         Y = np.asarray(Y, dtype=float)
         Z = np.asarray(Z, dtype=float)
+        rot_matrix = np.asarray(rot_matrix, dtype=float)
         rot_ang_deg = float(rot_ang_deg)
 
         if T.ndim != 2 or Y.ndim != 2 or Z.ndim != 2:
@@ -1089,17 +1090,21 @@ class Reconstructor(Initialiser):
             raise ValueError("T, Y and Z must have shape (num_points, 3)")
         if not (len(T) == len(Y) == len(Z)):
             raise ValueError("T, Y and Z must contain the same number of points")
+        if rot_matrix.shape != (3, 3) or not np.all(np.isfinite(rot_matrix)):
+            raise ValueError("rot_matrix must be a finite matrix with shape (3, 3)")
         if not np.isfinite(rot_ang_deg):
             raise ValueError("rot_ang_deg must be finite")
         if len(T) == 0:
             return None
 
-        terminal_t = T[-1]
+        terminal_t = T[-1] @ rot_matrix.T
+        terminal_y = Y[-1] @ rot_matrix.T
+        terminal_z = Z[-1] @ rot_matrix.T
         t_norm = float(np.linalg.norm(terminal_t))
         if not np.isfinite(t_norm) or t_norm <= np.finfo(float).eps:
             raise ValueError("terminal T axis must be finite and non-zero")
         local_axis = terminal_t / t_norm
-        theta = np.deg2rad(rot_ang_deg)
+        theta = np.deg2rad(-rot_ang_deg)
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
 
@@ -1113,8 +1118,8 @@ class Reconstructor(Initialiser):
         return np.stack(
             (
                 terminal_t,
-                rotate_about_terminal_t(Y[-1]),
-                rotate_about_terminal_t(Z[-1]),
+                rotate_about_terminal_t(terminal_y),
+                rotate_about_terminal_t(terminal_z),
             )
         )
 

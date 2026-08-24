@@ -915,6 +915,7 @@ class Demonstrator(QMainWindow):
             T,
             N,
             B,
+            rot_matrix=rot_matrix,
             rot_ang_deg=self.recon.rot_ang,
         )
 

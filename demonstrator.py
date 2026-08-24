@@ -998,6 +998,7 @@ class Demonstrator(QMainWindow):
             T,
             Y,
             Z,
+            rot_matrix=rot_matrix,
             rot_ang_deg=self.recon.rot_ang,
         )
         
@@ -1073,11 +1074,7 @@ class Demonstrator(QMainWindow):
 
         输入：
         - data: 当前三维重构曲线，形状通常为 (num_points, 3)
-<<<<<<< HEAD
-        - end_pose: _build_end_pose(T, Y, Z) 返回的未经过 rot_matrix 旋转的末端局部 X/Y/Z 方向
-=======
-        - end_pose: 保持末端 T 不变、将 Y/Z 绕局部 T 旋转 rot_ang 后的末端局部坐标系
->>>>>>> refs/remotes/origin/dev-entrylimit
+        - end_pose: 末端标架先乘 rot_matrix，再将 Y/Z 绕旋转后的 T 反向旋转 rot_ang
 
         输出：
         - 无显式返回
