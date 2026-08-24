@@ -994,7 +994,12 @@ class Demonstrator(QMainWindow):
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
-        End_pose = self.recon._build_end_pose(T, Y, Z)
+        End_pose = self.recon._build_end_pose(
+            T,
+            Y,
+            Z,
+            rot_ang_deg=self.recon.rot_ang,
+        )
         
         # --------------  平滑滤波 --------------
         if self.demo_kalman_enabled:
@@ -1068,7 +1073,11 @@ class Demonstrator(QMainWindow):
 
         输入：
         - data: 当前三维重构曲线，形状通常为 (num_points, 3)
+<<<<<<< HEAD
         - end_pose: _build_end_pose(T, Y, Z) 返回的未经过 rot_matrix 旋转的末端局部 X/Y/Z 方向
+=======
+        - end_pose: 保持末端 T 不变、将 Y/Z 绕局部 T 旋转 rot_ang 后的末端局部坐标系
+>>>>>>> refs/remotes/origin/dev-entrylimit
 
         输出：
         - 无显式返回

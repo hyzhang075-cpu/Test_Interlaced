@@ -911,7 +911,12 @@ class Demonstrator(QMainWindow):
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
-        End_pose = self.recon._build_end_pose(T, N, B, rot_matrix)
+        End_pose = self.recon._build_end_pose(
+            T,
+            N,
+            B,
+            rot_ang_deg=self.recon.rot_ang,
+        )
 
         # ---------- 显示人体时的坐标截断 clipping ----------
         first_idx = self._get_entry_idx(len(r_results_postrot), curvature=cur_interp)

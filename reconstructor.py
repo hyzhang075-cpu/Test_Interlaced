@@ -1076,11 +1076,12 @@ class Reconstructor(Initialiser):
         return r, T, Y, Z, N1, N2
 
     @staticmethod
-    def _build_end_pose(T, Y, Z, rot_matrix=None):
-        """Return terminal T/Y/Z rows, optionally rotated into curve coordinates."""
+    def _build_end_pose(T, Y, Z, rot_ang_deg=0.0):
+        """Rotate terminal Y/Z about the local terminal T axis by a right-hand angle."""
         T = np.asarray(T, dtype=float)
         Y = np.asarray(Y, dtype=float)
         Z = np.asarray(Z, dtype=float)
+        rot_ang_deg = float(rot_ang_deg)
 
         if T.ndim != 2 or Y.ndim != 2 or Z.ndim != 2:
             raise ValueError("T, Y and Z must be two-dimensional frame arrays")
@@ -1088,21 +1089,32 @@ class Reconstructor(Initialiser):
             raise ValueError("T, Y and Z must have shape (num_points, 3)")
         if not (len(T) == len(Y) == len(Z)):
             raise ValueError("T, Y and Z must contain the same number of points")
-        if rot_matrix is not None:
-            rot_matrix = np.asarray(rot_matrix, dtype=float)
-            if rot_matrix.shape != (3, 3):
-                raise ValueError("rot_matrix must have shape (3, 3)")
+        if not np.isfinite(rot_ang_deg):
+            raise ValueError("rot_ang_deg must be finite")
         if len(T) == 0:
             return None
 
-        if rot_matrix is None:
-            return np.stack((T[-1], Y[-1], Z[-1]))
+        terminal_t = T[-1]
+        t_norm = float(np.linalg.norm(terminal_t))
+        if not np.isfinite(t_norm) or t_norm <= np.finfo(float).eps:
+            raise ValueError("terminal T axis must be finite and non-zero")
+        local_axis = terminal_t / t_norm
+        theta = np.deg2rad(rot_ang_deg)
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
+        def rotate_about_terminal_t(vector):
+            return (
+                vector * cos_theta
+                + np.cross(local_axis, vector) * sin_theta
+                + local_axis * np.dot(local_axis, vector) * (1.0 - cos_theta)
+            )
 
         return np.stack(
             (
-                T[-1] @ rot_matrix.T,
-                Y[-1] @ rot_matrix.T,
-                Z[-1] @ rot_matrix.T,
+                terminal_t,
+                rotate_about_terminal_t(Y[-1]),
+                rotate_about_terminal_t(Z[-1]),
             )
         )
 
