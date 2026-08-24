@@ -1076,29 +1076,33 @@ class Reconstructor(Initialiser):
         return r, T, Y, Z, N1, N2
 
     @staticmethod
-    def _build_end_pose(T, N, B, rot_matrix):
-        """Return terminal T/N/B rows in the rotated curve coordinates."""
+    def _build_end_pose(T, Y, Z, rot_matrix=None):
+        """Return terminal T/Y/Z rows, optionally rotated into curve coordinates."""
         T = np.asarray(T, dtype=float)
-        N = np.asarray(N, dtype=float)
-        B = np.asarray(B, dtype=float)
-        rot_matrix = np.asarray(rot_matrix, dtype=float)
+        Y = np.asarray(Y, dtype=float)
+        Z = np.asarray(Z, dtype=float)
 
-        if T.ndim != 2 or N.ndim != 2 or B.ndim != 2:
-            raise ValueError("T, N and B must be two-dimensional frame arrays")
-        if T.shape[1] != 3 or N.shape[1] != 3 or B.shape[1] != 3:
-            raise ValueError("T, N and B must have shape (num_points, 3)")
-        if not (len(T) == len(N) == len(B)):
-            raise ValueError("T, N and B must contain the same number of points")
-        if rot_matrix.shape != (3, 3):
-            raise ValueError("rot_matrix must have shape (3, 3)")
+        if T.ndim != 2 or Y.ndim != 2 or Z.ndim != 2:
+            raise ValueError("T, Y and Z must be two-dimensional frame arrays")
+        if T.shape[1] != 3 or Y.shape[1] != 3 or Z.shape[1] != 3:
+            raise ValueError("T, Y and Z must have shape (num_points, 3)")
+        if not (len(T) == len(Y) == len(Z)):
+            raise ValueError("T, Y and Z must contain the same number of points")
+        if rot_matrix is not None:
+            rot_matrix = np.asarray(rot_matrix, dtype=float)
+            if rot_matrix.shape != (3, 3):
+                raise ValueError("rot_matrix must have shape (3, 3)")
         if len(T) == 0:
             return None
+
+        if rot_matrix is None:
+            return np.stack((T[-1], Y[-1], Z[-1]))
 
         return np.stack(
             (
                 T[-1] @ rot_matrix.T,
-                N[-1] @ rot_matrix.T,
-                B[-1] @ rot_matrix.T,
+                Y[-1] @ rot_matrix.T,
+                Z[-1] @ rot_matrix.T,
             )
         )
 
