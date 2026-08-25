@@ -45,6 +45,21 @@ def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
     return struct.pack('<' + 'd' * len(values), *values)
 
 
+def _shape_for_software_send(shape_mm, anchor_enabled, insert_value_mm):
+    """Undo X insertion only for anchored JSON data that the receiver re-applies."""
+    adjusted = np.asarray(shape_mm, dtype=float).copy()
+    if not anchor_enabled or insert_value_mm is None:
+        return adjusted
+    try:
+        values = np.asarray(insert_value_mm, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        return adjusted
+    if values.size != 1 or not np.isfinite(values[0]):
+        return adjusted
+    adjusted[:, 0] -= float(values[0])
+    return adjusted
+
+
 def _build_send_obj(end_pose, r_results_postrot, raw_data, intermediates):
     """构造包含重构结果、原始数据及六项中间变量的 JSON 发送对象。"""
     return {
@@ -1027,12 +1042,20 @@ class Demonstrator(QMainWindow):
 
         # ---------------- 电磁联调通讯（与 0605_电磁联调 相同协议） ----------------
         # 坐标单位换算为 mm 后发送
-        r_results_postrot = r_results_postrot * 1000
+        r_results_postrot_mm = r_results_postrot * 1000
 
         # 1) 通过 UDP 以 JSTON 明文推送给软件端
         try:
-            sendObj = _build_send_obj(End_pose, r_results_postrot, raw_data, intermediates)
-            # print("send=======")
+            with self.entrance_anchor_lock:
+                anchor_enabled = self.entrance_anchor_constraint.enabled
+            insert_value_mm = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
+            software_shape_mm = _shape_for_software_send(
+                r_results_postrot_mm,
+                anchor_enabled,
+                insert_value_mm,
+            )
+            sendObj = _build_send_obj(End_pose, software_shape_mm, raw_data, intermediates)
+            print("send=======")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
             print(f"JSON发送错误: {e}")
@@ -1047,7 +1070,7 @@ class Demonstrator(QMainWindow):
             n_raw = int(self.recon.total_points * self.recon.num_channels)
             pack_data = _build_sync_packet(
                 timestamp=frame_timestamp,
-                r_results_postrot=r_results_postrot,
+                r_results_postrot=r_results_postrot_mm,
                 end_pose=End_pose,
                 cur_interp=cur_interp,
                 raw_data=data_save,

@@ -8,12 +8,51 @@ from types import SimpleNamespace
 import numpy as np
 import vtk
 
+import demonstrator as demonstrator_module
 from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
 from demonstrator import Demonstrator, _build_anchor_marker_segments
 from main import add_anchor_arguments
 
 
 class DemonstratorAnchorPipelineTests(unittest.TestCase):
+    def test_software_shape_removes_positive_x_insertion_only_when_anchor_enabled(self):
+        """Anchored JSON output must undo the insertion that receiving software adds."""
+        shape_mm = np.array([[200.0, 10.0, -5.0], [250.0, 20.0, -4.0]])
+
+        adjusted = demonstrator_module._shape_for_software_send(
+            shape_mm,
+            anchor_enabled=True,
+            insert_value_mm=156.8,
+        )
+
+        np.testing.assert_allclose(adjusted, [[43.2, 10.0, -5.0], [93.2, 20.0, -4.0]])
+        np.testing.assert_array_equal(shape_mm, [[200.0, 10.0, -5.0], [250.0, 20.0, -4.0]])
+
+    def test_software_shape_is_unchanged_when_anchor_disabled(self):
+        """Existing non-anchored JSON coordinates must remain backward compatible."""
+        shape_mm = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]])
+
+        adjusted = demonstrator_module._shape_for_software_send(
+            shape_mm,
+            anchor_enabled=False,
+            insert_value_mm=12.5,
+        )
+
+        np.testing.assert_array_equal(adjusted, shape_mm)
+
+    def test_software_shape_ignores_missing_or_invalid_insertion(self):
+        """UDP startup and malformed samples must not corrupt outgoing coordinates."""
+        shape_mm = np.array([[10.0, 20.0, 30.0]])
+
+        for invalid in (None, np.nan, [1.0, 2.0]):
+            with self.subTest(invalid=invalid):
+                adjusted = demonstrator_module._shape_for_software_send(
+                    shape_mm,
+                    anchor_enabled=True,
+                    insert_value_mm=invalid,
+                )
+                np.testing.assert_array_equal(adjusted, shape_mm)
+
     def test_anchor_marker_segments_form_four_scaled_3d_diagonals(self):
         segments = _build_anchor_marker_segments(
             anchor_m=np.array([1.0, 2.0, 3.0]),
