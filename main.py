@@ -78,7 +78,7 @@ def add_anchor_arguments(parser):
     parser.add_argument(
         '--anchor_offset_m',
         type=_finite_nonnegative_float,
-        default=0.07,
+        default=0.06,
         help='末端到主隆突/支气管入口的初始距离，单位为m；运行中可通过进程接口修改',
     )
     return parser

@@ -246,7 +246,7 @@ class Demonstrator(QMainWindow):
                  direction_blend_enabled=False, direction_reference_direct=0, direction_min_curvature=0.5, direction_min_consecutive=3,
                  direction_consistency_threshold=0.6, direction_smooth_alpha=0.15,
                  demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5,
-                 anchor_constraint_enabled=False, title="Viewer", anchor_offset_m=0.07):
+                 anchor_constraint_enabled=False, title="Viewer", anchor_offset_m=0.06):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -1055,7 +1055,7 @@ class Demonstrator(QMainWindow):
                 insert_value_mm,
             )
             sendObj = _build_send_obj(End_pose, software_shape_mm, raw_data, intermediates)
-            print("send=======")
+            # print("send=======")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
             print(f"JSON发送错误: {e}")
