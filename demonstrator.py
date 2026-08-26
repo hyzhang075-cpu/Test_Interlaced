@@ -386,7 +386,11 @@ class Demonstrator(QMainWindow):
                 
                 result = self._handle_udp_datagram(data)
                 if result['ok']:
-                    print(f"UDP命令执行成功: cmd={result['cmd']}, request_id={result.get('request_id')}")
+                    # print(f"UDP命令执行成功: cmd={result['cmd']}, request_id={result.get('request_id')}")
+                    if result['cmd'] == "anchor_configure":
+                        offset = result.get('state', {}).get('entrance_offset_m', 'N/A')
+                        print(f"UDP命令执行成功: cmd={result['cmd']}, entrance_offset_m={offset}")
+                        print(f"data: {result}")
                     if result['cmd'] == 'anchor_status':
                         print(f"入口锚定状态: {json.dumps(result['state'], ensure_ascii=False)}")
                 else:
