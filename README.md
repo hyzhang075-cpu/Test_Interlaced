@@ -157,8 +157,9 @@ python main.py --task demo --anchor_constraint_enabled
 - 第一帧光纤末端视为已到达主隆突；默认入口坐标取该末端点沿全局 X 轴负方向 6 cm。
 - 机械臂 UDP 数据和 Pickle 中的 `insert_value` 单位为 mm。
 - 开头的 0 是通讯占位值；首个有限非零值作为推进量零点，当前相对推进量为“当前值减零点值”。
-- 每帧从光纤末端沿三维折线弧长反推 `入口距离 + 相对推进量`，将该位置仅通过平移固定到入口坐标。
-- 约束不会旋转或重采样光纤，输出仍为 60 个三维点。
+- 每帧从光纤末端沿三维折线弧长反推 `入口距离 + 相对推进量`；位置和经过 `rot_matrix` 的 `T/Y/Z` 使用同一线段及弧长比例插值。
+- 建立新锚定会话的第一帧会同时保存固定入口坐标和入口局部标架。后续帧先平移入口点到固定坐标，再绕该坐标旋转整条曲线，使入口 `T/Y/Z` 对齐参考标架。
+- 约束不重采样光纤，输出仍为 60 个三维点。`End_pose` 保留原有 `Y/Z` 反向绕 `T` 旋转 `rot_ang` 的协议补偿，再整体乘入口锚定旋转。
 - 不添加 `--anchor_constraint_enabled` 时保持原来的动态坐标行为。
 
 启动时可显式设置入口距离：
@@ -171,7 +172,7 @@ python main.py --task demo --anchor_constraint_enabled --anchor_offset_m 0.06
 [入口锚定 UDP 外部控制协议](docs/入口锚定UDP外部控制协议.md)。
 外部 UDP 传入的 `entrance_offset_m` 表示导管末端到入口的距离；由于传感器位于导管末端后方 0.01 m，Demonstrator 会先减去 0.01 m，再将有效距离交给锚定算法。
 
-对 Demonstrator 已记录的旧 Pickle 可使用相同算法离线回放：
+对 Demonstrator 已记录的旧 Pickle 可继续离线回放；旧文件没有逐点 `T/Y/Z`，因此离线工具保持位置平移锚定：
 
 ```powershell
 python tools/render_anchored_pickles.py `

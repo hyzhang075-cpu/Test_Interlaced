@@ -79,6 +79,19 @@ def _build_send_obj(end_pose, r_results_postrot, raw_data, intermediates):
     }
 
 
+def _rotate_end_pose_for_anchor(end_pose, rotation_matrix):
+    """Apply the global anchor rotation after End_pose roll compensation."""
+    if end_pose is None:
+        return None
+    end_pose = np.asarray(end_pose, dtype=float)
+    rotation_matrix = np.asarray(rotation_matrix, dtype=float)
+    if end_pose.shape != (3, 3):
+        raise ValueError("end_pose must have shape (3, 3)")
+    if rotation_matrix.shape != (3, 3):
+        raise ValueError("rotation_matrix must have shape (3, 3)")
+    return end_pose @ rotation_matrix.T
+
+
 def _build_end_pose_arrow_matrices(endpoint, end_pose, scale_factor, axis_length):
     """Build three VTK actor matrices from the terminal point and frame axes."""
     endpoint = np.asarray(endpoint, dtype=float)
@@ -413,6 +426,11 @@ class Demonstrator(QMainWindow):
         with self.entrance_anchor_lock:
             constraint = self.entrance_anchor_constraint
             anchor = None if constraint.anchor_m is None else constraint.anchor_m.tolist()
+            anchor_frame = (
+                None
+                if constraint.anchor_frame is None
+                else constraint.anchor_frame.tolist()
+            )
             insert_value = getattr(self, 'insert_dis', None)
             try:
                 values = np.asarray(insert_value, dtype=float).reshape(-1)
@@ -423,7 +441,9 @@ class Demonstrator(QMainWindow):
                 'enabled': bool(constraint.enabled),
                 'entrance_offset_m': float(constraint.entrance_offset_m),
                 'anchor_initialized': constraint.anchor_m is not None,
+                'anchor_frame_initialized': constraint.anchor_frame is not None,
                 'anchor_m': anchor,
+                'anchor_frame': anchor_frame,
                 'insertion_baseline_mm': constraint.insertion_baseline_mm,
                 'last_relative_insert_mm': float(constraint.last_relative_insert_mm),
                 'insert_value_mm': insert_value,
@@ -528,7 +548,7 @@ class Demonstrator(QMainWindow):
                 insert_value_mm,
             )
 
-    def _apply_anchor_constraint_for_frame(self, curve_m):
+    def _apply_anchor_constraint_for_frame(self, curve_m, T=None, Y=None, Z=None):
         """Apply anchoring and capture all downstream frame metadata under one lock."""
         with self.entrance_anchor_lock:
             insert_value = getattr(self, 'insert_dis', None)
@@ -537,14 +557,21 @@ class Demonstrator(QMainWindow):
                 if hasattr(insert_value, 'copy')
                 else insert_value
             )
-            anchored_curve = apply_entrance_anchor(
-                self.entrance_anchor_constraint,
-                curve_m,
-                insert_value,
-            )
+            if T is None and Y is None and Z is None:
+                result = self.entrance_anchor_constraint.apply(curve_m, insert_value)
+            else:
+                result = self.entrance_anchor_constraint.apply(
+                    curve_m,
+                    insert_value,
+                    T,
+                    Y,
+                    Z,
+                )
+            anchored_curve = result.curve_m
             frame_state = {
                 'anchor_enabled': bool(self.entrance_anchor_constraint.enabled),
                 'insert_value_mm': insert_value,
+                'anchor_rotation_matrix': result.rotation_matrix.copy(),
             }
         return anchored_curve, frame_state
 
@@ -1126,6 +1153,9 @@ class Demonstrator(QMainWindow):
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T
+        T_rot = T @ rot_matrix.T
+        Y_rot = Y @ rot_matrix.T
+        Z_rot = Z @ rot_matrix.T
 
         # 提取末端姿态 (End_pose)
         # 根据参考代码逻辑，End_pose 通常是末端节点的切向向量，即 T 的最后一行
@@ -1150,6 +1180,13 @@ class Demonstrator(QMainWindow):
         # 必须位于跨帧滤波之后、所有保存/显示/通讯之前，保证下游坐标一致。
         r_results_postrot, anchor_frame_state = self._apply_anchor_constraint_for_frame(
             r_results_postrot,
+            T_rot,
+            Y_rot,
+            Z_rot,
+        )
+        End_pose = _rotate_end_pose_for_anchor(
+            End_pose,
+            anchor_frame_state['anchor_rotation_matrix'],
         )
 
         #----------------- 保存pickle数据 -----------------

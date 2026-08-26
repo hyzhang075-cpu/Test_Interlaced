@@ -56,7 +56,9 @@ demo.configure_anchor_constraint(
 - `reset` 必须是 JSON boolean；省略时默认为 `true`。
 - 修改 `entrance_offset_m` 时推荐始终使用 `reset=true`。
 
-`reset=true` 会清除固定入口坐标、推进量零点和上次相对推进量。下一帧重构曲线建立新入口坐标；当前最新的有限非零机械臂读数会在下一帧成为新推进量零点。
+`reset=true` 会同时清除固定入口坐标、入口局部参考标架、推进量零点和上次相对推进量。下一帧重构曲线使用同一个反向弧长位置，同时建立新入口坐标和经过 `rot_matrix` 的 `T/Y/Z` 参考标架；当前最新的有限非零机械臂读数会在下一帧成为新推进量零点。外部不需要也不能额外传入 `orientation_enabled`。
+
+后续帧先把当前入口点平移到固定入口坐标，再绕该坐标旋转整条曲线，使当前入口 `T/Y/Z` 对齐参考标架。末端 `End_pose` 继续保留 `Y_end/Z_end` 反向绕 `T_end` 旋转 `rot_ang` 的既有协议补偿，随后再乘同一个入口锚定旋转矩阵。
 
 ## 4. 仅 reset 当前锚定会话
 
@@ -72,6 +74,7 @@ demo.configure_anchor_constraint(
 该命令保留当前 `enabled` 和 `entrance_offset_m`，只清空：
 
 - `anchor_m`；
+- `anchor_frame`；
 - `insertion_baseline_mm`；
 - `last_relative_insert_mm`。
 
@@ -93,14 +96,16 @@ demo.configure_anchor_constraint(
     "enabled": true,
     "entrance_offset_m": 0.06,
     "anchor_initialized": true,
+    "anchor_frame_initialized": true,
     "anchor_m": [0.13, 0.0, 0.0],
+    "anchor_frame": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
     "insertion_baseline_mm": 156.8,
     "last_relative_insert_mm": 10.0,
     "insert_value_mm": 166.8
 }
 ```
 
-配置/reset 执行后，命令行短暂显示 `anchor_initialized=false` 是正常状态：新固定入口要等下一帧曲线才能计算。
+配置/reset 执行后，命令行短暂显示 `anchor_initialized=false`、`anchor_frame_initialized=false` 是正常状态：新固定入口和局部参考标架都要等下一帧曲线才能同时建立。
 
 ## 6. 推进量输入
 

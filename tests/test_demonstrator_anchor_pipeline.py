@@ -15,6 +15,33 @@ from main import add_anchor_arguments
 
 
 class DemonstratorAnchorPipelineTests(unittest.TestCase):
+    def test_anchor_rotation_is_applied_after_end_pose_roll_compensation(self):
+        compensated_end_pose = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, -1.0],
+                [0.0, 1.0, 0.0],
+            ]
+        )
+        anchor_rotation = np.array(
+            [
+                [0.0, -1.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+
+        anchored_end_pose = demonstrator_module._rotate_end_pose_for_anchor(
+            compensated_end_pose,
+            anchor_rotation,
+        )
+
+        np.testing.assert_allclose(
+            anchored_end_pose,
+            [[0.0, 1.0, 0.0], [0.0, 0.0, -1.0], [-1.0, 0.0, 0.0]],
+            atol=1e-12,
+        )
+
     def test_software_shape_removes_positive_x_insertion_only_when_anchor_enabled(self):
         """Anchored JSON output must undo the insertion that receiving software adds."""
         shape_mm = np.array([[200.0, 10.0, -5.0], [250.0, 20.0, -4.0]])
@@ -240,6 +267,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertTrue(reply["state"]["enabled"])
         self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.07)
         self.assertFalse(reply["state"]["anchor_initialized"])
+        self.assertFalse(reply["state"]["anchor_frame_initialized"])
         self.assertIsNone(reply["state"]["anchor_m"])
         self.assertIsNone(reply["state"]["insertion_baseline_mm"])
         self.assertAlmostEqual(reply["state"]["last_relative_insert_mm"], 0.0)
@@ -285,6 +313,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertTrue(reply["state"]["enabled"])
         self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.06)
         self.assertFalse(reply["state"]["anchor_initialized"])
+        self.assertFalse(reply["state"]["anchor_frame_initialized"])
         self.assertIsNone(reply["state"]["insertion_baseline_mm"])
 
     def test_udp_status_datagram_returns_json_serialisable_state(self):
@@ -381,10 +410,60 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         )
 
         np.testing.assert_allclose(anchored, curve)
-        self.assertEqual(
-            frame_state,
-            {"anchor_enabled": True, "insert_value_mm": 100.0},
+        self.assertTrue(frame_state["anchor_enabled"])
+        self.assertEqual(frame_state["insert_value_mm"], 100.0)
+        np.testing.assert_allclose(
+            frame_state["anchor_rotation_matrix"],
+            np.eye(3),
+            atol=1e-12,
         )
+
+    def test_frame_stage_returns_rotation_that_aligns_curve_and_end_pose(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(
+                enabled=True,
+                entrance_offset_m=1.0,
+            ),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
+        )
+        reference_curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+        )
+        reference_frames = (
+            np.repeat([[1.0, 0.0, 0.0]], 3, axis=0),
+            np.repeat([[0.0, 1.0, 0.0]], 3, axis=0),
+            np.repeat([[0.0, 0.0, 1.0]], 3, axis=0),
+        )
+        Demonstrator._apply_anchor_constraint_for_frame(
+            harness,
+            reference_curve,
+            *reference_frames,
+        )
+        current_curve = np.array(
+            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]
+        )
+        current_frames = (
+            np.repeat([[0.0, 1.0, 0.0]], 3, axis=0),
+            np.repeat([[-1.0, 0.0, 0.0]], 3, axis=0),
+            np.repeat([[0.0, 0.0, 1.0]], 3, axis=0),
+        )
+
+        anchored_curve, frame_state = Demonstrator._apply_anchor_constraint_for_frame(
+            harness,
+            current_curve,
+            *current_frames,
+        )
+
+        np.testing.assert_allclose(anchored_curve, reference_curve, atol=1e-12)
+        np.testing.assert_allclose(
+            frame_state["anchor_rotation_matrix"],
+            [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            atol=1e-12,
+        )
+        state = Demonstrator._get_anchor_constraint_state(harness)
+        self.assertTrue(state["anchor_frame_initialized"])
+        np.testing.assert_allclose(state["anchor_frame"], np.eye(3), atol=1e-12)
 
     def test_udp_control_receiver_does_not_send_ack_or_nack_datagrams(self):
         class ReceiveSocket:
