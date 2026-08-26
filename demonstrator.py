@@ -1168,7 +1168,7 @@ class Demonstrator(QMainWindow):
                 insert_value_mm,
             )
             sendObj = _build_send_obj(End_pose, software_shape_mm, raw_data, intermediates)
-            # print("send=======")
+            # print(f"send obj: {sendObj}")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
             print(f"JSON发送错误: {e}")
