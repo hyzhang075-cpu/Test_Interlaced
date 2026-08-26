@@ -5,10 +5,10 @@
 - Demonstrator 监听：`0.0.0.0:8888/UDP`。
 - 报文编码：UTF-8 JSON，每个 UDP datagram 对应一条完整命令。
 - 距离单位：`entrance_offset_m` 为 m；`insert_dis` 为 mm。
-- 控制命令执行后，Demonstrator 会向该命令的 UDP 源地址回发 ACK/NACK JSON。
-- Demonstrator 本机命令行也会打印成功或失败摘要，但命令行不是机器接口；外部软件应读取 UDP 回包。
+- 控制命令是单向输入。Demonstrator 不向命令来源回发任何 ACK/NACK UDP 报文，避免控制消息混入外部软件接收的 `sendObj` 数据流。
+- 命令执行成功、失败及 `anchor_status` 状态只打印在 Demonstrator 本机命令行。
 
-`request_id` 由调用方生成，Demonstrator 原样回传，用于匹配请求和响应。
+`request_id` 可由调用方生成，仅用于 Demonstrator 本机日志追踪，不会通过 UDP 回传。
 
 ## 2. 启动 Demonstrator
 
@@ -72,7 +72,7 @@ demo.configure_anchor_constraint(
 - `insertion_baseline_mm`；
 - `last_relative_insert_mm`。
 
-## 5. 查询实际状态
+## 5. 在 Demonstrator 命令行查询实际状态
 
 发送：
 
@@ -83,14 +83,10 @@ demo.configure_anchor_constraint(
 }
 ```
 
-成功回包示例：
+该命令不会产生 UDP 回包。Demonstrator 本机命令行会打印类似状态：
 
 ```json
 {
-  "ok": true,
-  "cmd": "anchor_status",
-  "request_id": "status-0001",
-  "state": {
     "enabled": true,
     "entrance_offset_m": 0.07,
     "anchor_initialized": true,
@@ -98,11 +94,10 @@ demo.configure_anchor_constraint(
     "insertion_baseline_mm": 156.8,
     "last_relative_insert_mm": 10.0,
     "insert_value_mm": 166.8
-  }
 }
 ```
 
-配置/reset 后立即返回的 `anchor_initialized=false` 是正常状态：新固定入口要等下一帧曲线才能计算。
+配置/reset 执行后，命令行短暂显示 `anchor_initialized=false` 是正常状态：新固定入口要等下一帧曲线才能计算。
 
 ## 6. 推进量输入
 
@@ -118,17 +113,12 @@ demo.configure_anchor_constraint(
 
 `data` 必须是一个有限数，单位 mm。前导零或后续零由锚定状态机视为占位/掉线值，不会改变推进零点或最后有效相对推进量。
 
-## 7. 失败回包
+## 7. 错误处理
 
-非法 JSON、未知命令、错误类型、NaN、无穷值或负入口距离不会终止 UDP 接收线程，并返回：
+非法 JSON、未知命令、错误类型、NaN、无穷值或负入口距离不会终止 UDP 接收线程，也不会产生 UDP 回包。错误只打印在 Demonstrator 本机命令行，例如：
 
-```json
-{
-  "ok": false,
-  "cmd": "anchor_configure",
-  "request_id": "cfg-0002",
-  "error": "enabled must be a JSON boolean"
-}
+```text
+UDP命令执行失败: cmd=anchor_configure, error=enabled must be a JSON boolean
 ```
 
 失败配置不会部分修改原有锚定状态。
@@ -152,11 +142,7 @@ command = {
 }
 
 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-    sock.settimeout(2.0)
     sock.sendto(json.dumps(command).encode("utf-8"), DEMO_ADDRESS)
-    response_data, response_address = sock.recvfrom(4096)
-    response = json.loads(response_data.decode("utf-8"))
-    print(response_address, response)
 ```
 
-生产接入建议：调用方设置 1–2 秒超时。当前 `request_id` 只用于请求/响应匹配，不提供服务端去重；如果 `anchor_configure` 或 `anchor_reset` 的 ACK 超时，不要盲目重发，因为首个命令可能已经执行且新锚点可能已经建立。应先发送新的 `anchor_status` 查询实际状态，再由上层决定是否重新配置。UDP 可能丢包、乱序或重复，因此 reset/configure 命令不得并发发送。
+生产接入建议：外部调用方发送后不要等待 UDP 响应。UDP 可能丢包、乱序或重复，且当前没有服务端去重，因此 reset/configure 命令不得并发或自动重复发送。如需可靠的执行确认，应另行约定独立的控制反馈端口，不能复用 `sendObj` 数据端口。

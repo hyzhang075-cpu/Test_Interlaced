@@ -30,11 +30,6 @@ SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
 
 
-def _encode_udp_reply(reply):
-    """Encode ACK/NACK with ASCII-safe JSON escapes for arbitrary echoed strings."""
-    return json.dumps(reply).encode('utf-8')
-
-
 def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
                        raw_data, n_pts, n_raw):
     """Build the legacy fixed-length binary packet used by the C++ recorder."""
@@ -389,15 +384,13 @@ class Demonstrator(QMainWindow):
                 self.udp_socket.settimeout(1.0) 
                 data, addr = self.udp_socket.recvfrom(1024)
                 
-                reply = self._handle_udp_datagram(data)
-                self.udp_socket.sendto(
-                    _encode_udp_reply(reply),
-                    addr,
-                )
-                if reply['ok']:
-                    print(f"UDP命令执行成功: cmd={reply['cmd']}, request_id={reply.get('request_id')}")
+                result = self._handle_udp_datagram(data)
+                if result['ok']:
+                    print(f"UDP命令执行成功: cmd={result['cmd']}, request_id={result.get('request_id')}")
+                    if result['cmd'] == 'anchor_status':
+                        print(f"入口锚定状态: {json.dumps(result['state'], ensure_ascii=False)}")
                 else:
-                    print(f"UDP命令执行失败: cmd={reply.get('cmd')}, error={reply['error']}")
+                    print(f"UDP命令执行失败: cmd={result.get('cmd')}, error={result['error']}")
                     
             except socket.timeout:
                 # settimeout 后会定期抛出这个异常，我们忽略它，继续循环即可
@@ -442,7 +435,7 @@ class Demonstrator(QMainWindow):
             return Demonstrator._get_anchor_constraint_state(self)
 
     def _dispatch_udp_command(self, response):
-        """Validate one decoded UDP command, apply it, and build a success ACK."""
+        """Validate one decoded UDP command, apply it, and return an internal result."""
         if not isinstance(response, dict):
             raise ValueError("UDP command must be a JSON object")
 
@@ -495,7 +488,7 @@ class Demonstrator(QMainWindow):
         }
 
     def _handle_udp_datagram(self, data):
-        """Decode a datagram and always return a JSON-serialisable ACK/NACK."""
+        """Decode a datagram and return an internal result without sending a reply."""
         cmd = None
         request_id = None
         try:
