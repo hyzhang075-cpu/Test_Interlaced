@@ -49,7 +49,7 @@ class RenderAnchoredPicklesTests(unittest.TestCase):
         self.assertEqual(data.shapes_m.shape, (3, 60, 3))
         np.testing.assert_allclose(data.relative_inserts_mm, [0.0, 0.0, 10.0])
         np.testing.assert_allclose(data.shapes_m[2, :, 0] - data.shapes_m[1, :, 0], 0.01)
-        np.testing.assert_allclose(data.anchor_m, [0.03, 0.0, 0.0])
+        np.testing.assert_allclose(data.anchor_m, [0.04, 0.0, 0.0])
         self.assertAlmostEqual(data.insertion_baseline_mm, 156.8)
         self.assertFalse(np.any(data.clamped))
 

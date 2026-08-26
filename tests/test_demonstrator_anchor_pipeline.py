@@ -121,7 +121,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         np.testing.assert_allclose(enabled[:, 0], [0.01, 0.11])
         np.testing.assert_allclose(enabled[:, 1:], 0.0)
 
-    def test_main_anchor_arguments_default_to_7cm_and_accept_override(self):
+    def test_main_anchor_arguments_default_to_6cm_and_accept_override(self):
         parser = argparse.ArgumentParser()
         add_anchor_arguments(parser)
 
@@ -129,7 +129,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         overridden = parser.parse_args(["--anchor_offset_m", "0.085"])
 
         self.assertFalse(defaults.anchor_constraint_enabled)
-        self.assertAlmostEqual(defaults.anchor_offset_m, 0.07)
+        self.assertAlmostEqual(defaults.anchor_offset_m, 0.06)
         self.assertAlmostEqual(overridden.anchor_offset_m, 0.085)
 
     def test_main_anchor_arguments_reject_invalid_offset_before_runtime_setup(self):
@@ -209,6 +209,215 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertTrue(configure_finished.is_set())
         self.assertAlmostEqual(constraint.entrance_offset_m, 0.08)
         self.assertIsNone(constraint.anchor_m)
+
+    def test_udp_anchor_configure_resets_session_and_returns_actual_state(self):
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.06)
+        curve = np.array([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])
+        constraint.apply(curve, 100.0)
+        constraint.apply(curve, 110.0)
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=constraint,
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=110.0,
+        )
+
+        reply = Demonstrator._dispatch_udp_command(
+            harness,
+            {
+                "cmd": "anchor_configure",
+                "request_id": "cfg-1",
+                "data": {
+                    "enabled": True,
+                    "entrance_offset_m": 0.08,
+                    "reset": True,
+                },
+            },
+        )
+
+        self.assertEqual(reply["request_id"], "cfg-1")
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["cmd"], "anchor_configure")
+        self.assertEqual(
+            reply["state"],
+            {
+                "enabled": True,
+                "entrance_offset_m": 0.08,
+                "anchor_initialized": False,
+                "anchor_m": None,
+                "insertion_baseline_mm": None,
+                "last_relative_insert_mm": 0.0,
+                "insert_value_mm": 110.0,
+            },
+        )
+
+    def test_udp_anchor_reset_keeps_configuration_and_clears_session(self):
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.06)
+        curve = np.array([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])
+        constraint.apply(curve, 100.0)
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=constraint,
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=100.0,
+        )
+
+        reply = Demonstrator._dispatch_udp_command(
+            harness,
+            {"cmd": "anchor_reset", "request_id": "reset-1"},
+        )
+
+        self.assertTrue(reply["ok"])
+        self.assertTrue(reply["state"]["enabled"])
+        self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.06)
+        self.assertFalse(reply["state"]["anchor_initialized"])
+        self.assertIsNone(reply["state"]["insertion_baseline_mm"])
+
+    def test_udp_status_datagram_returns_json_serialisable_state(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(enabled=False),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
+        )
+
+        reply = Demonstrator._handle_udp_datagram(
+            harness,
+            b'{"cmd":"anchor_status","request_id":"status-1"}',
+        )
+
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["request_id"], "status-1")
+        self.assertFalse(reply["state"]["enabled"])
+
+    def test_malformed_udp_datagram_returns_error_instead_of_stopping_receiver(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(enabled=False),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
+        )
+
+        reply = Demonstrator._handle_udp_datagram(harness, b'{invalid json')
+
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["cmd"], None)
+        self.assertIn("JSON", reply["error"])
+
+    def test_udp_config_rejects_string_offset_without_changing_state(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(
+                enabled=False,
+                entrance_offset_m=0.06,
+            ),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
+        )
+
+        reply = Demonstrator._handle_udp_datagram(
+            harness,
+            b'{"cmd":"anchor_configure","request_id":"bad-1",'
+            b'"data":{"enabled":true,"entrance_offset_m":"0.07","reset":true}}',
+        )
+
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["request_id"], "bad-1")
+        self.assertFalse(harness.entrance_anchor_constraint.enabled)
+        self.assertAlmostEqual(harness.entrance_anchor_constraint.entrance_offset_m, 0.06)
+
+    def test_udp_insert_rejects_boolean_and_string_values(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(enabled=False),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=12.0,
+        )
+
+        for invalid_datagram in (
+            b'{"cmd":"insert_dis","data":true}',
+            b'{"cmd":"insert_dis","data":"12.5"}',
+        ):
+            with self.subTest(invalid_datagram=invalid_datagram):
+                reply = Demonstrator._handle_udp_datagram(harness, invalid_datagram)
+                self.assertFalse(reply["ok"])
+                self.assertEqual(harness.insert_dis, 12.0)
+
+    def test_frame_anchor_snapshot_remains_consistent_after_reconfigure(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(
+                enabled=True,
+                entrance_offset_m=0.06,
+            ),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=100.0,
+        )
+        curve = np.array([[0.0, 0.0, 0.0], [0.20, 0.0, 0.0]])
+
+        anchored, frame_state = Demonstrator._apply_anchor_constraint_for_frame(
+            harness,
+            curve,
+        )
+        Demonstrator._dispatch_udp_command(
+            harness,
+            {
+                "cmd": "anchor_configure",
+                "data": {"enabled": False, "reset": True},
+            },
+        )
+        Demonstrator._dispatch_udp_command(
+            harness,
+            {"cmd": "insert_dis", "data": 200.0},
+        )
+
+        np.testing.assert_allclose(anchored, curve)
+        self.assertEqual(
+            frame_state,
+            {"anchor_enabled": True, "insert_value_mm": 100.0},
+        )
+
+    def test_udp_reply_encoding_handles_lone_surrogate_as_ascii_json(self):
+        reply = {
+            "ok": False,
+            "cmd": "bad\ud800",
+            "request_id": "req\ud800",
+            "error": "unknown UDP command",
+        }
+
+        encoded = demonstrator_module._encode_udp_reply(reply)
+
+        encoded.decode("ascii")
+        self.assertEqual(
+            demonstrator_module.json.loads(encoded.decode("utf-8"))["cmd"],
+            "bad\ud800",
+        )
+
+    def test_runtime_shutdown_stops_udp_thread_recorder_and_socket(self):
+        class Resource:
+            def __init__(self):
+                self.stopped = False
+                self.closed = False
+                self.joined = False
+
+            def stop(self):
+                self.stopped = True
+
+            def close(self):
+                self.closed = True
+
+            def join(self, timeout=None):
+                self.joined = True
+
+        recorder = Resource()
+        udp_socket = Resource()
+        udp_thread = Resource()
+        harness = SimpleNamespace(
+            udp_running=True,
+            recorder=recorder,
+            udp_socket=udp_socket,
+            udp_thread=udp_thread,
+        )
+
+        Demonstrator._shutdown_runtime_resources(harness)
+
+        self.assertFalse(harness.udp_running)
+        self.assertTrue(recorder.stopped)
+        self.assertTrue(udp_socket.closed)
+        self.assertTrue(udp_thread.joined)
 
 
 if __name__ == "__main__":

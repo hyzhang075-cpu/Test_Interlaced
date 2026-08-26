@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Do not define a new UDP command or payload format.
-- Default entrance distance is exactly `0.07` m.
+- Default entrance distance is exactly `0.06` m.
 - Reconfiguration resets anchor and insertion baseline atomically.
 - Keep existing PNG and `*_anchored_full.mp4`; create distinct HTML and `*_anchored_top_view.mp4`.
 - Preserve user-owned untracked files and directories.
@@ -43,11 +43,11 @@
 
 **Interfaces:**
 - Consumes: `EntranceAnchorConstraint.configure(...)`
-- Produces: `Demonstrator.configure_anchor_constraint(enabled=None, entrance_offset_m=None) -> None`
+- Produces: `Demonstrator.configure_anchor_constraint(enabled=None, entrance_offset_m=None, reset=True) -> dict`
 
 - [x] Write tests against small real harness objects showing locked configure/apply behavior and changed-offset propagation.
 - [x] Run `python -m unittest tests.test_demonstrator_anchor_pipeline -v` and confirm failure for missing interfaces.
-- [x] Add `--anchor_offset_m` with default `0.07`, pass it into `Demonstrator`, create one anchor lock, and guard both configure and apply with the lock.
+- [x] Add `--anchor_offset_m` with default `0.06`, pass it into `Demonstrator`, create one anchor lock, and guard both configure and apply with the lock.
 - [x] Re-run the focused test module and confirm it passes.
 
 ### Task 3: HTML and top-view renderer

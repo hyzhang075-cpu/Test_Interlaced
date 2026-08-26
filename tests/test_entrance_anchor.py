@@ -6,8 +6,13 @@ from entrance_anchor import EntranceAnchorConstraint
 
 
 class EntranceAnchorConstraintTests(unittest.TestCase):
-    def test_first_nonzero_insert_is_baseline_and_next_10mm_advances_target(self):
+    def test_default_entrance_offset_is_6cm(self):
         constraint = EntranceAnchorConstraint(enabled=True)
+
+        self.assertAlmostEqual(constraint.entrance_offset_m, 0.06)
+
+    def test_first_nonzero_insert_is_baseline_and_next_10mm_advances_target(self):
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.07)
         curve = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
 
         placeholder = constraint.apply(curve, 0.0)
@@ -22,7 +27,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         self.assertAlmostEqual(constraint.insertion_baseline_mm, 156.8)
 
     def test_uses_true_reverse_polyline_arclength_and_interpolates_segment(self):
-        constraint = EntranceAnchorConstraint(enabled=True)
+        constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.07)
         curve = np.array(
             [
                 [0.0, 0.0, 0.0],

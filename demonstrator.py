@@ -30,6 +30,11 @@ SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
 
 
+def _encode_udp_reply(reply):
+    """Encode ACK/NACK with ASCII-safe JSON escapes for arbitrary echoed strings."""
+    return json.dumps(reply).encode('utf-8')
+
+
 def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
                        raw_data, n_pts, n_raw):
     """Build the legacy fixed-length binary packet used by the C++ recorder."""
@@ -384,16 +389,15 @@ class Demonstrator(QMainWindow):
                 self.udp_socket.settimeout(1.0) 
                 data, addr = self.udp_socket.recvfrom(1024)
                 
-                json_str = data.decode('utf-8')
-                response = json.loads(json_str)
-                
-                if response.get("cmd") == "insert_dis":
-                    insert_dis_value = response["data"]
-                    # 使用 print 在控制台输出，或者通过 PyQt 的信号(Signal)更新界面
-                    print(f"收到来自 {addr} 的推进量: {insert_dis_value}")
-                    self.insert_dis = insert_dis_value
+                reply = self._handle_udp_datagram(data)
+                self.udp_socket.sendto(
+                    _encode_udp_reply(reply),
+                    addr,
+                )
+                if reply['ok']:
+                    print(f"UDP命令执行成功: cmd={reply['cmd']}, request_id={reply.get('request_id')}")
                 else:
-                    print(f"收到未知指令: {response.get('cmd')}")
+                    print(f"UDP命令执行失败: cmd={reply.get('cmd')}, error={reply['error']}")
                     
             except socket.timeout:
                 # settimeout 后会定期抛出这个异常，我们忽略它，继续循环即可
@@ -401,18 +405,115 @@ class Demonstrator(QMainWindow):
             except Exception as e:
                 if self.udp_running: # 只有在程序正常运行时才打印错误
                     print(f"UDP接收错误: {e}")
-                break # 发生其他错误时退出循环
+                    continue
+                break
 
         print("后台UDP接收线程已停止。")
 
-    def configure_anchor_constraint(self, enabled=None, entrance_offset_m=None):
-        """Thread-safe protocol-independent hook for future external control adapters."""
+    def _get_anchor_constraint_state(self):
+        """Return a JSON-serialisable snapshot of the anchor and insertion state."""
+        with self.entrance_anchor_lock:
+            constraint = self.entrance_anchor_constraint
+            anchor = None if constraint.anchor_m is None else constraint.anchor_m.tolist()
+            insert_value = getattr(self, 'insert_dis', None)
+            try:
+                values = np.asarray(insert_value, dtype=float).reshape(-1)
+                insert_value = float(values[0]) if values.size == 1 and np.isfinite(values[0]) else None
+            except (TypeError, ValueError):
+                insert_value = None
+            return {
+                'enabled': bool(constraint.enabled),
+                'entrance_offset_m': float(constraint.entrance_offset_m),
+                'anchor_initialized': constraint.anchor_m is not None,
+                'anchor_m': anchor,
+                'insertion_baseline_mm': constraint.insertion_baseline_mm,
+                'last_relative_insert_mm': float(constraint.last_relative_insert_mm),
+                'insert_value_mm': insert_value,
+            }
+
+    def configure_anchor_constraint(self, enabled=None, entrance_offset_m=None, reset=True):
+        """Atomically configure/reset the live anchor and return its actual state."""
         with self.entrance_anchor_lock:
             self.entrance_anchor_constraint.configure(
                 enabled=enabled,
                 entrance_offset_m=entrance_offset_m,
-                reset=True,
+                reset=reset,
             )
+            return Demonstrator._get_anchor_constraint_state(self)
+
+    def _dispatch_udp_command(self, response):
+        """Validate one decoded UDP command, apply it, and build a success ACK."""
+        if not isinstance(response, dict):
+            raise ValueError("UDP command must be a JSON object")
+
+        cmd = response.get('cmd')
+        request_id = response.get('request_id')
+        if not isinstance(cmd, str) or not cmd:
+            raise ValueError("cmd must be a non-empty string")
+
+        if cmd == 'insert_dis':
+            insert_value = response.get('data')
+            if type(insert_value) not in (int, float) or not np.isfinite(insert_value):
+                raise ValueError("insert_dis data must be one finite number in mm")
+            with self.entrance_anchor_lock:
+                self.insert_dis = float(insert_value)
+            state = Demonstrator._get_anchor_constraint_state(self)
+        elif cmd == 'anchor_configure':
+            payload = response.get('data', {})
+            if not isinstance(payload, dict):
+                raise ValueError("anchor_configure data must be a JSON object")
+            enabled = payload.get('enabled')
+            reset = payload.get('reset', True)
+            offset = payload.get('entrance_offset_m')
+            if enabled is not None and type(enabled) is not bool:
+                raise ValueError("enabled must be a JSON boolean")
+            if type(reset) is not bool:
+                raise ValueError("reset must be a JSON boolean")
+            if offset is not None:
+                if type(offset) not in (int, float):
+                    raise ValueError("entrance_offset_m must be a JSON number in m")
+                if not np.isfinite(offset) or offset < 0.0:
+                    raise ValueError("entrance_offset_m must be a finite nonnegative number in m")
+            state = Demonstrator.configure_anchor_constraint(
+                self,
+                enabled=enabled,
+                entrance_offset_m=offset,
+                reset=reset,
+            )
+        elif cmd == 'anchor_reset':
+            state = Demonstrator.configure_anchor_constraint(self, reset=True)
+        elif cmd == 'anchor_status':
+            state = Demonstrator._get_anchor_constraint_state(self)
+        else:
+            raise ValueError(f"unknown UDP command: {cmd}")
+
+        return {
+            'ok': True,
+            'cmd': cmd,
+            'request_id': request_id,
+            'state': state,
+        }
+
+    def _handle_udp_datagram(self, data):
+        """Decode a datagram and always return a JSON-serialisable ACK/NACK."""
+        cmd = None
+        request_id = None
+        try:
+            try:
+                response = json.loads(data.decode('utf-8'))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"invalid JSON datagram: {exc}") from exc
+            if isinstance(response, dict):
+                cmd = response.get('cmd')
+                request_id = response.get('request_id')
+            return Demonstrator._dispatch_udp_command(self, response)
+        except Exception as exc:
+            return {
+                'ok': False,
+                'cmd': cmd,
+                'request_id': request_id,
+                'error': str(exc),
+            }
 
     def _apply_anchor_constraint(self, curve_m, insert_value_mm=None):
         with self.entrance_anchor_lock:
@@ -422,23 +523,42 @@ class Demonstrator(QMainWindow):
                 insert_value_mm,
             )
 
-    # --- 修改关闭事件，确保程序退出时能正确停止线程 ---
-    def closeEvent(self, event):
-        # 1. 停止UDP接收线程
+    def _apply_anchor_constraint_for_frame(self, curve_m):
+        """Apply anchoring and capture all downstream frame metadata under one lock."""
+        with self.entrance_anchor_lock:
+            insert_value = getattr(self, 'insert_dis', None)
+            insert_value = (
+                insert_value.copy()
+                if hasattr(insert_value, 'copy')
+                else insert_value
+            )
+            anchored_curve = apply_entrance_anchor(
+                self.entrance_anchor_constraint,
+                curve_m,
+                insert_value,
+            )
+            frame_state = {
+                'anchor_enabled': bool(self.entrance_anchor_constraint.enabled),
+                'insert_value_mm': insert_value,
+            }
+        return anchored_curve, frame_state
+
+    def _shutdown_runtime_resources(self):
+        """Stop all resources owned by the demonstrator; safe to call during close."""
         self.udp_running = False
-        # 等待线程结束，确保资源被正确释放
-        if hasattr(self, 'udp_thread'):
-            self.udp_thread.join()
-        
-        # 2. 停止数据记录器线程 (原有的代码)
+
         if hasattr(self, 'recorder') and self.recorder:
             self.recorder.stop()
-            
-        # 3. 关闭UDP套接字
+
         if hasattr(self, 'udp_socket'):
             self.udp_socket.close()
 
-        # 4. 调用父类的关闭事件
+        if hasattr(self, 'udp_thread'):
+            self.udp_thread.join(timeout=2.0)
+
+    # --- 关闭事件：统一清理 recorder、UDP socket 和接收线程 ---
+    def closeEvent(self, event):
+        self._shutdown_runtime_resources()
         super().closeEvent(event)
 
     def add_ball(self):
@@ -720,11 +840,6 @@ class Demonstrator(QMainWindow):
                             except Exception: pass
             except IndexError: 
                 pass
-
-    def closeEvent(self, event):
-        if hasattr(self, 'recorder') and self.recorder:
-            self.recorder.stop()
-        super().closeEvent(event)
 
     def _validate_direction_blend_config(self):
         """校验仅供动态展示使用的三方向参数混合配置。"""
@@ -1028,14 +1143,13 @@ class Demonstrator(QMainWindow):
 
         # ---------- 支气管入口锚点约束 ----------
         # 必须位于跨帧滤波之后、所有保存/显示/通讯之前，保证下游坐标一致。
-        r_results_postrot = self._apply_anchor_constraint(
+        r_results_postrot, anchor_frame_state = self._apply_anchor_constraint_for_frame(
             r_results_postrot,
-            self.insert_dis,
         )
 
         #----------------- 保存pickle数据 -----------------
         if hasattr(self, 'recorder') and self.recorder:
-            insert_value = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
+            insert_value = anchor_frame_state['insert_value_mm']
             self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=insert_value)
 
         self._update_frame(r_results_postrot, End_pose)
@@ -1046,9 +1160,8 @@ class Demonstrator(QMainWindow):
 
         # 1) 通过 UDP 以 JSTON 明文推送给软件端
         try:
-            with self.entrance_anchor_lock:
-                anchor_enabled = self.entrance_anchor_constraint.enabled
-            insert_value_mm = self.insert_dis.copy() if hasattr(self.insert_dis, 'copy') else self.insert_dis
+            anchor_enabled = anchor_frame_state['anchor_enabled']
+            insert_value_mm = anchor_frame_state['insert_value_mm']
             software_shape_mm = _shape_for_software_send(
                 r_results_postrot_mm,
                 anchor_enabled,

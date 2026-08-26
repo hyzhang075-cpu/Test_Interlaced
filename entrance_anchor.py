@@ -27,7 +27,7 @@ class AnchorConstraintResult:
 class EntranceAnchorConstraint:
     """Keep a material point on a reconstructed curve at one fixed entrance point."""
 
-    def __init__(self, enabled: bool, entrance_offset_m: float = 0.07):
+    def __init__(self, enabled: bool, entrance_offset_m: float = 0.06):
         entrance_offset_m = float(entrance_offset_m)
         if not np.isfinite(entrance_offset_m) or entrance_offset_m < 0.0:
             raise ValueError("entrance_offset_m must be a finite nonnegative value")

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The carina-to-bronchial-entrance distance is exactly 0.07 m.
+- The default carina-to-bronchial-entrance distance is exactly 0.06 m.
 - The first finite non-zero insertion reading is the relative insertion baseline; leading zero placeholders are ignored.
 - Anchoring applies translation only: no rotation, deformation, resampling, or point-count change.
 - Live anchoring runs after temporal filtering and before recorder, display, JSON, or binary output.
@@ -27,7 +27,7 @@
 - Create: `tests/test_entrance_anchor.py`
 
 **Interfaces:**
-- Produces: `AnchorConstraintResult`; `EntranceAnchorConstraint(enabled: bool, entrance_offset_m: float = 0.07)`; `EntranceAnchorConstraint.apply(curve_m, insert_value_mm) -> AnchorConstraintResult`.
+- Produces: `AnchorConstraintResult`; `EntranceAnchorConstraint(enabled: bool, entrance_offset_m: float = 0.06)`; `EntranceAnchorConstraint.apply(curve_m, insert_value_mm) -> AnchorConstraintResult`.
 
 - [ ] **Step 1: Write failing geometry/state tests**
 

@@ -154,12 +154,21 @@ python main.py --task demo --anchor_constraint_enabled
 
 约束约定如下：
 
-- 第一帧光纤末端视为已到达主隆突；入口坐标取该末端点沿全局 X 轴负方向 7 cm。
+- 第一帧光纤末端视为已到达主隆突；默认入口坐标取该末端点沿全局 X 轴负方向 6 cm。
 - 机械臂 UDP 数据和 Pickle 中的 `insert_value` 单位为 mm。
 - 开头的 0 是通讯占位值；首个有限非零值作为推进量零点，当前相对推进量为“当前值减零点值”。
-- 每帧从光纤末端沿三维折线弧长反推 `7 cm + 相对推进量`，将该位置仅通过平移固定到入口坐标。
+- 每帧从光纤末端沿三维折线弧长反推 `入口距离 + 相对推进量`，将该位置仅通过平移固定到入口坐标。
 - 约束不会旋转或重采样光纤，输出仍为 60 个三维点。
 - 不添加 `--anchor_constraint_enabled` 时保持原来的动态坐标行为。
+
+启动时可显式设置入口距离：
+
+```powershell
+python main.py --task demo --anchor_constraint_enabled --anchor_offset_m 0.06
+```
+
+运行中的 UDP 配置、reset、状态查询和 ACK 协议见
+[入口锚定 UDP 外部控制协议](docs/入口锚定UDP外部控制协议.md)。
 
 对 Demonstrator 已记录的旧 Pickle 可使用相同算法离线回放：
 

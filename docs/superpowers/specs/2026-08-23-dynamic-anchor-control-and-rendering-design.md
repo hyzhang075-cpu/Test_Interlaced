@@ -6,12 +6,12 @@ Make the bronchial-entrance distance configurable at startup and safely changeab
 
 ## Runtime control
 
-- `main.py` exposes `--anchor_offset_m`, default `0.07` m.
+- `main.py` exposes `--anchor_offset_m`, default `0.06` m.
 - `Demonstrator` accepts `anchor_offset_m` and constructs the constraint with that value.
 - `EntranceAnchorConstraint.configure(enabled=None, entrance_offset_m=None, reset=True)` is the protocol-independent state transition. A reset clears the fixed anchor, the first-nonzero insertion baseline, and the last relative insertion.
-- `Demonstrator.configure_anchor_constraint(enabled=None, entrance_offset_m=None)` is the thread-safe integration interface. It serializes configuration and frame application with one lock.
+- `Demonstrator.configure_anchor_constraint(enabled=None, entrance_offset_m=None, reset=True)` is the thread-safe integration interface. It serializes configuration and frame application with one lock and returns the actual state.
 - Reconfiguring with `enabled=True` and a new distance represents the moment the sensor reaches the carina. The next processed curve establishes the fixed entrance anchor; the next finite nonzero insertion establishes the relative-insertion zero. Leading placeholder zero values remain ignored.
-- No new UDP command is implemented. A future UDP adapter should validate/convert its payload and call `configure_anchor_constraint`.
+- UDP commands `anchor_configure`, `anchor_reset`, and `anchor_status` validate their payloads, call the thread-safe integration interface, and return an ACK/NACK datagram to the sender.
 - Invalid distances (non-finite or negative) raise `ValueError` without partially changing state.
 
 ## Offline rendering
@@ -20,7 +20,7 @@ Make the bronchial-entrance distance configurable at startup and safely changeab
 - Add `*_anchored_tip_trajectory.html`, built with Plotly and written as a self-contained interactive 3D document. It contains the tip path, start/end points, fixed entrance anchor, and hover fields for elapsed time, relative insertion, and XYZ in millimetres.
 - Add `*_anchored_top_view.mp4`, rendered with `elev=90` and `azim=0`, matching the useful view from `pickle_video_batch.py`.
 - Rendering is atomic. Existing outputs are skipped unless `--overwrite` is supplied; the new video has a distinct name, so the old video is never overwritten.
-- Offline replay continues to use a 0.07 m anchor offset unless a future CLI requirement explicitly changes it.
+- Offline replay uses the shared default 0.06 m anchor offset unless explicitly overridden.
 
 ## Verification
 
