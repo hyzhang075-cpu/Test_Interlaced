@@ -167,7 +167,7 @@ python main.py --task demo --anchor_constraint_enabled
 python main.py --task demo --anchor_constraint_enabled --anchor_offset_m 0.06
 ```
 
-运行中的 UDP 配置、reset、状态查询和 ACK 协议见
+运行中的单向 UDP 配置、reset 和本机状态查询协议见
 [入口锚定 UDP 外部控制协议](docs/入口锚定UDP外部控制协议.md)。
 
 对 Demonstrator 已记录的旧 Pickle 可使用相同算法离线回放：

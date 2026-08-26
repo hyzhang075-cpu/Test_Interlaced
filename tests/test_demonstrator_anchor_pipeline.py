@@ -370,21 +370,38 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
             {"anchor_enabled": True, "insert_value_mm": 100.0},
         )
 
-    def test_udp_reply_encoding_handles_lone_surrogate_as_ascii_json(self):
-        reply = {
-            "ok": False,
-            "cmd": "bad\ud800",
-            "request_id": "req\ud800",
-            "error": "unknown UDP command",
-        }
+    def test_udp_control_receiver_does_not_send_ack_or_nack_datagrams(self):
+        class ReceiveSocket:
+            def __init__(self, harness):
+                self.harness = harness
+                self.recv_count = 0
+                self.send_count = 0
 
-        encoded = demonstrator_module._encode_udp_reply(reply)
+            def settimeout(self, timeout):
+                pass
 
-        encoded.decode("ascii")
-        self.assertEqual(
-            demonstrator_module.json.loads(encoded.decode("utf-8"))["cmd"],
-            "bad\ud800",
+            def recvfrom(self, size):
+                self.recv_count += 1
+                if self.recv_count == 1:
+                    return b'{"cmd":"anchor_status","request_id":"status-1"}', ("127.0.0.1", 50001)
+                self.harness.udp_running = False
+                raise OSError("receiver stopping")
+
+            def sendto(self, data, addr):
+                self.send_count += 1
+
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(enabled=False),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
+            udp_running=True,
         )
+        harness._handle_udp_datagram = lambda data: Demonstrator._handle_udp_datagram(harness, data)
+        harness.udp_socket = ReceiveSocket(harness)
+
+        Demonstrator._receive_udp_data(harness)
+
+        self.assertEqual(harness.udp_socket.send_count, 0)
 
     def test_runtime_shutdown_stops_udp_thread_recorder_and_socket(self):
         class Resource:
