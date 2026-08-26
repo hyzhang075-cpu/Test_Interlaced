@@ -237,18 +237,34 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertEqual(reply["request_id"], "cfg-1")
         self.assertTrue(reply["ok"])
         self.assertEqual(reply["cmd"], "anchor_configure")
-        self.assertEqual(
-            reply["state"],
-            {
-                "enabled": True,
-                "entrance_offset_m": 0.08,
-                "anchor_initialized": False,
-                "anchor_m": None,
-                "insertion_baseline_mm": None,
-                "last_relative_insert_mm": 0.0,
-                "insert_value_mm": 110.0,
-            },
+        self.assertTrue(reply["state"]["enabled"])
+        self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.07)
+        self.assertFalse(reply["state"]["anchor_initialized"])
+        self.assertIsNone(reply["state"]["anchor_m"])
+        self.assertIsNone(reply["state"]["insertion_baseline_mm"])
+        self.assertAlmostEqual(reply["state"]["last_relative_insert_mm"], 0.0)
+        self.assertAlmostEqual(reply["state"]["insert_value_mm"], 110.0)
+
+    def test_udp_anchor_configure_rejects_offset_shorter_than_sensor_tip_gap(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(
+                enabled=False,
+                entrance_offset_m=0.06,
+            ),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=None,
         )
+
+        reply = Demonstrator._handle_udp_datagram(
+            harness,
+            b'{"cmd":"anchor_configure","request_id":"too-short",'
+            b'"data":{"enabled":true,"entrance_offset_m":0.009,"reset":true}}',
+        )
+
+        self.assertFalse(reply["ok"])
+        self.assertIn("0.01", reply["error"])
+        self.assertFalse(harness.entrance_anchor_constraint.enabled)
+        self.assertAlmostEqual(harness.entrance_anchor_constraint.entrance_offset_m, 0.06)
 
     def test_udp_anchor_reset_keeps_configuration_and_clears_session(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.06)

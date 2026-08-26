@@ -12,6 +12,7 @@ Make the bronchial-entrance distance configurable at startup and safely changeab
 - `Demonstrator.configure_anchor_constraint(enabled=None, entrance_offset_m=None, reset=True)` is the thread-safe integration interface. It serializes configuration and frame application with one lock and returns the actual state.
 - Reconfiguring with `enabled=True` and a new distance represents the moment the sensor reaches the carina. The next processed curve establishes the fixed entrance anchor; the next finite nonzero insertion establishes the relative-insertion zero. Leading placeholder zero values remain ignored.
 - UDP commands `anchor_configure`, `anchor_reset`, and `anchor_status` validate their payloads and call the thread-safe integration interface. They do not send UDP replies, so the external `sendObj` stream cannot be mixed with control ACK/NACK datagrams.
+- The UDP adapter treats external `entrance_offset_m` as the catheter-tip-to-entrance distance and subtracts the fixed 0.01 m sensor setback before calling `configure_anchor_constraint`. Values below 0.01 m are rejected atomically. Direct in-process configuration already uses the effective sensor distance and is not adjusted again.
 - Invalid distances (non-finite or negative) raise `ValueError` without partially changing state.
 
 ## Offline rendering

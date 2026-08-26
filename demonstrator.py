@@ -28,6 +28,7 @@ RECEIVER_IP = '192.168.110.154'
 RECEIVER_PORT = 8888
 SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
+SENSOR_TIP_SETBACK_M = 0.01
 
 
 def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
@@ -462,6 +463,7 @@ class Demonstrator(QMainWindow):
             enabled = payload.get('enabled')
             reset = payload.get('reset', True)
             offset = payload.get('entrance_offset_m')
+            effective_offset = offset
             if enabled is not None and type(enabled) is not bool:
                 raise ValueError("enabled must be a JSON boolean")
             if type(reset) is not bool:
@@ -471,10 +473,16 @@ class Demonstrator(QMainWindow):
                     raise ValueError("entrance_offset_m must be a JSON number in m")
                 if not np.isfinite(offset) or offset < 0.0:
                     raise ValueError("entrance_offset_m must be a finite nonnegative number in m")
+                if offset < SENSOR_TIP_SETBACK_M:
+                    raise ValueError(
+                        "entrance_offset_m must be at least 0.01 m because the sensor "
+                        "is 0.01 m behind the catheter tip"
+                    )
+                effective_offset = max(0.0, float(offset) - SENSOR_TIP_SETBACK_M)
             state = Demonstrator.configure_anchor_constraint(
                 self,
                 enabled=enabled,
-                entrance_offset_m=offset,
+                entrance_offset_m=effective_offset,
                 reset=reset,
             )
         elif cmd == 'anchor_reset':
