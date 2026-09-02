@@ -177,6 +177,97 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
             atol=1e-12,
         )
 
+    def test_translation_switch_applies_position_anchor_without_rotation(self):
+        constraint = EntranceAnchorConstraint(
+            translation_enabled=True,
+            rotation_enabled=False,
+            entrance_offset_m=1.0,
+        )
+        reference_curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+        )
+        identity_frames = self._constant_frames(
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        constraint.apply(reference_curve, None, *identity_frames)
+        current_curve = np.array(
+            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]
+        )
+        rotated_frames = self._constant_frames(
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+
+        result = constraint.apply(current_curve, None, *rotated_frames)
+
+        np.testing.assert_allclose(
+            result.curve_m,
+            [[1.0, -1.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(result.translation_m, [1.0, -1.0, 0.0])
+        np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
+        self.assertIsNone(result.anchor_frame)
+
+    def test_rotation_switch_aligns_frame_about_current_entrance_without_translation(self):
+        constraint = EntranceAnchorConstraint(
+            translation_enabled=False,
+            rotation_enabled=True,
+            entrance_offset_m=1.0,
+        )
+        reference_curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+        )
+        identity_frames = self._constant_frames(
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        constraint.apply(reference_curve, None, *identity_frames)
+        current_curve = np.array(
+            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]
+        )
+        rotated_frames = self._constant_frames(
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+
+        result = constraint.apply(current_curve, None, *rotated_frames)
+
+        np.testing.assert_allclose(
+            result.curve_m,
+            [[-1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(result.translation_m, np.zeros(3), atol=1e-12)
+        np.testing.assert_allclose(result.anchored_point_m, result.source_point_m, atol=1e-12)
+        self.assertIsNone(result.anchor_m)
+
+    def test_both_switches_disabled_leave_curve_and_frame_unchanged(self):
+        constraint = EntranceAnchorConstraint(
+            translation_enabled=False,
+            rotation_enabled=False,
+            entrance_offset_m=1.0,
+        )
+        curve = np.array(
+            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]
+        )
+        frames = self._constant_frames(
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+
+        result = constraint.apply(curve, 156.8, *frames)
+
+        np.testing.assert_array_equal(result.curve_m, curve)
+        np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
+        self.assertFalse(result.applied)
+
     def test_reset_clears_and_recaptures_position_and_local_frame_together(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=1.0)
         curve = np.array(

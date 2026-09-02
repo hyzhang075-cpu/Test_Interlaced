@@ -146,10 +146,12 @@ python main.py --task recon --curvature_interp vector_pchip
 
 #### 4.3.0 支气管入口锚点约束
 
-动态展示可通过以下开关固定支气管入口位置：
+动态展示可分别控制支气管入口的位置平移锚定和姿态旋转锚定：
 
 ```powershell
-python main.py --task demo --anchor_constraint_enabled
+python main.py --task demo --anchor_translation_enabled
+python main.py --task demo --anchor_rotation_enabled
+python main.py --task demo --anchor_translation_enabled --anchor_rotation_enabled
 ```
 
 约束约定如下：
@@ -158,14 +160,16 @@ python main.py --task demo --anchor_constraint_enabled
 - 机械臂 UDP 数据和 Pickle 中的 `insert_value` 单位为 mm。
 - 开头的 0 是通讯占位值；首个有限非零值作为推进量零点，当前相对推进量为“当前值减零点值”。
 - 每帧从光纤末端沿三维折线弧长反推 `入口距离 + 相对推进量`；位置和经过 `rot_matrix` 的 `T/Y/Z` 使用同一线段及弧长比例插值。
-- 建立新锚定会话的第一帧会同时保存固定入口坐标和入口局部标架。后续帧先平移入口点到固定坐标，再绕该坐标旋转整条曲线，使入口 `T/Y/Z` 对齐参考标架。
-- 约束不重采样光纤，输出仍为 60 个三维点。`End_pose` 保留原有 `Y/Z` 反向绕 `T` 旋转 `rot_ang` 的协议补偿，再整体乘入口锚定旋转。
-- 不添加 `--anchor_constraint_enabled` 时保持原来的动态坐标行为。
+- `--anchor_translation_enabled` 只固定入口位置，不旋转曲线。
+- `--anchor_rotation_enabled` 只对齐入口 `T/Y/Z`；平移关闭时绕当前入口点旋转，不改变入口位置。
+- 两个新开关同时开启时，后续帧先平移入口点到固定坐标，再绕该固定坐标旋转整条曲线，效果与原完整入口锚定一致。
+- 约束不重采样光纤，输出仍为 60 个三维点。仅当旋转开关开启时，`End_pose` 才在原有 `rot_ang` 协议补偿后整体乘入口锚定旋转。
+- 两个新开关都不添加时保持原来的动态坐标行为。旧参数 `--anchor_constraint_enabled` 保留兼容，等价于同时开启两个新开关。
 
 启动时可显式设置入口距离：
 
 ```powershell
-python main.py --task demo --anchor_constraint_enabled --anchor_offset_m 0.06
+python main.py --task demo --anchor_translation_enabled --anchor_rotation_enabled --anchor_offset_m 0.06
 ```
 
 运行中的单向 UDP 配置、reset 和本机状态查询协议见

@@ -148,6 +148,31 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         np.testing.assert_allclose(enabled[:, 0], [0.01, 0.11])
         np.testing.assert_allclose(enabled[:, 1:], 0.0)
 
+    def test_frame_state_separates_translation_from_rotation_for_downstream_output(self):
+        harness = SimpleNamespace(
+            entrance_anchor_constraint=EntranceAnchorConstraint(
+                translation_enabled=False,
+                rotation_enabled=True,
+                entrance_offset_m=1.0,
+            ),
+            entrance_anchor_lock=threading.RLock(),
+            insert_dis=156.8,
+        )
+        curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+        )
+        T = np.repeat([[1.0, 0.0, 0.0]], 3, axis=0)
+        Y = np.repeat([[0.0, 1.0, 0.0]], 3, axis=0)
+        Z = np.repeat([[0.0, 0.0, 1.0]], 3, axis=0)
+
+        _, frame_state = Demonstrator._apply_anchor_constraint_for_frame(
+            harness, curve, T, Y, Z
+        )
+
+        self.assertTrue(frame_state["anchor_enabled"])
+        self.assertFalse(frame_state["anchor_translation_enabled"])
+        self.assertTrue(frame_state["anchor_rotation_enabled"])
+
     def test_main_anchor_arguments_default_to_6cm_and_accept_override(self):
         parser = argparse.ArgumentParser()
         add_anchor_arguments(parser)
@@ -156,8 +181,25 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         overridden = parser.parse_args(["--anchor_offset_m", "0.085"])
 
         self.assertFalse(defaults.anchor_constraint_enabled)
+        self.assertFalse(defaults.anchor_translation_enabled)
+        self.assertFalse(defaults.anchor_rotation_enabled)
         self.assertAlmostEqual(defaults.anchor_offset_m, 0.06)
         self.assertAlmostEqual(overridden.anchor_offset_m, 0.085)
+
+    def test_main_anchor_switches_are_independent_and_legacy_switch_enables_both(self):
+        parser = argparse.ArgumentParser()
+        add_anchor_arguments(parser)
+
+        translation_only = parser.parse_args(["--anchor_translation_enabled"])
+        rotation_only = parser.parse_args(["--anchor_rotation_enabled"])
+        legacy = parser.parse_args(["--anchor_constraint_enabled"])
+
+        self.assertTrue(translation_only.anchor_translation_enabled)
+        self.assertFalse(translation_only.anchor_rotation_enabled)
+        self.assertFalse(rotation_only.anchor_translation_enabled)
+        self.assertTrue(rotation_only.anchor_rotation_enabled)
+        self.assertTrue(legacy.anchor_translation_enabled)
+        self.assertTrue(legacy.anchor_rotation_enabled)
 
     def test_main_anchor_arguments_reject_invalid_offset_before_runtime_setup(self):
         parser = argparse.ArgumentParser()

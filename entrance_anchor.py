@@ -1,4 +1,4 @@
-"""Position-and-frame bronchial entrance anchoring for reconstructed fibre curves."""
+"""Independently switchable position and frame anchoring for fibre curves."""
 
 from __future__ import annotations
 
@@ -29,30 +29,73 @@ class AnchorConstraintResult:
 
 
 class EntranceAnchorConstraint:
-    """Keep a material point on a reconstructed curve at one fixed entrance point."""
+    """Optionally stabilize a curve's entrance position, local frame, or both."""
 
-    def __init__(self, enabled: bool, entrance_offset_m: float = 0.06):
+    def __init__(
+        self,
+        enabled=None,
+        entrance_offset_m: float = 0.06,
+        translation_enabled=None,
+        rotation_enabled=None,
+    ):
         entrance_offset_m = float(entrance_offset_m)
         if not np.isfinite(entrance_offset_m) or entrance_offset_m < 0.0:
             raise ValueError("entrance_offset_m must be a finite nonnegative value")
 
-        self.enabled = bool(enabled)
+        legacy_enabled = False if enabled is None else bool(enabled)
+        self.translation_enabled = (
+            legacy_enabled
+            if translation_enabled is None
+            else bool(translation_enabled)
+        )
+        self.rotation_enabled = (
+            legacy_enabled
+            if rotation_enabled is None
+            else bool(rotation_enabled)
+        )
         self.entrance_offset_m = entrance_offset_m
         self.anchor_m = None
         self.anchor_frame = None
         self.insertion_baseline_mm = None
         self.last_relative_insert_mm = 0.0
 
-    def configure(self, enabled=None, entrance_offset_m=None, reset=True):
+    @property
+    def enabled(self):
+        """Compatibility state: anchoring is active when either component is active."""
+        return self.translation_enabled or self.rotation_enabled
+
+    @enabled.setter
+    def enabled(self, value):
+        value = bool(value)
+        self.translation_enabled = value
+        self.rotation_enabled = value
+
+    def configure(
+        self,
+        enabled=None,
+        entrance_offset_m=None,
+        reset=True,
+        translation_enabled=None,
+        rotation_enabled=None,
+    ):
         """Atomically update runtime settings and optionally start a fresh anchor session."""
-        new_enabled = self.enabled if enabled is None else bool(enabled)
+        new_translation_enabled = self.translation_enabled
+        new_rotation_enabled = self.rotation_enabled
+        if enabled is not None:
+            new_translation_enabled = bool(enabled)
+            new_rotation_enabled = bool(enabled)
+        if translation_enabled is not None:
+            new_translation_enabled = bool(translation_enabled)
+        if rotation_enabled is not None:
+            new_rotation_enabled = bool(rotation_enabled)
         new_offset_m = self.entrance_offset_m
         if entrance_offset_m is not None:
             new_offset_m = float(entrance_offset_m)
             if not np.isfinite(new_offset_m) or new_offset_m < 0.0:
                 raise ValueError("entrance_offset_m must be a finite nonnegative value")
 
-        self.enabled = new_enabled
+        self.translation_enabled = new_translation_enabled
+        self.rotation_enabled = new_rotation_enabled
         self.entrance_offset_m = new_offset_m
         if reset:
             self.anchor_m = None
@@ -184,9 +227,14 @@ class EntranceAnchorConstraint:
                 clamped=False,
             )
 
-        frames = self._validate_frames(curve, T, Y, Z)
+        frames = (
+            self._validate_frames(curve, T, Y, Z)
+            if self.rotation_enabled
+            else None
+        )
         recapture_joint_session = (
             frames is not None
+            and self.translation_enabled
             and self.anchor_m is not None
             and self.anchor_frame is None
         )
@@ -195,8 +243,10 @@ class EntranceAnchorConstraint:
         baseline_mm = None if recapture_joint_session else self.insertion_baseline_mm
         last_relative_mm = 0.0 if recapture_joint_session else self.last_relative_insert_mm
 
-        if anchor_m is None:
+        if self.translation_enabled and anchor_m is None:
             anchor_m = curve[-1].copy() - np.array([self.entrance_offset_m, 0.0, 0.0])
+        if not self.translation_enabled:
+            anchor_m = None
 
         (
             relative_insert_mm,
@@ -233,14 +283,20 @@ class EntranceAnchorConstraint:
                 anchor_frame = source_frame.copy()
             rotation_matrix = anchor_frame @ source_frame.T
 
-        translation_m = anchor_m - source_point_m
+        translation_m = (
+            anchor_m - source_point_m
+            if self.translation_enabled
+            else np.zeros(3, dtype=float)
+        )
         translated_curve = curve + translation_m
+        rotation_pivot_m = anchor_m if self.translation_enabled else source_point_m
         anchored_curve = (
-            (translated_curve - anchor_m) @ rotation_matrix.T + anchor_m
+            (translated_curve - rotation_pivot_m) @ rotation_matrix.T
+            + rotation_pivot_m
         )
         anchored_point_m = (
-            (source_point_m + translation_m - anchor_m) @ rotation_matrix.T
-            + anchor_m
+            (source_point_m + translation_m - rotation_pivot_m) @ rotation_matrix.T
+            + rotation_pivot_m
         )
 
         self.anchor_m = anchor_m
@@ -251,7 +307,7 @@ class EntranceAnchorConstraint:
         return AnchorConstraintResult(
             curve_m=anchored_curve,
             applied=True,
-            anchor_m=anchor_m.copy(),
+            anchor_m=None if anchor_m is None else anchor_m.copy(),
             source_point_m=source_point_m,
             anchored_point_m=anchored_point_m,
             translation_m=translation_m,

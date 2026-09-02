@@ -261,7 +261,8 @@ class Demonstrator(QMainWindow):
                  direction_blend_enabled=False, direction_reference_direct=0, direction_min_curvature=0.5, direction_min_consecutive=3,
                  direction_consistency_threshold=0.6, direction_smooth_alpha=0.15,
                  demo_kalman_enabled=False, demo_kalman_Rk=1e-4, demo_kalman_Bk=1e-5,
-                 anchor_constraint_enabled=False, title="Viewer", anchor_offset_m=0.06):
+                 anchor_constraint_enabled=False, anchor_translation_enabled=False,
+                 anchor_rotation_enabled=False, title="Viewer", anchor_offset_m=0.06):
         super().__init__()
 
         self.setWindowTitle(title)
@@ -303,6 +304,12 @@ class Demonstrator(QMainWindow):
         self.entrance_anchor_constraint = EntranceAnchorConstraint(
             enabled=anchor_constraint_enabled,
             entrance_offset_m=anchor_offset_m,
+            translation_enabled=(
+                anchor_translation_enabled or anchor_constraint_enabled
+            ),
+            rotation_enabled=(
+                anchor_rotation_enabled or anchor_constraint_enabled
+            ),
         )
 
         # 三方向参数软过渡只服务于动态展示，不写入 Reconstructor / Optimiser 状态。
@@ -440,6 +447,8 @@ class Demonstrator(QMainWindow):
                 insert_value = None
             return {
                 'enabled': bool(constraint.enabled),
+                'translation_enabled': bool(constraint.translation_enabled),
+                'rotation_enabled': bool(constraint.rotation_enabled),
                 'entrance_offset_m': float(constraint.entrance_offset_m),
                 'anchor_initialized': constraint.anchor_m is not None,
                 'anchor_frame_initialized': constraint.anchor_frame is not None,
@@ -571,6 +580,12 @@ class Demonstrator(QMainWindow):
             anchored_curve = result.curve_m
             frame_state = {
                 'anchor_enabled': bool(self.entrance_anchor_constraint.enabled),
+                'anchor_translation_enabled': bool(
+                    self.entrance_anchor_constraint.translation_enabled
+                ),
+                'anchor_rotation_enabled': bool(
+                    self.entrance_anchor_constraint.rotation_enabled
+                ),
                 'insert_value_mm': insert_value,
                 'anchor_rotation_matrix': result.rotation_matrix.copy(),
             }
@@ -1203,7 +1218,7 @@ class Demonstrator(QMainWindow):
 
         # 1) 通过 UDP 以 JSTON 明文推送给软件端
         try:
-            anchor_enabled = anchor_frame_state['anchor_enabled']
+            anchor_enabled = anchor_frame_state['anchor_translation_enabled']
             insert_value_mm = anchor_frame_state['insert_value_mm']
             software_shape_mm = _shape_for_software_send(
                 r_results_postrot_mm,

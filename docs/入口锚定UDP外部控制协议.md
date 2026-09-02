@@ -13,11 +13,15 @@
 
 ## 2. 启动 Demonstrator
 
-默认入口距离为 0.06 m。可在启动时启用锚定：
+默认入口距离为 0.06 m。可在启动时分别启用平移和旋转锚定：
 
 ```powershell
-python main.py --task demo --anchor_constraint_enabled --anchor_offset_m 0.06
+python main.py --task demo --anchor_translation_enabled --anchor_rotation_enabled --anchor_offset_m 0.06
 ```
+
+只固定入口位置时仅传 `--anchor_translation_enabled`；只稳定入口姿态时仅传
+`--anchor_rotation_enabled`。旋转单独开启时围绕当前入口点旋转，因此不会引入入口平移。
+旧参数 `--anchor_constraint_enabled` 继续兼容，等价于同时开启两项。
 
 也可以不在启动时启用，待程序运行后使用 `anchor_configure` 开启。
 
@@ -56,7 +60,7 @@ demo.configure_anchor_constraint(
 - `reset` 必须是 JSON boolean；省略时默认为 `true`。
 - 修改 `entrance_offset_m` 时推荐始终使用 `reset=true`。
 
-`reset=true` 会同时清除固定入口坐标、入口局部参考标架、推进量零点和上次相对推进量。下一帧重构曲线使用同一个反向弧长位置，同时建立新入口坐标和经过 `rot_matrix` 的 `T/Y/Z` 参考标架；当前最新的有限非零机械臂读数会在下一帧成为新推进量零点。外部不需要也不能额外传入 `orientation_enabled`。
+`reset=true` 会同时清除固定入口坐标、入口局部参考标架、推进量零点和上次相对推进量。下一帧重构曲线使用同一个反向弧长位置，按启动开关建立入口坐标和/或经过 `rot_matrix` 的 `T/Y/Z` 参考标架；当前最新的有限非零机械臂读数会在下一帧成为新推进量零点。UDP 的旧 `enabled` 字段仍同时开关平移与旋转，状态查询额外返回 `translation_enabled` 和 `rotation_enabled`。
 
 后续帧先把当前入口点平移到固定入口坐标，再绕该坐标旋转整条曲线，使当前入口 `T/Y/Z` 对齐参考标架。末端 `End_pose` 继续保留 `Y_end/Z_end` 反向绕 `T_end` 旋转 `rot_ang` 的既有协议补偿，随后再乘同一个入口锚定旋转矩阵。
 

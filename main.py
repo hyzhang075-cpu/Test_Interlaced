@@ -70,10 +70,27 @@ def _finite_nonnegative_float(value):
 
 def add_anchor_arguments(parser):
     """Register startup settings for the protocol-independent entrance anchor."""
+    class _EnableFullAnchor(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, True)
+            setattr(namespace, 'anchor_translation_enabled', True)
+            setattr(namespace, 'anchor_rotation_enabled', True)
+
+    parser.add_argument(
+        '--anchor_translation_enabled',
+        action='store_true',
+        help='启用入口位置平移锚定，将当前入口点平移到首帧固定入口坐标',
+    )
+    parser.add_argument(
+        '--anchor_rotation_enabled',
+        action='store_true',
+        help='启用入口姿态旋转锚定，使当前入口T/Y/Z与首帧入口标架对齐',
+    )
     parser.add_argument(
         '--anchor_constraint_enabled',
-        action='store_true',
-        help='动态展示中启用支气管入口锚点约束；只平移曲线，不旋转或改变60点输出',
+        action=_EnableFullAnchor,
+        nargs=0,
+        help='兼容旧参数：同时启用入口平移锚定和旋转锚定',
     )
     parser.add_argument(
         '--anchor_offset_m',
@@ -281,7 +298,8 @@ def main():
         'direction_blend_enabled', 'direction_reference_direct', 'direction_min_curvature', 'direction_min_consecutive',
         'direction_consistency_threshold', 'direction_smooth_alpha',
         'demo_kalman_enabled', 'demo_kalman_Rk', 'demo_kalman_Bk',
-        'anchor_constraint_enabled', 'anchor_offset_m',
+        'anchor_constraint_enabled', 'anchor_translation_enabled',
+        'anchor_rotation_enabled', 'anchor_offset_m',
     ]
 
     optim_exclude_keys = ['task', 'ang_step', 'ang_range'] + demo_param_keys
