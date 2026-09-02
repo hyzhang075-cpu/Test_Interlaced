@@ -176,6 +176,10 @@ python main.py --task demo --anchor_translation_enabled --anchor_rotation_enable
 [入口锚定 UDP 外部控制协议](docs/入口锚定UDP外部控制协议.md)。
 外部 UDP 传入的 `entrance_offset_m` 表示导管末端到入口的距离；由于传感器位于导管末端后方 0.01 m，Demonstrator 会先减去 0.01 m，再将有效距离交给锚定算法。
 
+动态 JSON 数据在任一入口锚定开关开启时，会对曲线和当前入口/旋转中心执行相同的软件坐标变换：坐标由 m 转为 mm，X 再减去机械臂当前绝对推进读数。`sendObj["anchor_point"]` 保存变换后的入口点；两个锚定开关都关闭、入口点尚未生成或推进读数无效时为 `null`。仅旋转锚定时，该点是当前帧局部 `T/Y/Z` 的插值位置及旋转中心。
+
+新记录的 Pickle 中，`r_results` 继续保存锚定后的曲线以兼容旧读取程序；`r_results_before_anchor` 保存锚定前的 `r_results_postrot`；`anchor_point_m` 保存软件坐标变换前、单位为 m 的每帧入口/旋转中心。
+
 对 Demonstrator 已记录的旧 Pickle 可继续离线回放；旧文件没有逐点 `T/Y/Z`，因此离线工具保持位置平移锚定：
 
 ```powershell

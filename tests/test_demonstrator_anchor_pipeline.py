@@ -1,5 +1,6 @@
 import argparse
 import io
+import queue
 import threading
 import unittest
 from contextlib import redirect_stderr
@@ -10,7 +11,7 @@ import vtk
 
 import demonstrator as demonstrator_module
 from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
-from demonstrator import Demonstrator, _build_anchor_marker_segments
+from demonstrator import DataRecorder, Demonstrator, _build_anchor_marker_segments
 from main import add_anchor_arguments
 
 
@@ -79,6 +80,96 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
                     insert_value_mm=invalid,
                 )
                 np.testing.assert_array_equal(adjusted, shape_mm)
+
+    def test_anchor_point_uses_same_software_coordinates_as_anchored_shape(self):
+        anchor_point_m = np.array([0.2, 0.01, -0.005])
+
+        converted = demonstrator_module._anchor_point_for_software_send(
+            anchor_point_m,
+            anchor_enabled=True,
+            insert_value_mm=156.8,
+        )
+
+        np.testing.assert_allclose(converted, [43.2, 10.0, -5.0])
+
+    def test_anchor_point_is_absent_without_active_anchor_or_valid_insertion(self):
+        anchor_point_m = np.array([0.2, 0.01, -0.005])
+
+        for enabled, insert_value in (
+            (False, 156.8),
+            (True, None),
+            (True, np.nan),
+        ):
+            with self.subTest(enabled=enabled, insert_value=insert_value):
+                self.assertIsNone(
+                    demonstrator_module._anchor_point_for_software_send(
+                        anchor_point_m,
+                        anchor_enabled=enabled,
+                        insert_value_mm=insert_value,
+                    )
+                )
+
+    def test_send_object_includes_software_anchor_point(self):
+        intermediates = {
+            "magnitude": np.array([1.0]),
+            "angle": [0.1],
+            "cur_kal": np.array([2.0]),
+            "ang_filter": np.array([0.2]),
+            "cur_interp": np.array([3.0]),
+            "ang_interp": np.array([0.3]),
+        }
+
+        send_obj = demonstrator_module._build_send_obj(
+            np.eye(3),
+            np.zeros((2, 3)),
+            np.array([4.0]),
+            intermediates,
+            anchor_point_mm=np.array([43.2, 10.0, -5.0]),
+        )
+
+        self.assertEqual(send_obj["anchor_point"], [43.2, 10.0, -5.0])
+
+    def test_data_recorder_copies_before_after_anchor_curves_and_anchor_point(self):
+        recorder = DataRecorder.__new__(DataRecorder)
+        recorder.running = True
+        recorder.queue = queue.Queue()
+        before_anchor = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
+        after_anchor = np.array([[0.2, 0.0, 0.0], [0.3, 0.0, 0.0]])
+        anchor_point_m = np.array([0.25, 0.0, 0.0])
+        intermediates = {
+            "magnitude": np.array([1.0]),
+            "angle": [0.1],
+            "cur_kal": np.array([2.0]),
+            "ang_filter": np.array([0.2]),
+            "cur_interp": np.array([3.0]),
+            "ang_interp": np.array([0.3]),
+        }
+
+        recorder.save(
+            timestamp=1.0,
+            r_results=after_anchor,
+            end_pose=np.eye(3),
+            cur_interp=np.array([3.0]),
+            raw_data=np.array([4.0]),
+            intermediates=intermediates,
+            insert_value=156.8,
+            r_results_before_anchor=before_anchor,
+            anchor_point_m=anchor_point_m,
+        )
+        packet = recorder.queue.get_nowait()
+        before_anchor[:] = -1.0
+        after_anchor[:] = -2.0
+        anchor_point_m[:] = -3.0
+
+        np.testing.assert_allclose(
+            packet["r_results_before_anchor"],
+            [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]],
+        )
+        np.testing.assert_allclose(
+            packet["r_results"],
+            [[0.2, 0.0, 0.0], [0.3, 0.0, 0.0]],
+        )
+        np.testing.assert_allclose(packet["anchor_point_m"], [0.25, 0.0, 0.0])
 
     def test_anchor_marker_segments_form_four_scaled_3d_diagonals(self):
         segments = _build_anchor_marker_segments(
@@ -172,6 +263,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertTrue(frame_state["anchor_enabled"])
         self.assertFalse(frame_state["anchor_translation_enabled"])
         self.assertTrue(frame_state["anchor_rotation_enabled"])
+        np.testing.assert_allclose(frame_state["anchor_point_m"], [1.0, 0.0, 0.0])
 
     def test_main_anchor_arguments_default_to_6cm_and_accept_override(self):
         parser = argparse.ArgumentParser()

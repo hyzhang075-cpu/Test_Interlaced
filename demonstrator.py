@@ -62,11 +62,61 @@ def _shape_for_software_send(shape_mm, anchor_enabled, insert_value_mm):
     return adjusted
 
 
-def _build_send_obj(end_pose, r_results_postrot, raw_data, intermediates):
-    """构造包含重构结果、原始数据及六项中间变量的 JSON 发送对象。"""
+def _anchor_point_for_software_send(
+    anchor_point_m,
+    anchor_enabled,
+    insert_value_mm,
+):
+    """
+    将当前帧的入口点/旋转中心转换到软件端坐标系。
+
+    `anchor_point_m` 使用重构坐标系，单位为 m；软件端数据使用 mm，并会自行
+    叠加机械臂的绝对推进量。因此这里与 `_shape_for_software_send` 保持一致：
+    先将锚点转换为 mm，再从 X 坐标减去当前机械臂绝对推进量。
+
+    仅旋转锚定时，该点是当前帧插值局部 T/Y/Z 的位置，同时也是旋转中心；
+    平移锚定开启时，该点是平移后的固定入口位置。无法形成有效软件坐标时
+    返回 None，使 JSON 中的 `anchor_point` 序列化为 null。
+    """
+    if not anchor_enabled or anchor_point_m is None or insert_value_mm is None:
+        return None
+    try:
+        point_m = np.asarray(anchor_point_m, dtype=float)
+        values = np.asarray(insert_value_mm, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    if (
+        point_m.shape != (3,)
+        or not np.all(np.isfinite(point_m))
+        or values.size != 1
+        or not np.isfinite(values[0])
+    ):
+        return None
+    point_mm = point_m * 1000.0
+    point_mm[0] -= float(values[0])
+    return point_mm
+
+
+def _build_send_obj(
+    end_pose,
+    r_results_postrot,
+    raw_data,
+    intermediates,
+    anchor_point_mm=None,
+):
+    """
+    构造发送给软件端的 JSON 对象。
+
+    `r_results_postrot` 和 `anchor_point_mm` 必须已经转换到同一个软件端毫米
+    坐标系。`anchor_point_mm` 为 None 时仍保留字段并输出 null，便于接收端
+    使用固定的数据结构判断当前帧是否有有效入口点。
+    """
     return {
         'end_pose': end_pose.tolist() if end_pose is not None else [0.0, 0.0, 0.0],
         'data': r_results_postrot.tolist(),
+        'anchor_point': (
+            anchor_point_mm.tolist() if anchor_point_mm is not None else None
+        ),
         'raw_data': raw_data.tolist() if raw_data is not None else [],
         'intermediates': {
             'magnitude': intermediates['magnitude'].tolist(),
@@ -166,7 +216,18 @@ class DataRecorder:
         self.thread.start()
         print(f"--- 数据记录已启动，保存至: {self.filename} ---")
 
-    def save(self, timestamp, r_results, end_pose, cur_interp, raw_data, intermediates, insert_value=None):
+    def save(
+        self,
+        timestamp,
+        r_results,
+        end_pose,
+        cur_interp,
+        raw_data,
+        intermediates,
+        insert_value=None,
+        r_results_before_anchor=None,
+        anchor_point_m=None,
+    ):
         """
         将当前帧的重构结果打包后放入后台写入队列。
 
@@ -179,7 +240,9 @@ class DataRecorder:
 
         输入：
         - timestamp: 当前帧时间戳
-        - r_results: 当前帧的重构三维轨迹结果
+        - r_results: 当前帧经过入口锚定后的重构三维轨迹结果
+        - r_results_before_anchor: 当前帧入口锚定前的重构三维轨迹结果
+        - anchor_point_m: 软件坐标转换前、单位为 m 的入口点/旋转中心
         - end_pose: 当前帧末端姿态
         - cur_interp: 当前帧插值后的曲率序列
 
@@ -197,7 +260,20 @@ class DataRecorder:
         try:
             data_packet = {
                 'timestamp': timestamp,
+                # 保留旧字段含义：r_results 始终是入口锚定变换后的曲线。
                 'r_results': r_results.copy() if hasattr(r_results, 'copy') else r_results,
+                # 保存锚定输入，便于离线比较或重新应用其他锚定参数。
+                'r_results_before_anchor': (
+                    r_results_before_anchor.copy()
+                    if hasattr(r_results_before_anchor, 'copy')
+                    else r_results_before_anchor
+                ),
+                # 软件坐标转换前的每帧入口点/旋转中心，单位为 m。
+                'anchor_point_m': (
+                    anchor_point_m.copy()
+                    if hasattr(anchor_point_m, 'copy')
+                    else anchor_point_m
+                ),
                 'end_pose': end_pose.copy() if hasattr(end_pose, 'copy') else end_pose,
                 'cur_interp': intermediates['cur_interp'].tolist(),
                 'raw_data': list(raw_data) if raw_data is not None else [],
@@ -587,6 +663,13 @@ class Demonstrator(QMainWindow):
                     self.entrance_anchor_constraint.rotation_enabled
                 ),
                 'insert_value_mm': insert_value,
+                # anchored_point_m 是本帧实际使用的入口位置：
+                # 平移开启时为固定入口；仅旋转时为当前入口及旋转中心。
+                'anchor_point_m': (
+                    None
+                    if result.anchored_point_m is None
+                    else result.anchored_point_m.copy()
+                ),
                 'anchor_rotation_matrix': result.rotation_matrix.copy(),
             }
         return anchored_curve, frame_state
@@ -1194,7 +1277,8 @@ class Demonstrator(QMainWindow):
 
         # ---------- 支气管入口锚点约束 ----------
         # 必须位于跨帧滤波之后、所有保存/显示/通讯之前，保证下游坐标一致。
-        r_results_postrot, anchor_frame_state = self._apply_anchor_constraint_for_frame(
+        # r_results_postrot 保留锚定前结果；新变量明确表示锚定后的下游曲线。
+        r_results_postrot_after_anchor, anchor_frame_state = self._apply_anchor_constraint_for_frame(
             r_results_postrot,
             T_rot,
             Y_rot,
@@ -1208,24 +1292,46 @@ class Demonstrator(QMainWindow):
         #----------------- 保存pickle数据 -----------------
         if hasattr(self, 'recorder') and self.recorder:
             insert_value = anchor_frame_state['insert_value_mm']
-            self.recorder.save(timestamp=frame_timestamp, r_results=r_results_postrot, end_pose=End_pose, cur_interp=cur_interp, raw_data=raw_data, intermediates=intermediates, insert_value=insert_value)
+            self.recorder.save(
+                timestamp=frame_timestamp,
+                r_results=r_results_postrot_after_anchor,
+                r_results_before_anchor=r_results_postrot,
+                anchor_point_m=anchor_frame_state['anchor_point_m'],
+                end_pose=End_pose,
+                cur_interp=cur_interp,
+                raw_data=raw_data,
+                intermediates=intermediates,
+                insert_value=insert_value,
+            )
 
-        self._update_frame(r_results_postrot, End_pose)
+        self._update_frame(r_results_postrot_after_anchor, End_pose)
 
         # ---------------- 电磁联调通讯（与 0605_电磁联调 相同协议） ----------------
         # 坐标单位换算为 mm 后发送
-        r_results_postrot_mm = r_results_postrot * 1000
+        r_results_postrot_after_anchor_mm = r_results_postrot_after_anchor * 1000
 
         # 1) 通过 UDP 以 JSTON 明文推送给软件端
         try:
-            anchor_enabled = anchor_frame_state['anchor_translation_enabled']
+            # 任一锚定功能开启时，曲线和入口点必须执行相同的软件坐标转换。
+            anchor_enabled = anchor_frame_state['anchor_enabled']
             insert_value_mm = anchor_frame_state['insert_value_mm']
             software_shape_mm = _shape_for_software_send(
-                r_results_postrot_mm,
+                r_results_postrot_after_anchor_mm,
                 anchor_enabled,
                 insert_value_mm,
             )
-            sendObj = _build_send_obj(End_pose, software_shape_mm, raw_data, intermediates)
+            anchor_point_mm = _anchor_point_for_software_send(
+                anchor_frame_state['anchor_point_m'],
+                anchor_enabled,
+                insert_value_mm,
+            )
+            sendObj = _build_send_obj(
+                End_pose,
+                software_shape_mm,
+                raw_data,
+                intermediates,
+                anchor_point_mm=anchor_point_mm,
+            )
             # print(f"send obj: {sendObj}")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
         except Exception as e:
@@ -1241,7 +1347,7 @@ class Demonstrator(QMainWindow):
             n_raw = int(self.recon.total_points * self.recon.num_channels)
             pack_data = _build_sync_packet(
                 timestamp=frame_timestamp,
-                r_results_postrot=r_results_postrot_mm,
+                r_results_postrot=r_results_postrot_after_anchor_mm,
                 end_pose=End_pose,
                 cur_interp=cur_interp,
                 raw_data=data_save,
