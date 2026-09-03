@@ -33,7 +33,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         self.assertAlmostEqual(advanced.relative_insert_mm, 10.0)
         self.assertAlmostEqual(constraint.insertion_baseline_mm, 156.8)
 
-    def test_uses_true_reverse_polyline_arclength_and_interpolates_segment(self):
+    def test_initial_anchor_uses_reverse_polyline_arclength_instead_of_global_x(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.07)
         curve = np.array(
             [
@@ -46,9 +46,10 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         result = constraint.apply(curve, None)
 
         np.testing.assert_allclose(result.source_point_m, [0.03, 0.0, 0.0])
-        np.testing.assert_allclose(result.anchor_m, [-0.02, 0.05, 0.0])
+        np.testing.assert_allclose(result.anchor_m, result.source_point_m)
         np.testing.assert_allclose(result.anchored_point_m, result.anchor_m)
-        np.testing.assert_allclose(result.translation_m, [-0.05, 0.05, 0.0])
+        np.testing.assert_allclose(result.translation_m, np.zeros(3))
+        np.testing.assert_allclose(result.curve_m, curve)
 
     def test_constraint_preserves_shape_point_count_and_pairwise_vectors(self):
         curve = np.array(
@@ -392,7 +393,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
 
         result = constraint.apply(framed_curve, 200.0, *frames)
 
-        np.testing.assert_allclose(result.anchor_m, [-1.0, 3.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(result.anchor_m, [0.0, 2.0, 0.0], atol=1e-12)
         np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
         self.assertAlmostEqual(constraint.insertion_baseline_mm, 200.0)
         np.testing.assert_allclose(result.anchor_frame, result.source_frame, atol=1e-12)

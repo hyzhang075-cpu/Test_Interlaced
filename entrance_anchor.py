@@ -243,11 +243,6 @@ class EntranceAnchorConstraint:
         baseline_mm = None if recapture_joint_session else self.insertion_baseline_mm
         last_relative_mm = 0.0 if recapture_joint_session else self.last_relative_insert_mm
 
-        if self.translation_enabled and anchor_m is None:
-            anchor_m = curve[-1].copy() - np.array([self.entrance_offset_m, 0.0, 0.0])
-        if not self.translation_enabled:
-            anchor_m = None
-
         (
             relative_insert_mm,
             baseline_mm,
@@ -271,6 +266,13 @@ class EntranceAnchorConstraint:
             curve,
             requested_distance_m,
         )
+        if self.translation_enabled and anchor_m is None:
+            # 第一帧固定入口必须落在真实光纤中心线上：复用反向三维弧长
+            # 插值得到的入口点，而不是假设光纤始终沿全局 X 方向延伸。
+            anchor_m = source_point_m.copy()
+        if not self.translation_enabled:
+            anchor_m = None
+
         source_frame = None
         rotation_matrix = np.eye(3, dtype=float)
         if frames is not None:
