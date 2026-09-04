@@ -29,6 +29,8 @@ import plotly.graph_objects as go
 
 @dataclass(frozen=True)
 class AnchoredPickleData:
+    """保存一份 Pickle 经逐帧入口锚定后的曲线、推进量和误差诊断数据。"""
+
     source_path: Path
     times_s: np.ndarray
     shapes_m: np.ndarray
@@ -43,6 +45,7 @@ class AnchoredPickleData:
 
 
 def _scalar_insert_or_none(value, path, frame_index):
+    """把单帧推进量规范为有限浮点标量；缺失值保留为 None。"""
     if value is None:
         return None
     values = np.asarray(value, dtype=float).reshape(-1)
@@ -52,8 +55,14 @@ def _scalar_insert_or_none(value, path, frame_index):
 
 
 def load_anchored_pickle(path):
-    """Load one Demonstrator stream and apply the shared entrance constraint frame by frame."""
+    """
+    读取一份 Demonstrator Pickle 流并逐帧应用共享的入口平移锚定。
+
+    每帧曲线要求为 60×3 且单位为 m，推进量单位为 mm。返回值包含相对时间、
+    锚定曲线、推进量基线、弧长截断标志及入口残差，便于绘图和质量检查。
+    """
     path = Path(path)
+    # 离线回放与实时流程复用同一约束类，避免两条路径的锚定算法发生偏差。
     constraint = EntranceAnchorConstraint(enabled=True)
     timestamps = []
     shapes = []
@@ -93,6 +102,7 @@ def load_anchored_pickle(path):
                 raise ValueError(f"{path} frame {frame_index} r_results contains NaN or inf")
 
             raw_insert = _scalar_insert_or_none(frame["insert_value"], path, frame_index)
+            # 按原始时间顺序调用有状态约束器，使推进量基线和固定入口跨帧延续。
             result = constraint.apply(shape, raw_insert)
 
             timestamps.append(timestamp)
@@ -110,6 +120,7 @@ def load_anchored_pickle(path):
         raise ValueError(f"{path} has no finite non-zero insert_value baseline")
 
     timestamp_array = np.asarray(timestamps, dtype=float)
+    # 以首帧为 0 秒，绘图和视频无需依赖记录时使用的绝对时钟原点。
     times_s = timestamp_array - timestamp_array[0]
     if np.any(np.diff(times_s) < 0.0):
         raise ValueError(f"{path} timestamps are not monotonic")
@@ -130,6 +141,7 @@ def load_anchored_pickle(path):
 
 
 def output_paths_for(trajectory_output, video_output, source_path):
+    """根据源 Pickle 文件名生成互不覆盖的 PNG、HTML、普通视角和俯视 MP4 路径。"""
     stem = Path(source_path).stem
     png_path = Path(trajectory_output) / f"{stem}_anchored_tip_trajectory.png"
     html_path = Path(trajectory_output) / f"{stem}_anchored_tip_trajectory.html"
@@ -139,7 +151,7 @@ def output_paths_for(trajectory_output, video_output, source_path):
 
 
 def video_render_specs(video_path, top_video_path):
-    """Return the preserved original camera and the added batch-style top camera."""
+    """返回普通三维视角和俯视视角各自的输出路径、仰角与方位角。"""
     return (
         (Path(video_path), 20.0, 45.0),
         (Path(top_video_path), 90.0, 0.0),
@@ -147,10 +159,12 @@ def video_render_specs(video_path, top_video_path):
 
 
 def _configure_equal_axes(ax, points_mm):
+    """按全部毫米坐标的包围盒设置三轴范围和等比例显示，避免形状视觉失真。"""
     points = np.asarray(points_mm, dtype=float).reshape(-1, 3)
     minimum = np.min(points, axis=0)
     maximum = np.max(points, axis=0)
     span = np.maximum(maximum - minimum, 1.0)
+    # 每轴至少留 2 mm、或数据跨度 5% 的边距，防止曲线贴住图框。
     padding = np.maximum(2.0, 0.05 * span)
     lower = minimum - padding
     upper = maximum + padding
@@ -165,9 +179,10 @@ def _configure_equal_axes(ax, points_mm):
 
 
 def render_tip_trajectory_png(data, output_path, title=None):
-    """Render all constrained tip positions and the fixed entrance anchor."""
+    """将全部锚定后末端位置和固定入口绘制为静态三维 PNG，并返回输出路径。"""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # 数据内部统一使用 m；绘图统一转换为更直观的 mm。
     tips_mm = data.shapes_m[:, -1, :] * 1000.0
     anchor_mm = data.anchor_m * 1000.0
     fig = plt.figure(figsize=(12, 9))
@@ -189,11 +204,17 @@ def render_tip_trajectory_png(data, output_path, title=None):
 
 
 def render_tip_trajectory_html(data, output_path, title=None):
-    """Write a self-contained Plotly document for rotating and inspecting the tip path."""
+    """
+    生成可旋转、可悬停检查的自包含 Plotly HTML 末端轨迹。
+
+    悬停信息同时显示相对时间、相对推进量和三维毫米坐标；Plotly 脚本嵌入
+    文件，因此结果可脱离 Python 环境单独打开。
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tips_mm = data.shapes_m[:, -1, :] * 1000.0
     anchor_mm = data.anchor_m * 1000.0
+    # 将时间和推进量绑定到每个轨迹点，供 Plotly 悬停模板读取。
     customdata = np.column_stack((data.times_s, data.relative_inserts_mm))
 
     figure = go.Figure()
@@ -245,15 +266,23 @@ def render_tip_trajectory_html(data, output_path, title=None):
 
 
 def _frame_indices(frame_count, max_frames):
+    """在包含首尾帧的前提下均匀抽取不超过 `max_frames` 个唯一帧索引。"""
     if frame_count <= 0 or max_frames <= 0:
         raise ValueError("frame_count and max_frames must be positive")
+    # linspace 保留完整时间跨度，unique 消除整数取整可能产生的重复索引。
     return np.unique(np.linspace(0, frame_count - 1, min(frame_count, max_frames), dtype=int))
 
 
 def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100, elev=20, azim=45):
-    """Render sampled full-shape frames, fixed entrance marker, and accumulated tip path."""
+    """
+    将抽样后的完整光纤形状、固定入口和累计末端轨迹编码为 MP4。
+
+    `max_frames` 限制长记录的渲染成本，`fps`/`dpi` 控制输出；`elev` 与
+    `azim` 指定固定相机视角。输入曲线由 m 转为 mm 后绘制。
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # 视频坐标、标注和静态图保持相同的 mm 单位。
     shapes_mm = data.shapes_m * 1000.0
     anchor_mm = data.anchor_m * 1000.0
     indices = _frame_indices(len(shapes_mm), int(max_frames))
@@ -275,6 +304,7 @@ def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100, elev
         with writer.saving(fig, str(output_path), dpi=int(dpi)):
             for frame_index in indices:
                 shape = shapes_mm[frame_index]
+                # 逐帧累积末端位置，使视频同时展示已经走过的末端轨迹。
                 tip_history.append(shape[-1])
                 history = np.asarray(tip_history)
                 shape_line.set_data(shape[:, 0], shape[:, 1])
@@ -293,6 +323,7 @@ def render_shape_video(data, output_path, max_frames=1200, fps=20, dpi=100, elev
 
 
 def _capture_hhmm(path):
+    """从文件名最后一个下划线后的前四位解析 HHMM；格式不匹配时返回 None。"""
     try:
         return int(Path(path).stem.rsplit("_", 1)[-1][:4])
     except (ValueError, IndexError):
@@ -300,6 +331,11 @@ def _capture_hhmm(path):
 
 
 def discover_pickle_files(input_path, from_time=None, to_time=None):
+    """
+    发现单个或目录内的 Pickle 文件，并按文件名中的 HHMM 闭区间筛选。
+
+    返回按文件名排序的路径列表；输入不存在或筛选后为空时抛出明确异常。
+    """
     input_path = Path(input_path)
     if input_path.is_file():
         candidates = [input_path]
@@ -322,18 +358,27 @@ def discover_pickle_files(input_path, from_time=None, to_time=None):
 
 
 def _atomic_render(render, final_path):
+    """先渲染到同目录临时文件，成功后再原子替换最终文件，并始终清理残留。"""
     final_path = Path(final_path)
     final_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = final_path.with_name(f".{final_path.stem}.part{final_path.suffix}")
+    # 清除上次异常退出遗留的同名临时文件，避免渲染器误用旧内容。
     temporary.unlink(missing_ok=True)
     try:
         render(temporary)
+        # 只有渲染完整成功才替换正式结果，失败时保留已有文件不变。
         temporary.replace(final_path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
 def process_file(source, trajectory_output, video_output, max_frames, fps, overwrite=False):
+    """
+    处理单个 Pickle，并按需生成静态轨迹、交互轨迹和两种视角视频。
+
+    `overwrite=False` 时跳过已经齐全的整组结果，也不会重做单个已存在文件；
+    返回加载后的锚定数据，整组跳过时返回 None。
+    """
     png_path, html_path, video_path, top_video_path = output_paths_for(
         trajectory_output,
         video_output,
@@ -346,6 +391,7 @@ def process_file(source, trajectory_output, video_output, max_frames, fps, overw
 
     print(f"[load] {source}")
     data = load_anchored_pickle(source)
+    # 每种输出独立判断是否存在，支持中断后只补齐缺失产物。
     if overwrite or not png_path.exists():
         _atomic_render(lambda path: render_tip_trajectory_png(data, path), png_path)
     if overwrite or not html_path.exists():
@@ -364,6 +410,7 @@ def process_file(source, trajectory_output, video_output, max_frames, fps, overw
                 target_path,
             )
 
+    # 仅用未发生弧长截断的帧评估入口残差，避免边界截断混入锚定精度指标。
     unclamped = ~data.clamped
     max_residual = float(np.max(data.anchor_residuals_m[unclamped])) if np.any(unclamped) else float("nan")
     print(
@@ -379,6 +426,7 @@ def process_file(source, trajectory_output, video_output, max_frames, fps, overw
 
 
 def main(argv=None):
+    """解析命令行参数并批量渲染；任一文件失败则最终返回退出码 1。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="one Demonstrator .pkl or a directory")
     parser.add_argument("--from-time", type=int, help="inclusive HHMM filename filter, e.g. 1922")
@@ -404,6 +452,7 @@ def main(argv=None):
                 args.overwrite,
             )
         except Exception as exc:
+            # 单文件失败不阻断其余文件，批次结束后再用退出码汇总失败状态。
             failures.append((source, exc))
             print(f"[failed] {source}: {exc}")
     if failures:

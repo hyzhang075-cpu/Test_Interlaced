@@ -395,8 +395,11 @@ def get_int64_lit(data):
 ##   返回值：串口示例                                                                      ##
 ##--------------------------------------------------------------------------------------##			
 def open_serial(port, baud):
+	"""按指定端口和波特率打开 IMU 串口，并返回可供解码循环读取的串口对象。"""
+	# IMU 为可选功能；仅在真正启用时才要求安装 pyserial。
 	if serial is None:
 		raise RuntimeError("pyserial is required when IMU support is enabled")
+	# 2 ms 超时避免串口读取长时间阻塞实时形状重构线程。
 	ser = serial.Serial(port, baud, timeout = 0.002)
 	if (ser.is_open):
 		print("open %s with baudrate %d suc!" %(port, baud))
