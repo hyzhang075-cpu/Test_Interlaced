@@ -190,7 +190,8 @@ class Reconstructor(Initialiser):
         7. 检查滤波后的角度和曲率是否包含 NaN / inf。
         8. 按 self.ad_samp_dist 插值：标量路径对 ang_filter 做 Hermite、对 cur_kal
            按所选标量方法插值；向量路径将补齐虚拟点的 magnitude 与 angle_unwrap 转成两分量，
-           再做分量空间移动平均和线性/PCHIP 插值，最后还原曲率大小和方向。
+           用分量空间平均修正方向、恢复输入模长，再做线性/PCHIP 插值，
+           最后还原曲率大小和方向。
         9. 根据插值后的首点角度构造初始法向量 init_N。
         10. 根据 self.frame_rule 选择重构方式：
             - 'TNB': 由角度差分计算 torsion，并调用 _F_S_frame()；
@@ -860,6 +861,48 @@ class Reconstructor(Initialiser):
             interp_data = np.maximum(np.asarray(interp_data, dtype=float), 0.0)
         return np.asarray(interp_data, dtype=float), np.asarray(interp_samp_dist, dtype=float)
 
+    def _smooth_curvature_direction(self, magnitude, angle,
+                                    coherence_low=0.25, coherence_high=0.75,
+                                    antipodal_start=np.deg2rad(150.0)):
+        """用当前帧的邻域向量修正方向，保留每个点的原始曲率模长。
+
+        不读取或更新上一帧状态，静态标定/优化与动态重构使用同一规则。
+        magnitude、angle 为已经过调用方校验的一维等长数组，模长须非负。
+        窗口内的曲率大小自然成为方向平均的权重，低曲率角度噪声影响较小。
+
+        rho = |平均向量| / 平均模长衡量方向一致性。rho 低时保留当前点方向，
+        高时采用平均方向，中间用 smoothstep 连续过渡，避免优化时硬切换。
+        修正角接近 ±pi 时逐渐退回原方向，避免反向分支选择不稳定。
+        默认 rho 阈值 0.25/0.75 和反向保护起点150度是可调初值，非标定结果；
+        连续权重并不意味着整条 PCHIP/参数优化链处处可微。
+        """
+        if not 0 <= coherence_low < coherence_high <= 1:
+            raise ValueError('coherence thresholds must satisfy 0 <= low < high <= 1')
+        if not 0 < antipodal_start < np.pi:
+            raise ValueError('antipodal_start must be between 0 and pi')
+        components = magnitude[:, None] * np.column_stack((np.cos(angle), np.sin(angle)))
+        averaged = np.column_stack([
+            self._moving_average_scipy(components[:, j], self.move_filter, 'reflect')
+            for j in range(2)
+        ])
+        mean_magnitude = self._moving_average_scipy(magnitude, self.move_filter, 'reflect')
+        resultant = np.hypot(averaged[:, 0], averaged[:, 1])
+        # 零曲率/数值抵消处不计算有效方向，不用 epsilon 归一化来制造方向。
+        tolerance = 32 * np.finfo(float).eps * np.maximum(1.0, mean_magnitude)
+        valid = (mean_magnitude > tolerance) & (resultant > tolerance)
+        coherence = np.zeros_like(magnitude)
+        np.divide(resultant, mean_magnitude, out=coherence, where=valid)
+        fraction = np.clip((coherence - coherence_low) / (coherence_high - coherence_low), 0., 1.)
+        weight = fraction * fraction * (3. - 2. * fraction)
+        delta = np.zeros_like(angle)
+        difference = np.arctan2(averaged[valid, 1], averaged[valid, 0]) - angle[valid]
+        delta[valid] = np.arctan2(np.sin(difference), np.cos(difference))
+        fraction = np.clip((np.pi - np.abs(delta)) / (np.pi - antipodal_start), 0., 1.)
+        weight *= fraction * fraction * (3. - 2. * fraction)
+        corrected_angle = angle + weight * delta
+        # 只借用平均后的方向；零模长仍为零，不把邻点的大曲率摊到当前点。
+        return magnitude[:, None] * np.column_stack((np.cos(corrected_angle), np.sin(corrected_angle)))
+
     def _interpolate_curvature_vector(self, magnitude, angle, method):
         """对局部弯曲平面内的曲率向量进行空间滤波和插值。
 
@@ -867,12 +910,14 @@ class Reconstructor(Initialiser):
         angle 是 angle_unwrap，不是预先做过角度窗口平均的 ang_filter。
         两者均与 ad_samp_dist 一一对应，含调用方添加的虚拟点。
 
-        流程：极坐标转两分量 → 各分量窗口平均 → 各分量线性/PCHIP 插值
+        流程：极坐标转两分量 → 窗口估计方向并保护抵消/反向情况 → 恢复原始模长
+        → 各分量线性/PCHIP 插值
         → 还原模长与方向。分量不是最终三维曲线的全局 X、Y 坐标。
         cos/sin 对 2π 周期不变，可避免直接插值角度时的 ±π 分支跳变。
 
         注意：窗口平均是本函数显式执行的，不是 PCHIP 内部的操作。
-        它会将弯曲传播到相邻采样点；不同方向的向量还可能相互抵消、降低模长。
+        窗口仅修正方向，输入节点的模长保持不变；PCHIP点间向量仍可能抵消，
+        因此本方法不保证点间模长或最终形状半径完全无偏。不需要上一帧数据。
         返回 cur_interp（曲率模长）、ang_interp（弧度）、interp_dist（米）。
         """
         samp_dist = np.asarray(self.ad_samp_dist, dtype=float)
@@ -892,23 +937,11 @@ class Reconstructor(Initialiser):
             raise ValueError("curvature-vector interpolation inputs must be finite and ordered")
         if method not in {'linear', 'pchip'}:
             raise ValueError("curvature-vector interpolation method must be 'linear' or 'pchip'")
-
-        # κx = κ*cos(angle)，κy = κ*sin(angle)。后续分别处理这两个分量。
-        components = np.column_stack(
-            (magnitude * np.cos(angle), magnitude * np.sin(angle))
-        )
-        # 向量路径实际使用的空间滤波；输入 magnitude 未经过 Kalman。
-        # 同时影响模长和方向；按点数平均，非按物理距离加权。
-        filtered = np.column_stack(
-            [
-                self._moving_average_scipy(
-                    data=components[:, component],
-                    window_size=self.move_filter,
-                    mode='reflect',
-                )
-                for component in range(2)
-            ]
-        )
+        if np.any(magnitude < 0):
+            raise ValueError('curvature magnitude must be nonnegative')
+        # 三点窗口只提供方向候选；恢复调用方输入的 magnitude 后才送入插值。
+        # 理想曲率优化模式同样保留理论模长，且静态/动态都没有历史状态依赖。
+        filtered = self._smooth_curvature_direction(magnitude, angle)
         interp_dist = np.linspace(samp_dist[0], samp_dist[-1], num=self.interp_num)
         if method == 'linear':
             interpolated = np.column_stack(
