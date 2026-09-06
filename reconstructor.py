@@ -183,10 +183,14 @@ class Reconstructor(Initialiser):
         - zero_init=False: 将 angle[0] 设置为 angle[1]；
         - end_point=True: 在末尾复制最后一个真实点的 magnitude 和 angle。
         4. 调用 _framewise_unwrap_limit() 得到连续角度 angle_unwrap。
-        5. 对 angle_unwrap 做移动平均滤波。
-        6. 对 magnitude 做 Kalman 滤波。
+        5. 对 angle_unwrap 做空间移动平均，得到 ang_filter；仅标量插值路径使用它，
+           向量路径仍计算、校验并保存它，但插值使用 angle_unwrap。
+        6. 对 magnitude 做单帧空间 Kalman 滤波，得到 cur_kal；标量路径使用它，
+           向量路径仅校验/保存该中间量，不将其用于插值。
         7. 检查滤波后的角度和曲率是否包含 NaN / inf。
-        8. 使用 _KT_Hermit_interp_tang() 对角度和曲率分别按 self.ad_samp_dist 做 Hermite 插值。
+        8. 按 self.ad_samp_dist 插值：标量路径对 ang_filter 做 Hermite、对 cur_kal
+           按所选标量方法插值；向量路径将补齐虚拟点的 magnitude 与 angle_unwrap 转成两分量，
+           再做分量空间移动平均和线性/PCHIP 插值，最后还原曲率大小和方向。
         9. 根据插值后的首点角度构造初始法向量 init_N。
         10. 根据 self.frame_rule 选择重构方式：
             - 'TNB': 由角度差分计算 torsion，并调用 _F_S_frame()；
@@ -228,7 +232,11 @@ class Reconstructor(Initialiser):
         # print(magnitude)
         # ---------- 重构前预处理 ----------
         angle_unwrap = self._framewise_unwrap_limit(angle=angle, angle_prev=angle_prev, angle_unwrap_prev=angle_unwrap_prev, unwrap_threshold=unwrap_threshold)
+        # 此处沿单帧的空间采样点平均，不是跨帧滤波。
+        # ang_filter 仅供下方标量路径插值；向量路径只将它作为中间量校验/保存。
         ang_filter = self._moving_average_scipy(data=angle_unwrap, window_size=self.move_filter, mode='reflect')
+        # 标量路径使用此空间 Kalman 输出；向量路径保留它用于中间量校验/记录，
+        # 实际插值直接使用 magnitude，避免再叠加一层曲率空间滤波。
         cur_kal = self._Kalman_filter(data=magnitude, Rk=self.kalman_params['magnitude']['Rk'], Bk=self.kalman_params['magnitude']['Bk'])
 
         # 增加上下文信息字符串，方便报错时追踪
@@ -250,7 +258,9 @@ class Reconstructor(Initialiser):
                         sample_dist=self.ad_samp_dist,
                     )
                 else:
-                    curvature_samples = cur_kal
+                    curvature_samples = magnitude
+                # 使用未做角度窗口平均的 angle_unwrap，避免把 ang_filter 再送入
+                # 分量窗口；force_ideal_magnitude 时输入理想曲率，绕过 cur_kal 输出。
                 cur_interp, ang_interp, interp_dist = self._interpolate_curvature_vector(
                     magnitude=curvature_samples,
                     angle=angle_unwrap,
@@ -747,6 +757,11 @@ class Reconstructor(Initialiser):
         """
         使用 scipy.ndimage.uniform_filter1d 实现一维移动平均滤波。
 
+        在重构调用中，数组下标表示空间采样点，因此这是按点数等权的空间平均，
+        不考虑相邻点的实际物理间距，也不保存跨帧状态。window_size=1 不做平滑。
+        size=3、reflect 时，内部点取左右邻点和自身的均值；末点取
+        (倒数第二点 + 2 * 末点) / 3，首点同理。
+
         输入：
         - data: 输入的一维数组
         - window_size: 移动平均窗口大小
@@ -846,7 +861,20 @@ class Reconstructor(Initialiser):
         return np.asarray(interp_data, dtype=float), np.asarray(interp_samp_dist, dtype=float)
 
     def _interpolate_curvature_vector(self, magnitude, angle, method):
-        """Filter and interpolate the two circularly invariant curvature components."""
+        """对局部弯曲平面内的曲率向量进行空间滤波和插值。
+
+        输入 magnitude 是补齐虚拟点、未经 Kalman 滤波的曲率；理想曲率模式传入理论值。
+        angle 是 angle_unwrap，不是预先做过角度窗口平均的 ang_filter。
+        两者均与 ad_samp_dist 一一对应，含调用方添加的虚拟点。
+
+        流程：极坐标转两分量 → 各分量窗口平均 → 各分量线性/PCHIP 插值
+        → 还原模长与方向。分量不是最终三维曲线的全局 X、Y 坐标。
+        cos/sin 对 2π 周期不变，可避免直接插值角度时的 ±π 分支跳变。
+
+        注意：窗口平均是本函数显式执行的，不是 PCHIP 内部的操作。
+        它会将弯曲传播到相邻采样点；不同方向的向量还可能相互抵消、降低模长。
+        返回 cur_interp（曲率模长）、ang_interp（弧度）、interp_dist（米）。
+        """
         samp_dist = np.asarray(self.ad_samp_dist, dtype=float)
         magnitude = np.asarray(magnitude, dtype=float)
         angle = np.asarray(angle, dtype=float)
@@ -865,9 +893,12 @@ class Reconstructor(Initialiser):
         if method not in {'linear', 'pchip'}:
             raise ValueError("curvature-vector interpolation method must be 'linear' or 'pchip'")
 
+        # κx = κ*cos(angle)，κy = κ*sin(angle)。后续分别处理这两个分量。
         components = np.column_stack(
             (magnitude * np.cos(angle), magnitude * np.sin(angle))
         )
+        # 向量路径实际使用的空间滤波；输入 magnitude 未经过 Kalman。
+        # 同时影响模长和方向；按点数平均，非按物理距离加权。
         filtered = np.column_stack(
             [
                 self._moving_average_scipy(
@@ -884,8 +915,12 @@ class Reconstructor(Initialiser):
                 [np.interp(interp_dist, samp_dist, filtered[:, component]) for component in range(2)]
             )
         else:
+            # axis=0 沿空间点插值，两列分量独立处理。PCHIP 不再做窗口平均，
+            # 且经过 filtered 的输入节点；点间向量模长仍可能因方向变化而下降。
+            # 等距输出网格未必包含原采样节点，输出峰值可能低于输入节点峰值。
             interpolated = PchipInterpolator(samp_dist, filtered, axis=0)(interp_dist)
 
+        # 将插值后的局部曲率向量还原成后续标架重构需要的曲率大小和方向。
         cur_interp = np.hypot(interpolated[:, 0], interpolated[:, 1])
         ang_interp = np.arctan2(interpolated[:, 1], interpolated[:, 0])
         return cur_interp, ang_interp, interp_dist
@@ -893,6 +928,12 @@ class Reconstructor(Initialiser):
     def _Kalman_filter(self, data, Rk, Bk):
         """
         对一维数据执行简化 Kalman 滤波。
+
+        _reconstruct_frame 传入单帧 magnitude，因此循环沿光纤空间点推进，
+        每次调用重新初始化，不是对同一传感点进行跨帧 Kalman 滤波。
+        输出为当前观测与前一空间点滤波结果的加权组合，仅向后传递信息。
+        默认 Rk=0.0001、Bk=0.01 时稳态增益约 0.9902，空间平滑较弱。
+        当前重构入口只调用 magnitude 的 Kalman，未调用 angle 的 Kalman。
 
         输入：
         - data: 输入的一维数组
