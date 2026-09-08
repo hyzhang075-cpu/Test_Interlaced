@@ -58,7 +58,7 @@ def load_anchored_pickle(path):
     """
     读取一份 Demonstrator Pickle 流并逐帧应用共享的入口平移锚定。
 
-    每帧曲线要求为 60×3 且单位为 m，推进量单位为 mm。返回值包含相对时间、
+    每帧曲线要求为 N×3（兼容旧的 60 点和当前默认的 120 点）且单位为 m，推进量单位为 mm。返回值包含相对时间、
     锚定曲线、推进量基线、弧长截断标志及入口残差，便于绘图和质量检查。
     """
     path = Path(path)
@@ -72,6 +72,7 @@ def load_anchored_pickle(path):
     used_distances = []
     clamped = []
     residuals = []
+    point_count = None
 
     with path.open("rb") as stream:
         frame_index = 0
@@ -94,9 +95,15 @@ def load_anchored_pickle(path):
             if not np.isfinite(timestamp):
                 raise ValueError(f"{path} frame {frame_index} timestamp must be finite")
             shape = np.asarray(frame["r_results"], dtype=float)
-            if shape.shape != (60, 3):
+            if shape.ndim != 2 or shape.shape[1] != 3 or shape.shape[0] < 2:
                 raise ValueError(
-                    f"{path} frame {frame_index} r_results must have shape (60, 3), got {shape.shape}"
+                    f"{path} frame {frame_index} r_results must have shape (N, 3), got {shape.shape}"
+                )
+            if point_count is None:
+                point_count = shape.shape[0]
+            elif shape.shape[0] != point_count:
+                raise ValueError(
+                    f"{path} frame {frame_index} r_results point count must remain {point_count}, got {shape.shape[0]}"
                 )
             if not np.all(np.isfinite(shape)):
                 raise ValueError(f"{path} frame {frame_index} r_results contains NaN or inf")

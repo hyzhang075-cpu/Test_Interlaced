@@ -197,7 +197,7 @@ def main():
     parser.add_argument('--move_filter', type=int, default=3, help='动/静态重构前平滑滤波窗口大小')
     parser.add_argument('--kalman_params', type=dict, default={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}}, help='卡尔曼滤波参数')
     parser.add_argument('--smoothing_params', type=dict, default={'window_length': 21,'polyorder': 3}, help='LUNA数据平滑参数')
-    parser.add_argument('--interp_num', type=int, default=60, help='插值目标点数')
+    parser.add_argument('--interp_num', type=int, default=120, help='插值目标点数')
     parser.add_argument(
         '--curvature_interp',
         type=str,

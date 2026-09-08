@@ -19,9 +19,9 @@ from tools.render_anchored_pickles import (
 )
 
 
-def _straight_shape():
-    shape = np.zeros((60, 3), dtype=float)
-    shape[:, 0] = np.linspace(0.0, 0.1, 60)
+def _straight_shape(point_count=120):
+    shape = np.zeros((point_count, 3), dtype=float)
+    shape[:, 0] = np.linspace(0.0, 0.1, point_count)
     return shape
 
 
@@ -39,35 +39,52 @@ def _write_frames(path, inserts):
 
 
 class RenderAnchoredPicklesTests(unittest.TestCase):
-    def test_loader_anchors_shapes_and_ignores_leading_zero(self):
+    def test_loader_anchors_120_point_shapes_and_ignores_leading_zero(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "sample.pkl"
             _write_frames(source, [0.0, 156.8, 166.8])
 
             data = load_anchored_pickle(source)
 
-        self.assertEqual(data.shapes_m.shape, (3, 60, 3))
+        self.assertEqual(data.shapes_m.shape, (3, 120, 3))
         np.testing.assert_allclose(data.relative_inserts_mm, [0.0, 0.0, 10.0])
         np.testing.assert_allclose(data.shapes_m[2, :, 0] - data.shapes_m[1, :, 0], 0.01)
         np.testing.assert_allclose(data.anchor_m, [0.04, 0.0, 0.0])
         self.assertAlmostEqual(data.insertion_baseline_mm, 156.8)
         self.assertFalse(np.any(data.clamped))
 
-    def test_loader_rejects_non_60_point_shape(self):
+    def test_loader_rejects_inconsistent_point_counts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "bad.pkl"
             with source.open("wb") as stream:
                 pickle.dump(
                     {
                         "timestamp": 1.0,
-                        "r_results": np.zeros((59, 3)),
+                        "r_results": np.zeros((1, 59, 3)),
                         "insert_value": 1.0,
                     },
                     stream,
                 )
 
-            with self.assertRaisesRegex(ValueError, r"\(60, 3\)"):
+            with self.assertRaisesRegex(ValueError, r"shape"):
                 load_anchored_pickle(source)
+
+    def test_loader_keeps_legacy_60_point_pickles_readable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "legacy.pkl"
+            with source.open("wb") as stream:
+                pickle.dump(
+                    {
+                        "timestamp": 1.0,
+                        "r_results": _straight_shape(60),
+                        "insert_value": 1.0,
+                    },
+                    stream,
+                )
+
+            data = load_anchored_pickle(source)
+
+        self.assertEqual(data.shapes_m.shape, (1, 60, 3))
 
     def test_output_paths_are_distinct_from_legacy_outputs(self):
         source = Path("VTK_ShapeData_20260820_192216.pkl")

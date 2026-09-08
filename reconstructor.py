@@ -11,7 +11,7 @@ class Reconstructor(Initialiser):
     形状重构模块
     """
     def __init__(self, soft=True, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
-                 TNB_threshold=0.15, interp_num=60, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
+                 TNB_threshold=0.15, interp_num=120, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
                  curvature_interp='hermite', nonnegative_curvature=False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)

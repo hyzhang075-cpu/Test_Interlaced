@@ -1340,7 +1340,7 @@ class Demonstrator(QMainWindow):
         # 2) 通过 UDP 以定长二进制包发送给本机 C++ 程序用于同步记录
         # 数据格式: 时间戳(1) + 每点位置(3*interp_num) + 末端姿态(3)
         # + 曲率(interp_num) + 原始数据(total_points*num_channels) 个 double。
-        # 当前配置下: 1 + 180 + 3 + 60 + 112 = 356 个 double。
+        # 当前默认配置下: 1 + 360 + 3 + 120 + 112 = 596 个 double。
         try:
             data_save = Data[0] * 1e-6
             n_pts = int(self.recon.interp_num)
