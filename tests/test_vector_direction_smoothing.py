@@ -20,6 +20,7 @@ def reconstructor():
     obj.ad_samp_dist = np.linspace(0, .04, 5)
     obj.interp_num = 5
     obj.move_filter = 3
+    obj.move_filter_for_vector = True
     return obj
 
 
@@ -92,3 +93,43 @@ def test_ideal_constant_curvature_is_preserved_without_mutating_inputs():
     np.testing.assert_allclose(c, m, atol=1e-12)
     np.testing.assert_array_equal(m, saved_m)
     np.testing.assert_array_equal(a, saved_a)
+
+
+@pytest.mark.parametrize('method', ['linear', 'pchip'])
+def test_disabling_vector_filter_interpolates_raw_components(method):
+    r = reconstructor()
+    r.move_filter_for_vector = False
+    r.interp_num = 9
+    magnitude = np.array([1., 2., 3., 4., 5.])
+    angle = np.array([0.2, -0.4, 0.9, -0.8, 1.2])
+
+    curvature, interpolated_angle, _ = r._interpolate_curvature_vector(
+        magnitude, angle, method
+    )
+
+    components = magnitude[:, None] * np.column_stack((np.cos(angle), np.sin(angle)))
+    target = np.linspace(r.ad_samp_dist[0], r.ad_samp_dist[-1], r.interp_num)
+    if method == 'linear':
+        expected = np.column_stack([
+            np.interp(target, r.ad_samp_dist, components[:, index])
+            for index in range(2)
+        ])
+    else:
+        expected = PchipInterpolator(r.ad_samp_dist, components, axis=0)(target)
+    actual = curvature[:, None] * np.column_stack(
+        (np.cos(interpolated_angle), np.sin(interpolated_angle))
+    )
+    np.testing.assert_allclose(actual, expected, atol=1e-12)
+
+
+def test_enabling_vector_filter_keeps_direction_smoothing():
+    r = reconstructor()
+    r.move_filter_for_vector = True
+    magnitude = np.array([5., 5., 0.2, 5., 5.])
+    angle = np.array([0., 0., 1.2, 0., 0.])
+
+    _, interpolated_angle, _ = r._interpolate_curvature_vector(
+        magnitude, angle, 'pchip'
+    )
+
+    assert abs(interpolated_angle[2]) < 0.1

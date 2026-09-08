@@ -13,7 +13,7 @@ class Reconstructor(Initialiser):
     def __init__(self, soft=True, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
                  TNB_threshold=0.15, interp_num=120, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
                  curvature_interp='hermite', nonnegative_curvature=False,
-                 *args, **kwargs):
+                 *args, move_filter_for_vector=False, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
@@ -48,6 +48,7 @@ class Reconstructor(Initialiser):
 
         # 滤波、插值所需参数
         self.move_filter = move_filter
+        self.move_filter_for_vector = bool(move_filter_for_vector)
         self.kalman_params = kalman_params
         self.interp_num = interp_num
         self.curvature_interp = self._normalise_curvature_interp(curvature_interp)
@@ -190,7 +191,8 @@ class Reconstructor(Initialiser):
         7. 检查滤波后的角度和曲率是否包含 NaN / inf。
         8. 按 self.ad_samp_dist 插值：标量路径对 ang_filter 做 Hermite、对 cur_kal
            按所选标量方法插值；向量路径将补齐虚拟点的 magnitude 与 angle_unwrap 转成两分量，
-           用分量空间平均修正方向、恢复输入模长，再做线性/PCHIP 插值，
+           根据 move_filter_for_vector 选择用分量空间平均修正方向或保留原始分量，
+           恢复输入模长后再做线性/PCHIP 插值，
            最后还原曲率大小和方向。
         9. 根据插值后的首点角度构造初始法向量 init_N。
         10. 根据 self.frame_rule 选择重构方式：
@@ -260,8 +262,9 @@ class Reconstructor(Initialiser):
                     )
                 else:
                     curvature_samples = magnitude
-                # 使用未做角度窗口平均的 angle_unwrap，避免把 ang_filter 再送入
-                # 分量窗口；force_ideal_magnitude 时输入理想曲率，绕过 cur_kal 输出。
+                # 使用未做角度窗口平均的 angle_unwrap；是否执行独立的分量方向窗口
+                # 由 move_filter_for_vector 控制。force_ideal_magnitude 时输入理想曲率，
+                # 绕过 cur_kal 输出。
                 cur_interp, ang_interp, interp_dist = self._interpolate_curvature_vector(
                     magnitude=curvature_samples,
                     angle=angle_unwrap,
@@ -921,13 +924,13 @@ class Reconstructor(Initialiser):
         angle 是 angle_unwrap，不是预先做过角度窗口平均的 ang_filter。
         两者均与 ad_samp_dist 一一对应，含调用方添加的虚拟点。
 
-        流程：极坐标转两分量 → 窗口估计方向并保护抵消/反向情况 → 恢复原始模长
+        流程：极坐标转两分量 → 可选窗口估计方向并保护抵消/反向情况 → 恢复原始模长
         → 各分量线性/PCHIP 插值
         → 还原模长与方向。分量不是最终三维曲线的全局 X、Y 坐标。
         cos/sin 对 2π 周期不变，可避免直接插值角度时的 ±π 分支跳变。
 
-        注意：窗口平均是本函数显式执行的，不是 PCHIP 内部的操作。
-        窗口仅修正方向，输入节点的模长保持不变；PCHIP点间向量仍可能抵消，
+        注意：move_filter_for_vector=True 时，本函数显式执行窗口平均；这不是 PCHIP
+        内部操作。窗口仅修正方向，输入节点的模长保持不变；PCHIP点间向量仍可能抵消，
         因此本方法不保证点间模长或最终形状半径完全无偏。不需要上一帧数据。
         返回 cur_interp（曲率模长）、ang_interp（弧度）、interp_dist（米）。
         """
@@ -950,19 +953,22 @@ class Reconstructor(Initialiser):
             raise ValueError("curvature-vector interpolation method must be 'linear' or 'pchip'")
         if np.any(magnitude < 0):
             raise ValueError('curvature magnitude must be nonnegative')
-        # 三点窗口只提供方向候选；恢复调用方输入的 magnitude 后才送入插值。
-        # 理想曲率优化模式同样保留理论模长，且静态/动态都没有历史状态依赖。
-        filtered = self._smooth_curvature_direction(magnitude, angle)
+        # 可选三点窗口只提供方向候选；关闭时直接插值原始曲率向量分量。
+        # 两种路径都保留调用方输入的 magnitude，且静态/动态没有历史状态依赖。
+        if self.move_filter_for_vector:
+            components = self._smooth_curvature_direction(magnitude, angle)
+        else:
+            components = magnitude[:, None] * np.column_stack((np.cos(angle), np.sin(angle)))
         interp_dist = np.linspace(samp_dist[0], samp_dist[-1], num=self.interp_num)
         if method == 'linear':
             interpolated = np.column_stack(
-                [np.interp(interp_dist, samp_dist, filtered[:, component]) for component in range(2)]
+                [np.interp(interp_dist, samp_dist, components[:, component]) for component in range(2)]
             )
         else:
-            # axis=0 沿空间点插值，两列分量独立处理。PCHIP 不再做窗口平均，
-            # 且经过 filtered 的输入节点；点间向量模长仍可能因方向变化而下降。
+            # axis=0 沿空间点插值，两列分量独立处理。PCHIP 本身不做窗口平均，
+            # 输入节点由 move_filter_for_vector 决定；点间向量模长仍可能因方向变化而下降。
             # 等距输出网格未必包含原采样节点，输出峰值可能低于输入节点峰值。
-            interpolated = PchipInterpolator(samp_dist, filtered, axis=0)(interp_dist)
+            interpolated = PchipInterpolator(samp_dist, components, axis=0)(interp_dist)
 
         # 将插值后的局部曲率向量还原成后续标架重构需要的曲率大小和方向。
         cur_interp = np.hypot(interpolated[:, 0], interpolated[:, 1])

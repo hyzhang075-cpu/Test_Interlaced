@@ -100,6 +100,17 @@ def add_anchor_arguments(parser):
     )
     return parser
 
+
+def add_vector_filter_arguments(parser):
+    """Register the independent vector-path direction-window switch."""
+    parser.add_argument(
+        '--move_filter_for_vector',
+        type=_str2bool,
+        default=False,
+        help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',
+    )
+    return parser
+
 def main():
 # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
@@ -195,6 +206,7 @@ def main():
     parser.add_argument('--rot_threshold', type=float, default=4.0, help='零螺距形状中判断螺旋段的曲率阈值')
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')
     parser.add_argument('--move_filter', type=int, default=3, help='动/静态重构前平滑滤波窗口大小')
+    add_vector_filter_arguments(parser)
     parser.add_argument('--kalman_params', type=dict, default={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}}, help='卡尔曼滤波参数')
     parser.add_argument('--smoothing_params', type=dict, default={'window_length': 21,'polyorder': 3}, help='LUNA数据平滑参数')
     parser.add_argument('--interp_num', type=int, default=120, help='插值目标点数')
