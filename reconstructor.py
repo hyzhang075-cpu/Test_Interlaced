@@ -875,28 +875,39 @@ class Reconstructor(Initialiser):
         修正角接近 ±pi 时逐渐退回原方向，避免反向分支选择不稳定。
         默认 rho 阈值 0.25/0.75 和反向保护起点150度是可调初值，非标定结果；
         连续权重并不意味着整条 PCHIP/参数优化链处处可微。
+
+        如果领域方向一致性很低，保持原方向不变，避免在零曲率/数值抵消处制造不可靠的方向。
+        如果领域方向接近当前方向的反向，逐渐退回原方向，避免在 ±π 处不稳定的分支选择。
         """
         if not 0 <= coherence_low < coherence_high <= 1:
             raise ValueError('coherence thresholds must satisfy 0 <= low < high <= 1')
         if not 0 < antipodal_start < np.pi:
             raise ValueError('antipodal_start must be between 0 and pi')
+        # 曲率向量的两分量表示，便于窗口平均和插值。cos/sin 对 2π 周期不变，可避免直接插值角度时的 ±π 分支跳变。
         components = magnitude[:, None] * np.column_stack((np.cos(angle), np.sin(angle)))
         averaged = np.column_stack([
             self._moving_average_scipy(components[:, j], self.move_filter, 'reflect')
             for j in range(2)
         ])
+        # 平均模长用于计算方向一致性，避免零曲率点的噪声影响。平均向量模长用于计算最终的方向修正。
         mean_magnitude = self._moving_average_scipy(magnitude, self.move_filter, 'reflect')
+        # 计算平均向量的模长，用于衡量方向一致性。
         resultant = np.hypot(averaged[:, 0], averaged[:, 1])
         # 零曲率/数值抵消处不计算有效方向，不用 epsilon 归一化来制造方向。
         tolerance = 32 * np.finfo(float).eps * np.maximum(1.0, mean_magnitude)
+        # 仅在平均模长和平均向量模长都大于阈值时才计算方向一致性，否则保持原方向。如果曲率接近零，方向本身没有可靠物理意义，因此不进行方向修正。
         valid = (mean_magnitude > tolerance) & (resultant > tolerance)
+        # 方向一致性计算
         coherence = np.zeros_like(magnitude)
         np.divide(resultant, mean_magnitude, out=coherence, where=valid)
+        # 根据阈值归一化到 [0, 1]，并使用 smoothstep 函数平滑过渡。
         fraction = np.clip((coherence - coherence_low) / (coherence_high - coherence_low), 0., 1.)
-        weight = fraction * fraction * (3. - 2. * fraction)
+        weight = fraction * fraction * (3. - 2. * fraction) #smoothstep function: 3f^2 - 2f^3
+        # 计算当前点与平均方向的角度差，并用arctan2将其限制在 [-π, π] 范围内，避免 ±π 分支跳变。
         delta = np.zeros_like(angle)
         difference = np.arctan2(averaged[valid, 1], averaged[valid, 0]) - angle[valid]
         delta[valid] = np.arctan2(np.sin(difference), np.cos(difference))
+        # 当 delta 接近 ±π 时，逐渐退回原方向，避免反向分支选择不稳定。
         fraction = np.clip((np.pi - np.abs(delta)) / (np.pi - antipodal_start), 0., 1.)
         weight *= fraction * fraction * (3. - 2. * fraction)
         corrected_angle = angle + weight * delta
