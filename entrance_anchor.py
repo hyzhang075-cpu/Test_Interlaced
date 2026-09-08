@@ -1,4 +1,4 @@
-"""Independently switchable position and frame anchoring for fibre curves."""
+"""Independently switchable position and tangent anchoring for fibre curves."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class AnchorConstraintResult:
 
 
 class EntranceAnchorConstraint:
-    """Optionally stabilize a curve's entrance position, local frame, or both."""
+    """Optionally stabilize a curve's entrance position, tangent, or both."""
 
     def __init__(
         self,
@@ -43,7 +43,7 @@ class EntranceAnchorConstraint:
 
         `entrance_offset_m` 是从光纤末端沿中心线反向量取的入口距离（m）。
         `translation_enabled` 与 `rotation_enabled` 可分别控制入口位置固定和
-        局部标架固定；旧参数 `enabled` 仅用于同时控制两者。
+        切向固定；旧参数 `enabled` 仅用于同时控制两者。
         """
         entrance_offset_m = float(entrance_offset_m)
         if not np.isfinite(entrance_offset_m) or entrance_offset_m < 0.0:
@@ -63,6 +63,7 @@ class EntranceAnchorConstraint:
         self.entrance_offset_m = entrance_offset_m
         self.anchor_m = None
         self.anchor_frame = None
+        self.anchor_tangent = None
         self.insertion_baseline_mm = None
         self.last_relative_insert_mm = 0.0
 
@@ -90,7 +91,7 @@ class EntranceAnchorConstraint:
         原子更新运行时开关及入口距离，并可清空已捕获的锚定状态。
 
         所有新值先完成转换和校验，再统一写回，避免无效入口距离造成部分配置
-        已生效。`reset=True` 时会清除固定入口、固定标架和推进量基线，使下一帧
+        已生效。`reset=True` 时会清除固定入口、参考切向和推进量基线，使下一帧
         重新捕获锚定参考。
         """
         new_translation_enabled = self.translation_enabled
@@ -114,6 +115,7 @@ class EntranceAnchorConstraint:
         if reset:
             self.anchor_m = None
             self.anchor_frame = None
+            self.anchor_tangent = None
             self.insertion_baseline_mm = None
             self.last_relative_insert_mm = 0.0
 
@@ -252,12 +254,95 @@ class EntranceAnchorConstraint:
         # Slerp 在旋转群上插值，避免逐轴线性插值破坏正交性。
         return Slerp([0.0, 1.0], rotations)([fraction_from_start]).as_matrix()[0]
 
+    @staticmethod
+    def _tangent_at_location(T, segment_index, fraction_from_end):
+        """在入口所在折线段对 T 做球面插值，仅让切向数据参与旋转锚定。"""
+        start = np.asarray(T[segment_index], dtype=float)
+        end = np.asarray(T[segment_index + 1], dtype=float)
+        start_norm = float(np.linalg.norm(start))
+        end_norm = float(np.linalg.norm(end))
+        if start_norm <= np.finfo(float).eps or end_norm <= np.finfo(float).eps:
+            raise ValueError("entrance segment tangents must be non-zero")
+        start /= start_norm
+        end /= end_norm
+
+        fraction_from_start = 1.0 - fraction_from_end
+        dot = float(np.clip(np.dot(start, end), -1.0, 1.0))
+        if dot < -1.0 + 1e-12:
+            # 相反切向之间没有唯一的最短插值路径，不能凭 Y/Z 人为决定滚转方向。
+            raise ValueError("entrance segment tangents are antiparallel")
+        if dot > 1.0 - 1e-12:
+            tangent = fraction_from_end * start + fraction_from_start * end
+        else:
+            angle = float(np.arccos(dot))
+            sin_angle = float(np.sin(angle))
+            tangent = (
+                np.sin(fraction_from_end * angle) / sin_angle * start
+                + np.sin(fraction_from_start * angle) / sin_angle * end
+            )
+        norm = float(np.linalg.norm(tangent))
+        if norm <= np.finfo(float).eps:
+            raise ValueError("interpolated entrance tangent is degenerate")
+        return tangent / norm
+
+    @staticmethod
+    def _rotation_aligning_tangents(source_tangent, anchor_tangent):
+        """
+        构造将当前 T 对齐到参考 T 的最小旋转，不施加任何绕 T 的滚转。
+
+        一般情况使用 Rodrigues 公式，旋转轴为两个切向的叉积；平行时不旋转。
+        反平行时最小旋转轴不唯一，因此从全局坐标轴中确定性选择一个与 T
+        最垂直的方向来构造 180 度旋转，避免帧间随机跳变。
+        """
+        source = np.asarray(source_tangent, dtype=float)
+        target = np.asarray(anchor_tangent, dtype=float)
+        if source.shape != (3,) or target.shape != (3,):
+            raise ValueError("source_tangent and anchor_tangent must have shape (3,)")
+        if not np.all(np.isfinite(source)) or not np.all(np.isfinite(target)):
+            raise ValueError("source_tangent and anchor_tangent must be finite")
+
+        source_norm = float(np.linalg.norm(source))
+        target_norm = float(np.linalg.norm(target))
+        if source_norm <= np.finfo(float).eps or target_norm <= np.finfo(float).eps:
+            raise ValueError("source_tangent and anchor_tangent must be non-zero")
+        source = source / source_norm
+        target = target / target_norm
+
+        cross = np.cross(source, target)
+        sin_angle = float(np.linalg.norm(cross))
+        cos_angle = float(np.clip(np.dot(source, target), -1.0, 1.0))
+        tolerance = 1e-12
+        if sin_angle > tolerance:
+            # 这里的 skew(cross) 已包含 sin(theta)，可直接使用 Rodrigues 公式。
+            skew = np.array(
+                [
+                    [0.0, -cross[2], cross[1]],
+                    [cross[2], 0.0, -cross[0]],
+                    [-cross[1], cross[0], 0.0],
+                ]
+            )
+            return (
+                np.eye(3)
+                + skew
+                + (skew @ skew) * ((1.0 - cos_angle) / (sin_angle ** 2))
+            )
+        if cos_angle > 0.0:
+            return np.eye(3, dtype=float)
+
+        basis = np.zeros(3, dtype=float)
+        basis[int(np.argmin(np.abs(source)))] = 1.0
+        axis = np.cross(source, basis)
+        axis /= np.linalg.norm(axis)
+        # 180 度时 Rodrigues 公式化简为 2*a*a^T-I，轴 a 始终垂直于 T。
+        return 2.0 * np.outer(axis, axis) - np.eye(3)
+
     def apply(self, curve_m, insert_value_mm=None, T=None, Y=None, Z=None):
         """
-        对单帧曲线实施入口位置锚定、局部标架锚定或二者组合。
+        对单帧曲线实施入口位置锚定、切向锚定或二者组合。
 
         曲线和入口距离使用 m，`insert_value_mm` 使用 mm。首次有效帧会捕获固定
-        入口/标架；后续帧先把当前入口平移到固定入口，再绕入口旋转到固定标架。
+        入口/切向；后续帧先把当前入口平移到固定入口，再绕入口作无滚转的
+        最小旋转，将当前 T 对齐到固定 T。
         返回结果同时包含变换后的曲线和本帧诊断量，不会原地修改输入曲线。
         """
         curve = self._validate_curve(curve_m)
@@ -287,11 +372,12 @@ class EntranceAnchorConstraint:
             frames is not None
             and self.translation_enabled
             and self.anchor_m is not None
-            and self.anchor_frame is None
+            and self.anchor_tangent is None
         )
-        # 从“仅平移”切换到联合锚定时重新捕获成套参考，避免位置与标架来自不同帧。
+        # 从“仅平移”切换到联合锚定时重新捕获成套参考，避免位置与切向来自不同帧。
         anchor_m = None if recapture_joint_session else self.anchor_m
         anchor_frame = None if recapture_joint_session else self.anchor_frame
+        anchor_tangent = None if recapture_joint_session else self.anchor_tangent
         baseline_mm = None if recapture_joint_session else self.insertion_baseline_mm
         last_relative_mm = 0.0 if recapture_joint_session else self.last_relative_insert_mm
 
@@ -333,10 +419,21 @@ class EntranceAnchorConstraint:
                 segment_index,
                 fraction_from_end,
             )
+            source_tangent = self._tangent_at_location(
+                frames[0],
+                segment_index,
+                fraction_from_end,
+            )
             if anchor_frame is None:
-                # 第一帧的入口局部标架成为后续旋转锚定的固定参考。
+                # 保留完整标架只用于现有状态/诊断接口；旋转只使用其 T 列。
                 anchor_frame = source_frame.copy()
-            rotation_matrix = anchor_frame @ source_frame.T
+            if anchor_tangent is None:
+                # 参考 T 独立保存，确保非正交或滚转变化的 Y/Z 不会污染锚定方向。
+                anchor_tangent = source_tangent.copy()
+            rotation_matrix = self._rotation_aligning_tangents(
+                source_tangent,
+                anchor_tangent,
+            )
 
         # 平移量把当前入口送到固定入口；未启用平移时保持零向量。
         translation_m = (
@@ -359,6 +456,7 @@ class EntranceAnchorConstraint:
         # 只有整帧几何计算成功后才提交会话状态，异常帧不会留下半更新状态。
         self.anchor_m = anchor_m
         self.anchor_frame = anchor_frame
+        self.anchor_tangent = anchor_tangent
         self.insertion_baseline_mm = baseline_mm
         self.last_relative_insert_mm = last_relative_mm
 

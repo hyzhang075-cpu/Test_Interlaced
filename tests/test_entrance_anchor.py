@@ -141,7 +141,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         np.testing.assert_allclose(constraint.anchor_m, original_anchor)
         self.assertAlmostEqual(constraint.insertion_baseline_mm, 156.8)
 
-    def test_full_frame_anchor_translates_then_rotates_curve_about_fixed_anchor(self):
+    def test_tangent_anchor_translates_then_rotates_curve_about_fixed_anchor(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=1.0)
         reference_curve = np.array(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
@@ -173,8 +173,8 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         )
         np.testing.assert_allclose(result.curve_m, reference_curve, atol=1e-12)
         np.testing.assert_allclose(
-            result.rotation_matrix @ result.source_frame,
-            result.anchor_frame,
+            result.rotation_matrix @ result.source_frame[:, 0],
+            result.anchor_frame[:, 0],
             atol=1e-12,
         )
 
@@ -213,7 +213,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
         self.assertIsNone(result.anchor_frame)
 
-    def test_rotation_switch_aligns_frame_about_current_entrance_without_translation(self):
+    def test_rotation_switch_aligns_tangent_about_current_entrance_without_translation(self):
         constraint = EntranceAnchorConstraint(
             translation_enabled=False,
             rotation_enabled=True,
@@ -248,6 +248,61 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         np.testing.assert_allclose(result.anchored_point_m, result.source_point_m, atol=1e-12)
         self.assertIsNone(result.anchor_m)
 
+    def test_rotation_anchor_does_not_follow_yz_roll_when_tangent_is_unchanged(self):
+        constraint = EntranceAnchorConstraint(
+            translation_enabled=False,
+            rotation_enabled=True,
+            entrance_offset_m=1.0,
+        )
+        curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 1.0, 0.0]]
+        )
+        reference_frames = self._constant_frames(
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        constraint.apply(curve, None, *reference_frames)
+        rolled_frames = self._constant_frames(
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, -1.0, 0.0],
+        )
+
+        result = constraint.apply(curve, None, *rolled_frames)
+
+        np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
+        np.testing.assert_allclose(result.curve_m, curve, atol=1e-12)
+
+    def test_rotation_anchor_reference_tangent_is_independent_of_yz(self):
+        constraint = EntranceAnchorConstraint(
+            translation_enabled=False,
+            rotation_enabled=True,
+            entrance_offset_m=1.0,
+        )
+        curve = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+        )
+        skewed_reference_frames = self._constant_frames(
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        constraint.apply(curve, None, *skewed_reference_frames)
+        current_frames = self._constant_frames(
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+
+        result = constraint.apply(curve, None, *current_frames)
+
+        np.testing.assert_allclose(
+            result.rotation_matrix,
+            [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            atol=1e-12,
+        )
+
     def test_both_switches_disabled_leave_curve_and_frame_unchanged(self):
         constraint = EntranceAnchorConstraint(
             translation_enabled=False,
@@ -269,7 +324,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         np.testing.assert_allclose(result.rotation_matrix, np.eye(3), atol=1e-12)
         self.assertFalse(result.applied)
 
-    def test_reset_clears_and_recaptures_position_and_local_frame_together(self):
+    def test_reset_clears_and_recaptures_position_and_tangent_together(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=1.0)
         curve = np.array(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
@@ -285,6 +340,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
 
         self.assertIsNone(constraint.anchor_m)
         self.assertIsNone(constraint.anchor_frame)
+        self.assertIsNone(constraint.anchor_tangent)
         rotated_frames = self._constant_frames(
             [0.0, 1.0, 0.0],
             [-1.0, 0.0, 0.0],
@@ -301,7 +357,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
         np.testing.assert_allclose(recaptured.rotation_matrix, np.eye(3), atol=1e-12)
         self.assertAlmostEqual(constraint.insertion_baseline_mm, 200.0)
 
-    def test_local_frame_uses_same_arclength_fraction_with_so3_interpolation(self):
+    def test_tangent_uses_same_arclength_fraction_with_spherical_interpolation(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.25)
         curve = np.array(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
@@ -358,6 +414,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
 
         self.assertIsNone(constraint.anchor_m)
         self.assertIsNone(constraint.anchor_frame)
+        self.assertIsNone(constraint.anchor_tangent)
         self.assertIsNone(constraint.insertion_baseline_mm)
 
     def test_degenerate_local_frame_is_rejected_without_initializing_session(self):
@@ -372,6 +429,7 @@ class EntranceAnchorConstraintTests(unittest.TestCase):
 
         self.assertIsNone(constraint.anchor_m)
         self.assertIsNone(constraint.anchor_frame)
+        self.assertIsNone(constraint.anchor_tangent)
         self.assertIsNone(constraint.insertion_baseline_mm)
 
     def test_first_framed_call_recaptures_joint_session_after_translation_only_use(self):
