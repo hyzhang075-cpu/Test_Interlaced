@@ -95,11 +95,11 @@ python main.py --task recon --curvature_interp vector_pchip
     最小误差
 修改 --rot_ang 的 default 值为最优旋转角度。
 在 len(--exp_directs) 个不同 terminal 中分别输入并运行：
-    python main.py --task slopes --weights None --slopes None --direct 方向
-当前版本中，优化流程内部固定为两阶段：
-    1. 先优化 slopes，并强制使用理论曲率大小；
-    2. 再优化 weights，并恢复正常曲率大小计算。
-因此通常不再需要手动选择优先优化 slopes 或 weights。
+    打开1-3个terminal，数量等同于已进行数据采集的方向数量。假设三个方向都已采集。分别运行
+python main.py --task optim --weights None --slopes None --direct 0
+python main.py --task optim --weights None --slopes None --direct 120
+python main.py --task optim --weights None --slopes None --direct 240
+当前已启用先用完美曲率优化扭转slope，再优化weight的流程。
 (注：建议将这3个terminal与初始化的terminal分开)
 (注: 若旋转角度差距不大，可以跳过旋转角度优化，因为这种情况下，直接从旋转角度0.0开始优化的结果会更好)
 
@@ -118,9 +118,7 @@ python main.py --task recon --curvature_interp vector_pchip
         最小误差
     修改 --rot_ang 的default值为 最优旋转角度
     按情况在 len(--exp_directs) 个不同的terminal中分别输入并运行指令:
-        python main.py --task weights --direct 方向
-    或
-        python main.py --task slopes --direct 方向
+        python main.py --task optim  --direct 方向
 
 #### 4.1.5. 更换超参
 若前面几个步骤未能给出令人满意的结果，可对优化使用的超参数进行修改。若优化结果的重构图像中各个形状的半径显然不正常，则优先修改--bounds，否则按照文件中从上到下的优先级修改其余超参数。
