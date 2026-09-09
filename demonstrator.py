@@ -29,7 +29,7 @@ RECEIVER_IP = '192.168.111.123'
 RECEIVER_PORT = 8888
 SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
-SENSOR_TIP_SETBACK_M = 0.01
+SENSOR_TIP_SETBACK_M = 0.0
 
 
 def _build_sync_packet(timestamp, r_results_postrot, end_pose, cur_interp,
