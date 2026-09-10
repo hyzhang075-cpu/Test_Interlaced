@@ -228,8 +228,8 @@ def main():
     parser.add_argument('--turn_threshold', type=float, default=2.0, help='判断形状弯曲方向是否改变的阈值')
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值
-    # parser.add_argument('--rot_ang', type=float, default=-145, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
-    parser.add_argument('--rot_ang', type=float, default=60.0, help='绕x轴旋转角度, 初始为0.0')
+    parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
+    # parser.add_argument('--rot_ang', type=float, default=60.0, help='绕x轴旋转角度, 初始为0.0')
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, 末端调weight，只有0度有效，tube
     # parser.add_argument('--weights', default={0: np.array([1.070912693028867, 0.8789969457923975, 1.0503537574283366, 0.7834015424915021, 1.345119068369388, 0.36765192846044026]), 
     #                                                       120: np.array([0.8834070763118534, 0.85251461024247, 0.986924957649386, 0.9452724668609392, 0.9725634153903076, 0.9499982676616073, 0.2974572176118146, 2.364679449655484, 0.10000000152172318, 1.0604064407338645, 0.44551347690428705, 0.8243089591676417]), 
