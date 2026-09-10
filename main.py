@@ -105,9 +105,9 @@ def main():
 # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_tube", help='传感器编号')
+    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=11.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=0.878, help='传感器长度, 单位为m') # 支气管镜
@@ -157,8 +157,8 @@ def main():
     parser.add_argument('--PORT', type=int, default=26546, choices=[26546, 4010], help='FiberTecc使用26546, Hippo使用4010')
     parser.add_argument('--maxsize', type=int, default=10, choices=[10, 2], help='FiberTecc使用10, Hippo使用2')
     parser.add_argument('--data_freq', type=int, default=100, help='解调仪频率')
-    parser.add_argument('--use_stored_zero', type=_str2bool, default=True, help='demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零')
-    parser.add_argument('--zero_reference_path', type=str, default=str(Path(__file__).resolve().parent / 'params' / '06B6_NeTi_v2_tube_zero_reference.json'), help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
+    parser.add_argument('--use_stored_zero', type=_str2bool, default=False, help='demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零')
+    parser.add_argument('--zero_reference_path', type=str, default=str(Path(__file__).resolve().parent / 'params' / '06B6_NeTi_zero_reference.json'), help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
     parser.add_argument('--total_scale', type=float, default=1.0, help='动态显示大小')
     parser.add_argument('--imu', type=bool, default=False, help='是否启用IMU')
     parser.add_argument('--imu_com', type=str, default='COM6', help='IMU接口')
@@ -222,8 +222,8 @@ def main():
     parser.add_argument('--straight_trim', type=float, default=0.0, help='默认不读取的部分，若只知道剩余长度，则调整为负数。')
     # parser.add_argument('--segmentation', type=list, default=[2, 3], help='对扭转角度-传感点位置曲线的点数')#末端15cm
     # parser.add_argument('--segmentation', type=list, default=[2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#末端15cm
-    # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
-    parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 5], help='对扭转角度-传感点位置曲线的点数')#优先调分段
+    parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
+    # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 5], help='对扭转角度-传感点位置曲线的点数')#优先调分段
     parser.add_argument('--connect', type=bool, default=False, help='拟合初始分段时是否令各分段首尾相连')
     parser.add_argument('--turn_threshold', type=float, default=2.0, help='判断形状弯曲方向是否改变的阈值')
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')

@@ -24,8 +24,8 @@ from entrance_anchor import EntranceAnchorConstraint, apply_entrance_anchor
 # 1) JSON 明文：每帧末端姿态 + 整根形状 + 曲率，发送给电磁对比程序
 # 2) 二进制定长包：发送给本机 C++ 程序用于与电磁传感器同步记录
 # ==============================================================================
-# RECEIVER_IP = '192.168.110.154'
-RECEIVER_IP = '192.168.111.123'
+RECEIVER_IP = '192.168.110.71'
+# RECEIVER_IP = '192.168.111.123'
 RECEIVER_PORT = 8888
 SYNC_IP = '127.0.0.1'
 SYNC_PORT = 50000
