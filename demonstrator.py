@@ -469,6 +469,44 @@ class Demonstrator(QMainWindow):
         self.udp_thread = threading.Thread(target=self._receive_udp_data, daemon=True)
         self.udp_thread.start()
 
+        # --- send_obj 发送频率统计 ---
+        self._send_window_start = time.perf_counter()
+        self._send_window_count = 0          # 当前 1s 窗口内成功发送次数
+        self._send_last_ts = None            # 上一帧成功发送的 perf_counter
+        self._send_interval_sum = 0.0        # 本窗口内相邻发送间隔之和
+        self._send_interval_n = 0            # 本窗口内相邻间隔计数
+        self._send_total = 0                 # 累计发送次数
+
+
+    def _tick_send_stats(self):
+        """记录一次成功的 send_obj 发送，并每秒打印一次实际频率与抖动。"""
+        now = time.perf_counter()
+
+        if self._send_last_ts is not None:
+            self._send_interval_sum += now - self._send_last_ts
+            self._send_interval_n += 1
+        self._send_last_ts = now
+
+        self._send_window_count += 1
+        self._send_total += 1
+
+        elapsed = now - self._send_window_start
+        if elapsed >= 1.0:
+            freq = self._send_window_count / elapsed
+            avg_dt_ms = (
+                1000.0 * self._send_interval_sum / self._send_interval_n
+                if self._send_interval_n > 0 else float('nan')
+            )
+            print(
+                f"[send_obj] 频率={freq:6.2f} Hz | 窗口内={self._send_window_count:3d} 帧 "
+                f"| 平均间隔={avg_dt_ms:6.2f} ms "
+                f"| 目标={self.recon.data_freq:.2f} Hz | 累计={self._send_total}"
+            )
+            # 重置窗口
+            self._send_window_start = now
+            self._send_window_count = 0
+            self._send_interval_sum = 0.0
+            self._send_interval_n = 0
 
     def _receive_udp_data(self):
         """
@@ -1334,6 +1372,7 @@ class Demonstrator(QMainWindow):
             )
             # print(f"send obj: {sendObj}")
             self.udp_socket.sendto(json.dumps(sendObj).encode(), (RECEIVER_IP, RECEIVER_PORT))
+            self._tick_send_stats()
         except Exception as e:
             print(f"JSON发送错误: {e}")
 
