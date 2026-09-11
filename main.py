@@ -107,7 +107,7 @@ def main():
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=11.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=0.878, help='传感器长度, 单位为m') # 支气管镜
@@ -220,13 +220,13 @@ def main():
     parser.add_argument('--straight_trim', type=float, default=0.0, help='默认不读取的部分，若只知道剩余长度，则调整为负数。')
     # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 7], help='对扭转角度-传感点位置曲线的点数')#优先调分段
     # parser.add_argument('--segmentation', type=list, default=[2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#末端15cm
-    parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 5], help='对扭转角度-传感点位置曲线的点数')#优先调分段
-    # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
+    parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
+    # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 5], help='对扭转角度-传感点位置曲线的点数')#优先调分段
     parser.add_argument('--connect', type=bool, default=False, help='拟合初始分段时是否令各分段首尾相连')
     parser.add_argument('--turn_threshold', type=float, default=2.0, help='判断形状弯曲方向是否改变的阈值')
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值
-    # parser.add_argument('--rot_ang', type=float, default=-145, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
+    # parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
     parser.add_argument('--rot_ang', type=float, default=0.0, help='绕x轴旋转角度, 初始为0.0')
     # ===============================不带窗======================================
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, 原数据
