@@ -45,3 +45,6 @@ Thumbs.db
 
 # 测试动态数据
 *.pkl
+
+# 分区域定标运行结果（每次按传感器和时间创建目录）
+/calibration_results/

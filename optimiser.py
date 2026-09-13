@@ -83,7 +83,7 @@ class Optimiser(Reconstructor):
         5. 调用 _compute_error() 计算并打印最终误差统计。
 
         输出：
-        - 无显式返回值。优化结果写回 self.weights[self.direct] 和 self.slopes[self.direct]。
+        - 参数仍写回 self.weights/self.slopes；返回两阶段状态，供区域批量任务保存。
 
         说明：
         - 第二阶段 init_loss 必须重新计算，不能沿用 slopes 阶段 loss；
@@ -132,6 +132,11 @@ class Optimiser(Reconstructor):
         print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
         print(f"最小误差: {current_loss}")
         self._print_errors()
+        # 两阶段 loss 的曲率来源不同，分别保存；最终验收误差由正常重构统计获得。
+        return {'stages': {
+            'slopes': {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss},
+            'weights': {'status': weights_status, 'start_loss': weights_start_loss, 'final_loss': weights_loss},
+        }}
 
     def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True, force_ideal_magnitude=False):
         """

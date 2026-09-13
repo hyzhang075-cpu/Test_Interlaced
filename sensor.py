@@ -18,6 +18,7 @@ from scipy.signal import savgol_filter
 
 from utils import build_valid_row_mask, dict_recur_extract
 from zero_reference import load_zero_reference
+from calibration_regions import compute_fbg_geometry
 
 
 class Sensor:
@@ -207,13 +208,11 @@ class Sensor:
             else:
                 preset_to_diff = np.array(samp_dist_preset)
 
-            # 差分并倒序
-            diff = np.diff(preset_to_diff)
-            diff_reversed = diff[::-1]
-            samp_dist = [start_value]
-            for d in diff_reversed:
-                samp_dist.append(samp_dist[-1] + d)
-            raw_samp_dist = np.array(samp_dist) * 0.001
+            # FBG 的物理全长与点位必须来自同一份几何；先计算再裁剪。
+            # 即使直接构造 Sensor 而不经过 main，也不能沿用旧的手填 ideal_len。
+            self.ideal_len, raw_samp_dist = compute_fbg_geometry(
+                start_value, end_value, preset_to_diff,
+            )
 
         if not np.all(np.isfinite(raw_samp_dist)):
             raise ValueError("samp_dist 包含非有限值（NaN 或 inf）")
@@ -227,7 +226,7 @@ class Sensor:
             if self.trim_len < raw_samp_dist[0]:
                 raw_trim_idx = 0
             else:
-                raw_trim_idx = np.searchsorted(raw_samp_dist, self.trim_len, side="left")
+                raw_trim_idx = np.searchsorted(raw_samp_dist, self.trim_len - 1e-12, side="left")
 
             if raw_trim_idx >= len(raw_samp_dist):
                 raise ValueError(
@@ -239,11 +238,16 @@ class Sensor:
             if self.straight_trim != 0:
                 self.raw_trim_idx = -np.abs(self.straight_trim)
 
+        # 1-based 全局真实数据行号，不包含重构用虚拟点，也不冒充硬件 FBG 标签。
+        self.global_point_ids = np.arange(1, len(raw_samp_dist) + 1)[self.raw_trim_idx:]
         raw_samp_dist = raw_samp_dist[self.raw_trim_idx:]
+        self.global_samp_dist = raw_samp_dist.copy()
 
         # 先生成完整 samp_dist；reverse 只改变坐标方向，不与 straight_trim 耦合。
         if reverse:
             self.samp_dist = (raw_samp_dist[-1] - raw_samp_dist)[::-1] + end_value * 0.001
+            self.global_point_ids = self.global_point_ids[::-1]
+            self.global_samp_dist = self.global_samp_dist[::-1]
         else:
             if self.straight_trim != 0:
                 # self.samp_dist = raw_samp_dist - raw_samp_dist[0]

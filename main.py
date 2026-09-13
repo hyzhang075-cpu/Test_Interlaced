@@ -1,4 +1,6 @@
 import argparse
+import ast
+from copy import deepcopy
 from email import parser
 import time
 import sys
@@ -6,12 +8,104 @@ import threading
 import numpy as np
 from pathlib import Path
 
+from calibration_regions import resolve_calibration_region, validate_calibration_parameters
+from calibration_batch import optimizer_parameters, prepare_calibration_jobs, run_calibration_jobs
+
 from PyQt5.QtWidgets import QApplication
 
 from optimiser import Optimiser
 from visualisor import Visualisor
 # from proto_demonstrator import Demonstrator 完整样机展示代码
 from demonstrator import Demonstrator
+
+
+
+
+def configure_calibration_args(args):
+    """解析区域后再构造 Optimiser，确保非法分段在数据读取/优化前报错。
+
+区域字典联动数据、半径、阈值、裁剪和局部分段。CLI 可覆盖所选区域的
+数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
+返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
+"""
+    profiles = deepcopy(args.calibration_regions)
+    if args.optimization_region not in profiles:
+        raise ValueError(f'未知 optimization_region={args.optimization_region!r}')
+    full_segments = args.full_segmentation
+    if args.optimization_region == 'full' and args.segmentation is not None:
+        if getattr(args, '_full_segmentation_explicit', False) and args.segmentation != args.full_segmentation:
+            raise ValueError('全长 segmentation 与 full_segmentation 分段不一致')
+        full_segments = args.segmentation
+    profiles['full']['segmentation'] = list(full_segments)
+    selected = profiles[args.optimization_region]
+    root = Path(args.calibration_data_root)
+    if not root.is_absolute():
+        root = Path(__file__).resolve().parent / root
+    for profile in profiles.values():
+        folder = Path(profile['folder_path'])
+        if not folder.is_absolute():
+            profile['folder_path'] = str(root / folder)
+    for key in ('folder_path', 'radii', 'thresholds', 'segmentation'):
+        value = getattr(args, key)
+        if value is not None:
+            selected[key] = value
+    # 显式 --weights None/--slopes None 表示重新初始化，覆盖区域保存的初值。
+    for key in ('weights', 'slopes'):
+        if getattr(args, key) is None and key not in getattr(args, '_explicit_seed_parameters', []):
+            setattr(args, key, deepcopy(selected.get(key)))
+    if args.global_phases_set is None and selected.get('global_phases_set') is not None:
+        args.global_phases_set = selected['global_phases_set']
+
+    if args.interrogator == 'LUNA':
+        # OFDR 不使用 FBG 预设跨度。保留全长入口，局部 FBG 区域映射不适用。
+        if args.multi_region_calib or args.optimization_region != 'full':
+            raise ValueError('当前区域定标配置仅支持 FiberTecc/Hippo FBG 数据')
+        for key in ('folder_path', 'radii', 'thresholds', 'segmentation'):
+            setattr(args, key, selected[key])
+        args.ideal_len = 1.35 if args.ideal_len is None else args.ideal_len
+        args.straight_trim = 0.0 if args.straight_trim is None else args.straight_trim
+        args.weights, args.slopes = validate_calibration_parameters(
+            args.weights, args.slopes, args.thresholds, args.segmentation, args.exp_directs,
+            end_weights=args.end_weights, s_shape='S' in args.radii,
+        )
+        return None
+
+    preset = args.samp_dist_preset
+    if args.interlaced_grating:
+        if args.samp_dist_preset_sub is None:
+            raise ValueError('交错刻栅需要 samp_dist_preset_sub')
+        preset = sorted(list(preset) + list(args.samp_dist_preset_sub))
+    common = dict(start_value=args.start_value, end_value=args.end_value,
+                  samp_dist_preset=preset, full_segmentation=full_segments,
+                  profiles=profiles, multi_region_calib=args.multi_region_calib)
+    context = resolve_calibration_region(optimization_region=args.optimization_region, **common)
+    if args.multi_region_calib:
+        # 开启区域模式时，所有已配置长度都必须与同一全长分段相容。
+        for region in profiles:
+            resolve_calibration_region(optimization_region=region, **common)
+    for key in ('ideal_len', 'straight_trim'):
+        supplied = getattr(args, key)
+        if supplied is not None and not np.isclose(supplied, context[key], rtol=0, atol=1e-12):
+            raise ValueError(f'{key}={supplied} 与所选区域的几何计算值 {context[key]} 不一致')
+    for key in ('ideal_len', 'folder_path', 'radii', 'thresholds', 'straight_trim', 'segmentation'):
+        setattr(args, key, context[key])
+    if args.reverse:
+        # Sensor 裁剪后才反序：空间段顺序也必须反转，才能保留全局对应。
+        args.segmentation = args.segmentation[::-1]
+        context['segmentation'] = args.segmentation
+        for key in ('global_point_ids', 'global_segment_ids', 'global_sample_dist_m'):
+            context[key] = context[key][::-1]
+        samples = np.asarray(context['sample_dist_m'])
+        context['sample_dist_m'] = ((samples[-1] - samples)[::-1] + args.end_value / 1000).tolist()
+        # 当前反向路径仅在起点补虚拟点，不延伸反向终点。
+        context['reconstruction_length_m'] = context['sample_dist_m'][-1]
+    args.weights, args.slopes = validate_calibration_parameters(
+        args.weights, args.slopes, args.thresholds, args.segmentation, args.exp_directs,
+        end_weights=args.end_weights, s_shape='S' in args.radii,
+    )
+    print(f'定标区域: {args.optimization_region}; ideal_len={args.ideal_len:.6f} m; '
+          f'全局真实点={context["global_point_ids"]}; segmentation={args.segmentation}')
+    return context
 
 
 
@@ -68,6 +162,17 @@ def _finite_nonnegative_float(value):
     return number
 
 
+def add_vector_filter_arguments(parser):
+    """注册向量方向空间滤波开关，供主入口及轻量参数测试共用。"""
+    parser.add_argument(
+        '--move_filter_for_vector',
+        type=_str2bool,
+        default=False,
+        help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',
+    )
+    return parser
+
+
 def add_anchor_arguments(parser):
     """Register startup settings for the protocol-independent entrance anchor."""
     class _EnableFullAnchor(argparse.Action):
@@ -101,22 +206,77 @@ def add_anchor_arguments(parser):
     return parser
 
 
-def main():
+class _StoreCalibrationParameter(argparse.Action):
+    """区分未传初值与显式传入 None，保证旧命令仍可强制重新初始化。"""
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        explicit = list(getattr(namespace, '_explicit_seed_parameters', []))
+        explicit.append(self.dest)
+        namespace._explicit_seed_parameters = explicit
+
+
+class _StoreFullSegmentation(argparse.Action):
+    """记录全长分段是否由命令行显式给出，而非仅采用传感器默认值。"""
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace._full_segmentation_explicit = True
+
+
+def build_argument_parser():
 # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
+    # 以下区域配置也属于传感器参数；复制整个 parser 区块即可保留、迁移。
+    parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
+                        help='True时optim/score遍历optimization_regions；False时仅全长')
+    parser.add_argument('--optimization_region', type=str, default='full',
+                        help='init/recon/demo等单区域任务使用的数据区域')
+    parser.add_argument('--optimization_regions', type=ast.literal_eval, default=['full', 'end15cm', 'end5cm'],
+                        help='区域模式下optim/score依次处理的区域列表')
+    parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
+                        default=[2, 3, 5, 2, 3, 3, 2, 2],
+                        help='全长真实点分段列表；局部区域必须由其完整空间段组成')
+    parser.add_argument('--calibration_data_root', type=str, default='0908-06B6',
+                        help='定标数据根目录；相对路径以main.py所在目录为基准')
+    parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
+        'full': {
+            'length_m': None,
+            'folder_path': '全段测试',
+            'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]},
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'weights': None, 'slopes': None,
+        },
+        'end15cm': {
+            'length_m': 0.15,
+            'folder_path': '末端测试/15cm',
+            'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'segmentation': [3, 2, 2],
+            'weights': None, 'slopes': None,
+        },
+        'end5cm': {
+            'length_m': 0.05,
+            'folder_path': '末端测试/5cm',
+            'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30, 20, 15]},
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'segmentation': [2, 2],
+            'weights': None, 'slopes': None,
+        },
+    }, help='各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布')
+    parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
+                        help='批量优化/评分诊断输出目录，按传感器与时间创建新目录')
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_centraltube", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
     parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
-    parser.add_argument('--ideal_len', type=float, default=0.878, help='传感器长度, 单位为m') # 支气管镜
+    parser.add_argument('--ideal_len', type=float, default=None, help='FBG总长自动计算(m)；显式传值必须与几何一致')
     # parser.add_argument('--ideal_len', type=float, default=1.35, help='传感器长度, 单位为m') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], help='FBG传感点位置(A组及中心), 单位为mm') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 520, 530, 540, 550, 580, 610, 640, 670, 720, 770, 850, 930, 1010, 1110, 1230], help='FBG传感点位置, 单位为mm')# 16点支气管镜
-    parser.add_argument('--samp_dist_preset', type=list, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
+    parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 521, 532, 543, 554, 579, 604, 629, 654, 696, 738, 780, 822, 864, 906, 948, 990, 1032, 1074, 1116, 1158, 1200], help='FBG传感点位置, 单位为mm')# 22点支气管镜，69cm
-    parser.add_argument('--samp_dist_preset_sub', type=list, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
+    parser.add_argument('--samp_dist_preset_sub', type=ast.literal_eval, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
     parser.add_argument('--interlaced_grating', type=bool, default=False, help='栅区是否交错排列')
     parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为度')
@@ -128,21 +288,21 @@ def main():
     parser.add_argument('--channel_change', type=bool, default=False, help='通道排布是否变化')
     parser.add_argument('--channel_layout', type=list, default=[(5, [2, 1, 4, 3, 7, 5, 6]), (7, [5, 1, 4, 3, 2, 7, 6]), (4, [7, 1, 4, 3, 2, 5, 6])], help='当通道排布出现错序，每一段的长度及其排布顺序(列表嵌套元组格式)')
     parser.add_argument('--active_angles', type=list, default=None, help='外围通道角度排布(度数)，若为None则默认均匀排布')
-    parser.add_argument('--folder_path', type=str, default="./0908-06B6/全段测试", help='数据存储路径')
+    # parser.add_argument('--folder_path', type=str, default="./0908-06B6/全段测试", help='数据存储路径')
     # parser.add_argument('--folder_path', type=str, default="./0908-06B6/末端测试/15cm", help='数据存储路径')
-    # parser.add_argument('--folder_path', type=str, default="./0908-06B6/末端测试/5cm", help='数据存储路径')
+    parser.add_argument('--folder_path', type=str, default=None, help='覆盖所选区域的数据目录；默认由 calibration_regions 提供')
     parser.add_argument('--rot_dir', type=list, default={0:-1,120:-1,240:-1}, help='各个标定实验按逆(1)还是顺(-1)顺时针调整的方向')
     parser.add_argument('--exp_directs', type=list, default=[0, 120, 240], help='实验使用的方向')
-    parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
+    # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
     # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]}, help='标定圆弧形状半径')
-    # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30, 20, 15]}, help='标定圆弧形状半径')
+    parser.add_argument('--radii', type=ast.literal_eval, default=None, help='覆盖所选区域半径字典(mm)')
     parser.add_argument('--end_len', type=float, default=0.05, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
     parser.add_argument('--freeze', type=list, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None。分区index从0开始。')
     parser.add_argument('--weight_bounds', type=tuple, default=(0.6, 5.0), help='曲率权重范围')
     parser.add_argument('--slope_upper_bound', type=tuple, default=50.0, help='扭转系数大小上限')
-    parser.add_argument('--thresholds', type=list, default=[0.8, 1.2, 2.0, 3.0, 4.0], help='各曲率分级的阈值')
+    parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
 
     parser.add_argument('--max_iter', type=int, default=10, help='优化的最大轮次')
     parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
@@ -198,7 +358,7 @@ def main():
     parser.add_argument('--rot_threshold', type=float, default=4.0, help='零螺距形状中判断螺旋段的曲率阈值')
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')
     parser.add_argument('--move_filter', type=int, default=3, help='动/静态重构前平滑滤波窗口大小')
-    parser.add_argument('--move_filter_for_vector', type=_str2bool, default=False, help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',)
+    add_vector_filter_arguments(parser)
     parser.add_argument('--kalman_params', type=dict, default={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}}, help='卡尔曼滤波参数')
     parser.add_argument('--smoothing_params', type=dict, default={'window_length': 21,'polyorder': 3}, help='LUNA数据平滑参数')
     parser.add_argument('--interp_num', type=int, default=120, help='插值目标点数')
@@ -215,22 +375,22 @@ def main():
     parser.add_argument('--nonnegative_curvature', action='store_true', help='对插值后的曲率施加非负约束')
     parser.add_argument('--sharpness', type=float, default=4.8, help='sigmoid软评分硬度')
     # parser.add_argument('--end_weights', type=bool, default=False, help='是否对末端另算权重') #肉眼看穿过标准圆圈的点数（前后段weight不一致），然后在直线段看见的点数来判断在距离多少（旁边有格尺），然后回到init图中看看离末端有几个fbg（例如9个），那就在下面'--end_start', type=int, default=-6, help='末端起点')这里改成-9
-    parser.add_argument('--end_weights', type=bool, default=True, help='是否对末端另算权重') #考虑末端15cm
+    parser.add_argument('--end_weights', type=bool, default=False, help='是否对末端另算权重') #考虑末端15cm
     parser.add_argument('--end_start', type=int, default=-5, help='末端起点')
     parser.add_argument('--TNB_threshold', type=float, default=0.0, help='TNB重构直线判定阈值')
     # 初始化时必须手动调整的超参数
-    parser.add_argument('--straight_trim', type=float, default=0.0, help='默认不读取的部分，若只知道剩余长度，则调整为负数。')
+    parser.add_argument('--straight_trim', type=float, default=None, help='由优化区域长度计算；显式值必须一致')
     # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 7], help='对扭转角度-传感点位置曲线的点数')#优先调分段
     # parser.add_argument('--segmentation', type=list, default=[2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#末端15cm
-    parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
-    # parser.add_argument('--segmentation', type=list, default=[2, 3], help='对扭转角度-传感点位置曲线的点数')#末端5cm
+    # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 2, 3], help='对扭转角度-传感点位置曲线的点数')#优先调分段
+    parser.add_argument('--segmentation', type=ast.literal_eval, default=None, help='所选区域分段，必须与全长对应空间段相同')
     # parser.add_argument('--segmentation', type=list, default=[2, 3, 5, 2, 3, 2, 5], help='对扭转角度-传感点位置曲线的点数')#优先调分段
     parser.add_argument('--connect', type=bool, default=False, help='拟合初始分段时是否令各分段首尾相连')
     parser.add_argument('--turn_threshold', type=float, default=2.0, help='判断形状弯曲方向是否改变的阈值')
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值
-    parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
-    # parser.add_argument('--rot_ang', type=float, default=0.0, help='绕x轴旋转角度, 初始为0.0')
+    # parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
+    parser.add_argument('--rot_ang', type=float, default=0.0, help='绕x轴旋转角度, 初始为0.0')
     # ===============================不带窗======================================
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, 末端调weight
     # parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 0.10000062686770492, 4.547478524913153, 1.022984574255862, 1.9443742771509285, 1.642872707914389, 1.4723019459684745]), 
@@ -265,13 +425,15 @@ def main():
     # [-3.9152431142714064, 29.28640869533861, -49.99996678126025], 
     # [26.30525541308219, 11.520823752630669, -15.23477938406701]])}, help='扭转系数')
 
-    # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 不带窗, 5cm
+    # 曲率权重与扭转系数相关初始值, 曲率向量插值, 不带窗, 5cm
     # parser.add_argument('--weights', default={0: np.array([1.553407546131768, 0.6000005582908989, 1.9183242010029995, 0.6000004670227347, 0.6216559685516176, 1.596270023444882]), 
     #                                                               120: np.array([0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000000000002461, 1.2693399508811423]), 
     #                                                               240: np.array([1.274133095311955, 1.3903603998788605, 0.6000005583028791, 1.5309897399643118, 0.6000005583028792, 1.5504596861327944])}, help='曲率权重')
+    parser.add_argument('--weights', type=ast.literal_eval, action=_StoreCalibrationParameter, default=None, help='所选区域已定标权重；None表示重新初始化')
     # parser.add_argument('--slopes', default={0: np.array([[-82.30284714775718, -82.30284714775718], [82.30290022121412, -82.30284714775709], [-82.30284714775718, -82.30284714775718], [52.14041053619512, -82.30284714775718], [-82.30284714775718, 50.78023258070863], [-82.30284714775718, -24.85696313654812]]), 
     #                                                             120: np.array([[49.99999985683793, -49.999966781260134], [-28.019167865012612, -49.99996678126025], [-6.124846724061082, -49.99996678126025], [-49.999994927442934, -49.99996678126025], [-49.99996678126025, -49.99996678126025], [-49.99996678053954, -49.99996678126025]]),
     #                                                                           240: np.array([[-49.99996678126025, -21.65933609449623], [-49.99996678126025, -25.847530761739417], [-49.99996678126025, -49.99996678126025], [-49.99996678126025, -49.99996678126025], [-49.99996678126025, -49.99996678175147], [49.99996678126025, 3.652742029815776]])}, help='扭转系数')
+    parser.add_argument('--slopes', type=ast.literal_eval, action=_StoreCalibrationParameter, default=None, help='所选区域已定标扭转参数；None表示重新初始化')
 
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, combined
     # parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 1.9604606143354646, 0.7484982315455317, 0.7576778315763791, 1.0983414309980577, 0.8497160917055625, 0.9575616794202598]), 
@@ -299,46 +461,46 @@ def main():
     #                                                                           [-15.577545930269098, -7.171362441835742, 14.180824405901827, -11.472368985281506, 10.711070932314414, -3.9152431142714064, 29.28640869533861, -49.99996678126025], 
     #                                                                           [-12.76053019437769, -9.686897178718416, -22.267853719660234, 5.292893501952441, 8.507735902044905, 26.30525541308219, 11.520823752630669, -15.23477938406701]])}, help='扭转系数')
 
-    # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, combined+5cm
-    parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 1.553407546131768, 0.6000005582908989, 1.9183242010029995, 0.6000004670227347, 0.6216559685516176, 1.596270023444882]), 
-                                                                  120: np.array([0.8834070763118534, 0.85251461024247, 0.986924957649386, 0.9452724668609392, 0.9725634153903076, 0.9499982676616073, 0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000000000002461, 1.2693399508811423]), 
-                                                                  240: np.array([0.7867436848812638, 0.9969041223121436, 0.8298518879670551, 1.1115326395320613, 0.5702994386370039, 1.5798283235946788, 1.274133095311955, 1.3903603998788605, 0.6000005583028791, 1.5309897399643118, 0.6000005583028792, 1.5504596861327944])}, help='曲率权重')
-    parser.add_argument('--slopes', default={0: np.array([[-17.36193401,  -8.82238255,   7.20782943,  -9.59584972,
-         14.62280505,  47.90778065, -82.30284715, -82.30284715],
-       [-11.46684454,  -9.54211165,   7.47397185,  -9.574458  ,
-         12.76550395,  37.32392773,  82.30290022, -82.30284715],
-       [-11.17733761, -10.61341314,   7.34406686,  -8.35317126,
-         11.5308956 ,  -2.25539272, -82.30284715, -82.30284715],
-       [-14.0765046 ,  -8.68278465,   7.28077904,  -9.37176595,
-         12.11863814,  16.5727679 ,  52.14041054, -82.30284715],
-       [-14.08705664,  -9.36395609,   7.16484958,  -8.68541381,
-         12.02135621,   3.532502  , -82.30284715,  50.78023258],
-       [-15.93521219,  -8.43934829,   7.41859292,  -9.26042997,
-         11.71624795,   1.26984303, -82.30284715, -24.85696314]]), 
-                                                                120: np.array([[-12.82840855,  -9.66021079,   7.63072193,  -8.31637842,
-         12.2365501 ,  49.99996678,  49.99999986, -49.99996678],
-       [-19.0172988 ,  -8.28327817,   6.847164  ,  -7.81018908,
-         10.89795553,  49.99996678, -28.01916787, -49.99996678],
-       [-10.37908347, -10.49910741,   8.14046002, -10.0606274 ,
-         12.11587832,  -7.99846693,  -6.12484672, -49.99996678],
-       [-17.26202384,  -9.27199738,   7.19115387,  -8.46484271,
-         11.45512338,  19.57972262, -49.99999493, -49.99996678],
-       [-11.39433862, -10.20512542,   8.13990189, -10.24850962,
-         12.16998596,   7.12391124, -49.99996678, -49.99996678],
-       [-18.83169657,  -8.87435764,   7.39905219,  -8.75706144,
-         11.47440353,   1.48462511, -49.99996678, -49.99996678]]),
-                                                                              240: np.array([[-15.75343773,  -7.49263056,   6.82487052,  -6.85205007,
-          8.83024792,  16.35560194, -49.99996678, -21.65933609],
-       [-20.66799439,  -6.7767059 ,   5.63496372,  -7.16314325,
-         12.50936128,  49.99996678, -49.99996678, -25.84753076],
-       [-15.71214172,  -7.70692102,   7.39835425,  -8.36463954,
-         10.3624707 ,   1.15191213, -49.99996678, -49.99996678],
-       [-15.34560037,  -8.18199401,   4.25523614,  -5.78293168,
-         10.90180433,  25.25548543, -49.99996678, -49.99996678],
-       [-15.57754593,  -7.17136244,  14.18082441, -11.47236899,
-         10.71107093,  -3.91524311, -49.99996678, -49.99996678],
-       [-12.76053019,  -9.68689718, -22.26785372,   5.2928935 ,
-          8.5077359 ,  26.30525541,  49.99996678,   3.65274203]])}, help='扭转系数')
+    # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, combined+5cm
+    # parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 1.553407546131768, 0.6000005582908989, 1.9183242010029995, 0.6000004670227347, 0.6216559685516176, 1.596270023444882]),
+    #                                                               120: np.array([0.8834070763118534, 0.85251461024247, 0.986924957649386, 0.9452724668609392, 0.9725634153903076, 0.9499982676616073, 0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000005582908392, 0.6000000000002461, 1.2693399508811423]),
+    #                                                               240: np.array([0.7867436848812638, 0.9969041223121436, 0.8298518879670551, 1.1115326395320613, 0.5702994386370039, 1.5798283235946788, 1.274133095311955, 1.3903603998788605, 0.6000005583028791, 1.5309897399643118, 0.6000005583028792, 1.5504596861327944])}, help='曲率权重')
+    # parser.add_argument('--slopes', default={0: np.array([[-17.36193401,  -8.82238255,   7.20782943,  -9.59584972,
+    #      14.62280505,  47.90778065, -82.30284715, -82.30284715],
+    #    [-11.46684454,  -9.54211165,   7.47397185,  -9.574458  ,
+    #      12.76550395,  37.32392773,  82.30290022, -82.30284715],
+    #    [-11.17733761, -10.61341314,   7.34406686,  -8.35317126,
+    #      11.5308956 ,  -2.25539272, -82.30284715, -82.30284715],
+    #    [-14.0765046 ,  -8.68278465,   7.28077904,  -9.37176595,
+    #      12.11863814,  16.5727679 ,  52.14041054, -82.30284715],
+    #    [-14.08705664,  -9.36395609,   7.16484958,  -8.68541381,
+    #      12.02135621,   3.532502  , -82.30284715,  50.78023258],
+    #    [-15.93521219,  -8.43934829,   7.41859292,  -9.26042997,
+    #      11.71624795,   1.26984303, -82.30284715, -24.85696314]]),
+    #                                                             120: np.array([[-12.82840855,  -9.66021079,   7.63072193,  -8.31637842,
+    #      12.2365501 ,  49.99996678,  49.99999986, -49.99996678],
+    #    [-19.0172988 ,  -8.28327817,   6.847164  ,  -7.81018908,
+    #      10.89795553,  49.99996678, -28.01916787, -49.99996678],
+    #    [-10.37908347, -10.49910741,   8.14046002, -10.0606274 ,
+    #      12.11587832,  -7.99846693,  -6.12484672, -49.99996678],
+    #    [-17.26202384,  -9.27199738,   7.19115387,  -8.46484271,
+    #      11.45512338,  19.57972262, -49.99999493, -49.99996678],
+    #    [-11.39433862, -10.20512542,   8.13990189, -10.24850962,
+    #      12.16998596,   7.12391124, -49.99996678, -49.99996678],
+    #    [-18.83169657,  -8.87435764,   7.39905219,  -8.75706144,
+    #      11.47440353,   1.48462511, -49.99996678, -49.99996678]]),
+    #                                                                           240: np.array([[-15.75343773,  -7.49263056,   6.82487052,  -6.85205007,
+    #       8.83024792,  16.35560194, -49.99996678, -21.65933609],
+    #    [-20.66799439,  -6.7767059 ,   5.63496372,  -7.16314325,
+    #      12.50936128,  49.99996678, -49.99996678, -25.84753076],
+    #    [-15.71214172,  -7.70692102,   7.39835425,  -8.36463954,
+    #      10.3624707 ,   1.15191213, -49.99996678, -49.99996678],
+    #    [-15.34560037,  -8.18199401,   4.25523614,  -5.78293168,
+    #      10.90180433,  25.25548543, -49.99996678, -49.99996678],
+    #    [-15.57754593,  -7.17136244,  14.18082441, -11.47236899,
+    #      10.71107093,  -3.91524311, -49.99996678, -49.99996678],
+    #    [-12.76053019,  -9.68689718, -22.26785372,   5.2928935 ,
+    #       8.5077359 ,  26.30525541,  49.99996678,   3.65274203]])}, help='扭转系数')
     # # ======================     带窗   =================================
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 带窗, 末端调weight
     # parser.add_argument('--weights', default={0: np.array([0.7230207588198502, 0.8464147546817855, 0.8341251537138975, 0.8525467941513734, 0.8588064689991122, 0.8832014239146625, 2.283739386043281, 2.9999994911828556, 0.9744899811410087, 1.8377590653245708, 1.3289634033080926, 1.1482336457470586]), 
@@ -349,10 +511,14 @@ def main():
     #                                                                       240: np.array([[-18.0572074057512, -6.6741979652677, 6.697489332747131, -8.105492053853402, 9.881245949675385, 20.137585912085754, 1.5883976506143516], [-20.31076374178319, -6.431819420808289, 5.196088017613206, -6.029167172933978, 14.974302991598677, -32.74077406738238, -65.81663862047878], [-17.371263267744933, -6.400716310795336, 6.208875060466032, -6.382086704704831, 6.541009487620292, 15.421693839564846, -36.569877691695396], [-17.21632340199352, -6.679827934760619, 3.4911498453006753, -2.648722506838495, 14.15459310514768, -0.5922025484675825, 65.81663862047878], [-17.647572247352432, -5.84788063221774, 13.399334325162279, -15.538794434737795, 9.759947228432459, -7.801882895774606, -3.203449031587574], [-14.853974197588073, -7.63648717606176, -26.36680139049186, 20.861483031417155, -0.23877939249754931, 17.713238411572426, -4.896348621567681]])}, help='扭转系数')
     
     # 不传入Optimiser的参数
-    parser.add_argument('--task', type=str, required=True, choices=['init', 'ang', 'optim', 'recon', 'demo'], help='选择运行目的为初始化、旋转角度优化、曲率权重与扭转系数优化、重构还是动态展示')
+    parser.add_argument('--task', type=str, required=True, choices=['init', 'ang', 'optim', 'recon', 'demo', 'score'], help='选择运行目的为初始化、旋转角度优化、曲率权重与扭转系数优化、重构、动态展示或评分诊断')
     parser.add_argument('--ang_step', type=float, default=0.1, help='旋转角度搜索步长, 初始为0.1')
     parser.add_argument('--ang_range', type=float, default=1.0, help='旋转角度搜索距离, 初始为180.0')
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_argument_parser().parse_args()
 
     # 存储零状态只作用于动态展示；其他任务保持原有静态数据流程。
     if args.task != 'demo':
@@ -363,6 +529,15 @@ def main():
         args.weights = None
     if args.slopes == "None":
         args.slopes = None
+
+    if args.task in ('optim', 'score'):
+        jobs = prepare_calibration_jobs(args, configure_calibration_args)
+        output_root = Path(args.calibration_output_dir)
+        if not output_root.is_absolute():
+            output_root = Path(__file__).resolve().parent / output_root
+        return run_calibration_jobs(jobs, Optimiser, output_root=output_root)
+
+    calibration_context = configure_calibration_args(args)
     
     # 只传给 Demonstrator 的参数，不传给 Optimiser
     # demo_param_keys = ['total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold',
@@ -376,13 +551,13 @@ def main():
         'anchor_rotation_enabled', 'anchor_offset_m',
     ]
 
-    optim_exclude_keys = ['task', 'ang_step', 'ang_range'] + demo_param_keys
-    params = {k: getattr(args, k) for k in vars(args) if k not in optim_exclude_keys}
+    params = optimizer_parameters(args)
 
     demo_params = {k: getattr(args, k) for k in demo_param_keys}
 
     # 初始化优化器与可视化工具
     optim = Optimiser(**params)
+    optim.calibration_context = calibration_context
     print(f"curvature interpolation mode: {optim.curvature_interp}")
 
 
