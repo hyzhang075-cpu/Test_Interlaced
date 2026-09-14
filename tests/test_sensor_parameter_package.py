@@ -1,0 +1,198 @@
+import argparse
+from copy import deepcopy
+import json
+from pathlib import Path
+import sys
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from sensor_parameter_package import (
+    build_sensor_package,
+    load_calibration_results,
+    load_sensor_package,
+    package_parameter_destinations,
+    render_calibration_comparison,
+    write_sensor_package,
+)
+
+
+REGIONS = {
+    'full': dict(thresholds=[.8, 1.2, 2, 3, 4], segmentation=[2, 2],
+                 point_ids=[1, 2, 3, 4], segment_ids=[0, 1], length=None),
+    'end15cm': dict(thresholds=[.8, 1.2, 2, 3, 4, 8, 20], segmentation=[2],
+                    point_ids=[3, 4], segment_ids=[1], length=.15),
+    'end5cm': dict(thresholds=[.8, 1.2, 2, 3, 4, 8, 20, 35], segmentation=[2],
+                   point_ids=[3, 4], segment_ids=[1], length=.05),
+}
+
+
+def _parser():
+    import main
+    return main.build_argument_parser()
+
+
+def _entry(region, direct, *, stage_status='converge'):
+    cfg = REGIONS[region]
+    levels = len(cfg['thresholds']) + 1
+    segments = len(cfg['segmentation'])
+    phase = {'full': -.7, 'end15cm': -.2, 'end5cm': .7}[region]
+    return {
+        'status': 'complete',
+        'context': {
+            'optimization_region': region,
+            'length_m': cfg['length'],
+            'folder_path': region,
+            'radii': {'circ': [0, 200]},
+            'thresholds': cfg['thresholds'],
+            'segmentation': cfg['segmentation'],
+            'global_point_ids': cfg['point_ids'],
+            'global_segment_ids': cfg['segment_ids'],
+            'global_sample_dist_m': [index / 100 for index in cfg['point_ids']],
+            'sample_dist_m': [index / 100 for index in range(len(cfg['point_ids']))],
+            'crop_origin_m': 0.0,
+            'reconstruction_length_m': .4 if region == 'full' else cfg['length'],
+            'ideal_len': .4,
+            'straight_trim': 0 if region == 'full' else -cfg['length'],
+        },
+        'parameters': {
+            'weights': {str(direct): [float(direct + level + 1) for level in range(levels)]},
+            'slopes': {str(direct): [
+                [float(direct + level + segment) for segment in range(segments)]
+                for level in range(levels)
+            ]},
+            'global_phases_set': phase,
+            'rot_ang': 0.0,
+        },
+        'errors': {
+            'normal_weighted_loss': .01,
+            'avg_point_err': {'calib': .005},
+            'avg_end_err': {'calib': .01},
+            'avg_pitch_err': 0.0,
+            'avg_radius_err': 0.0,
+            'point_errors_by_sample': {'circ': {'200': .005}},
+            'end_errors_by_sample': {'circ': {'200': .01}},
+        },
+        'optimization': {'stages': {
+            'slopes': {'status': stage_status, 'start_loss': .02, 'final_loss': .01},
+            'weights': {'status': stage_status, 'start_loss': .02, 'final_loss': .01},
+        }},
+    }
+
+
+def _report(direct, *, sensor_id='sensor-A', stage_status='converge'):
+    return {
+        'sensor_id': sensor_id,
+        'task': 'optim',
+        'direct': direct,
+        'regions': {
+            region: _entry(region, direct, stage_status=stage_status)
+            for region in REGIONS
+        },
+    }
+
+
+def test_package_merges_literal_direction_angles_in_stable_order():
+    package = build_sensor_package(
+        _parser(), [_report(240), _report(0), _report(120)],
+        source_commit='abc123', generated_at='2026-09-14T00:00:00Z',
+    )
+
+    assert list(package) == [
+        'sensor_id', 'format_version', 'shared_parameters',
+        'multi_region', 'regions', 'provenance',
+    ]
+    assert package['multi_region']['directions'] == [0, 120, 240]
+    assert list(package['regions']) == ['full', 'end15cm', 'end5cm']
+    assert list(package['regions']['end5cm']['weights']) == ['0', '120', '240']
+    assert len(package['regions']['full']['weights']['0']) == 6
+    assert len(package['regions']['end15cm']['weights']['0']) == 8
+    assert len(package['regions']['end5cm']['weights']['0']) == 9
+    assert package['provenance']['source_commit'] == 'abc123'
+    assert package['provenance']['generated_at'] == '2026-09-14T00:00:00Z'
+
+
+def test_every_parser_destination_has_one_authoritative_package_location():
+    parser = _parser()
+    expected = [action.dest for action in parser._actions if action.dest != 'help']
+    package = build_sensor_package(parser, [_report(0), _report(120), _report(240)])
+
+    actual = package_parameter_destinations(package)
+
+    assert sorted(actual) == sorted(expected)
+    assert len(actual) == len(set(actual))
+    assert list(package['shared_parameters']) == [
+        'hardware_parameters', 'calibration_experiment_parameters',
+        'optimization_hyperparameters', 'dynamic_display_parameters',
+        'reconstruction_parameters', 'initialization_parameters',
+        'angle_optimization_parameters', 'runtime_control_parameters',
+    ]
+
+
+def test_package_rejects_direction_indices_and_sensor_mismatch():
+    with pytest.raises(ValueError, match='0、120、240'):
+        build_sensor_package(_parser(), [_report(0), _report(1), _report(2)])
+    with pytest.raises(ValueError, match='sensor_id'):
+        build_sensor_package(_parser(), [_report(0), _report(120), _report(240, sensor_id='sensor-B')])
+
+
+def test_region_parameter_shape_is_validated_independently():
+    reports = [_report(0), _report(120), _report(240)]
+    reports[0]['regions']['end5cm']['parameters']['slopes']['0'] = [[1.0, 2.0]]
+
+    with pytest.raises(ValueError, match='end5cm.*slopes'):
+        build_sensor_package(_parser(), reports)
+
+
+def test_unverified_phase_and_diverged_stage_produce_candidate_only():
+    package = build_sensor_package(
+        _parser(), [_report(0), _report(120), _report(240, stage_status='diverge')]
+    )
+
+    assert package['multi_region']['deployment_ready'] is False
+    gates = package['multi_region']['quality_gates']
+    assert gates['optimization_complete'] is False
+    assert gates['phase_reference_verified'] is False
+    assert any('240/full slopes diverged' in failure for failure in gates['failures'])
+
+
+def test_json_round_trip_preserves_order_and_rejects_strict_deployment(tmp_path):
+    package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
+    path = tmp_path / 'sensor.json'
+
+    write_sensor_package(package, path)
+    loaded = load_sensor_package(path, expected_sensor_id='sensor-A')
+
+    assert list(json.loads(path.read_text(encoding='utf-8'))) == list(package)
+    assert loaded == package
+    with pytest.raises(ValueError, match='deployment'):
+        load_sensor_package(path, require_deployable=True)
+
+
+def test_load_calibration_results_reads_json_and_rejects_duplicate_direct(tmp_path):
+    paths = []
+    for direct in (0, 120, 240):
+        path = tmp_path / f'{direct}.json'
+        path.write_text(json.dumps(_report(direct)), encoding='utf-8')
+        paths.append(path)
+    assert [report['direct'] for report in load_calibration_results(paths)] == [0, 120, 240]
+
+    duplicate = tmp_path / 'duplicate.json'
+    duplicate.write_text(json.dumps(_report(240)), encoding='utf-8')
+    with pytest.raises(ValueError, match='重复'):
+        load_calibration_results([*paths, duplicate])
+
+
+def test_comparison_report_exposes_parameters_errors_and_failed_stages():
+    reports = [_report(0), _report(120), _report(240, stage_status='diverge')]
+
+    markdown = render_calibration_comparison(reports)
+
+    assert '| 240 | full |' in markdown
+    assert 'diverged' in markdown
+    assert 'weights: `[241.0, 242.0' in markdown
+    assert 'point=5.000 mm' in markdown
+    assert 'local global phase' in markdown
