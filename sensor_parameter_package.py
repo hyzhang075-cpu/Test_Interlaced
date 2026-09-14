@@ -423,3 +423,27 @@ def load_sensor_package(path, expected_sensor_id=None, *, require_deployable=Fal
         failures = package.get('multi_region', {}).get('quality_gates', {}).get('failures', [])
         raise ValueError(f'parameter package is not deployment ready: {failures}')
     return package
+
+
+def apply_validation_results(package, validation):
+    """Attach immutable validation evidence and refresh deployment gates."""
+    package = deepcopy(package)
+    gates = package['multi_region']['quality_gates']
+    validation_gates = validation.get('quality_gates', {})
+    gates['phase_reference_verified'] = bool(
+        validation_gates.get('phase_reference_verified', False)
+    )
+    gates['full_geometry_verified'] = bool(
+        validation_gates.get('full_geometry_verified', False)
+    )
+    reason = validation_gates.get('reason')
+    if reason and reason not in gates['failures']:
+        gates['failures'].append(reason)
+    package['multi_region']['deployment_ready'] = all(
+        gates.get(name) is True for name in (
+            'optimization_complete', 'phase_reference_verified',
+            'score_verified', 'full_geometry_verified',
+        )
+    )
+    package['provenance']['full_geometry_validation'] = deepcopy(validation)
+    return _native(package)

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sensor_parameter_package import (
+    apply_validation_results,
     build_sensor_package,
     load_calibration_results,
     load_sensor_package,
@@ -258,3 +259,18 @@ def test_parse_main_args_rejects_unknown_package_version_before_runtime(tmp_path
 
     with pytest.raises(ValueError, match='format_version'):
         main.parse_main_args(['--task', 'recon', '--sensor_params', str(path)])
+
+
+def test_validation_evidence_keeps_failed_candidate_non_deployable():
+    package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
+    validation = {'quality_gates': {
+        'phase_reference_verified': False,
+        'full_geometry_verified': False,
+        'reason': '240-degree full reconstruction failed',
+    }, 'directions': {'240': {}}}
+
+    updated = apply_validation_results(package, validation)
+
+    assert updated['multi_region']['deployment_ready'] is False
+    assert updated['provenance']['full_geometry_validation'] == validation
+    assert '240-degree full reconstruction failed' in updated['multi_region']['quality_gates']['failures']

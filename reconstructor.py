@@ -913,6 +913,9 @@ class Reconstructor(Initialiser):
         )
         diagnostics['final_weight'] = final_weight.tolist()
         diagnostics['slope_map'] = slope_map.tolist()
+        diagnostics['final_magnitude'] = np.asarray(magnitude).tolist()
+        diagnostics['final_angle'] = np.asarray(angle).tolist()
+        diagnostics['final_theta_dynamic'] = np.asarray(final_angles).tolist()
         return magnitude, angle, final_weight, slope_map, diagnostics
     
     def _generate_dynamic_segments(self, slope_map):
