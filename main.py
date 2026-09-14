@@ -10,6 +10,7 @@ from pathlib import Path
 
 from calibration_regions import resolve_calibration_region, validate_calibration_parameters
 from calibration_batch import optimizer_parameters, prepare_calibration_jobs, run_calibration_jobs
+from sensor_parameter_package import load_sensor_package, package_parser_defaults
 
 from PyQt5.QtWidgets import QApplication
 
@@ -38,6 +39,11 @@ def configure_calibration_args(args):
         full_segments = args.segmentation
     profiles['full']['segmentation'] = list(full_segments)
     selected = profiles[args.optimization_region]
+    explicit_cli = set(getattr(args, '_explicit_cli_parameters', ()))
+    if selected.get('sharpness') is not None and 'sharpness' not in explicit_cli:
+        args.sharpness = selected['sharpness']
+    if selected.get('score_window') is not None and 'min_consecutive' not in explicit_cli:
+        args.min_consecutive = selected['score_window']
     root = Path(args.calibration_data_root)
     if not root.is_absolute():
         root = Path(__file__).resolve().parent / root
@@ -226,6 +232,8 @@ def build_argument_parser():
 # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
     # 以下区域配置也属于传感器参数；复制整个 parser 区块即可保留、迁移。
+    parser.add_argument('--sensor_params', type=str, default=None,
+                        help='有序传感器参数包 JSON；显式 CLI 参数优先')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
                         help='True时optim/score遍历optimization_regions；False时仅全长')
     parser.add_argument('--optimization_region', type=str, default='full',
@@ -249,7 +257,7 @@ def build_argument_parser():
             'length_m': 0.15,
             'folder_path': '末端测试/15cm',
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
-            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 8.0, 20],
             'segmentation': [3, 2, 2],
             'weights': None, 'slopes': None,
         },
@@ -257,7 +265,7 @@ def build_argument_parser():
             'length_m': 0.05,
             'folder_path': '末端测试/5cm',
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30, 20, 15]},
-            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 8.0, 20, 35],
             'segmentation': [2, 2],
             'weights': None, 'slopes': None,
         },
@@ -517,8 +525,49 @@ def build_argument_parser():
     return parser
 
 
+def _explicit_cli_destinations(parser, argv):
+    option_destinations = {
+        option: action.dest
+        for action in parser._actions
+        for option in action.option_strings
+    }
+    result = set()
+    for token in argv:
+        option = token.split('=', 1)[0]
+        if option in option_destinations:
+            result.add(option_destinations[option])
+    return result
+
+
+def parse_main_args(argv=None):
+    """Load package defaults before the full parse, preserving CLI precedence."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument('--sensor_params')
+    bootstrap.add_argument('--sensor_id')
+    bootstrap_args, _ = bootstrap.parse_known_args(argv)
+
+    parser = build_argument_parser()
+    explicit = _explicit_cli_destinations(parser, argv)
+    package = None
+    if bootstrap_args.sensor_params:
+        package = load_sensor_package(
+            bootstrap_args.sensor_params,
+            expected_sensor_id=(bootstrap_args.sensor_id if 'sensor_id' in explicit else None),
+        )
+        defaults = package_parser_defaults(package)
+        # A package records the parser default for auditability, but cannot
+        # provide the required action selected for this invocation.
+        defaults.pop('task', None)
+        parser.set_defaults(**defaults)
+    args = parser.parse_args(argv)
+    args._explicit_cli_parameters = sorted(explicit)
+    args._sensor_package = package
+    return args
+
+
 def main():
-    args = build_argument_parser().parse_args()
+    args = parse_main_args()
 
     # 存储零状态只作用于动态展示；其他任务保持原有静态数据流程。
     if args.task != 'demo':

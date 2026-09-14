@@ -47,10 +47,24 @@ def test_selected_region_matches_physical_geometry(region, ids, segments, trim, 
     assert result['reconstruction_length_m'] == pytest.approx(tip)
 
 
-def test_disabled_region_mode_rejects_local_selection_but_accepts_full():
-    assert resolve()['global_point_ids'] == list(range(1, 23))
-    with pytest.raises(ValueError, match='multi_region_calib'):
-        resolve(optimization_region='end5cm')
+@pytest.mark.parametrize('region, ids', [
+    ('full', list(range(1, 23))),
+    ('end15cm', list(range(16, 23))),
+    ('end5cm', list(range(19, 23))),
+])
+def test_disabled_region_mode_allows_one_selected_reconstruction_region(region, ids):
+    assert resolve(optimization_region=region, multi_region_calib=False)['global_point_ids'] == ids
+
+
+@pytest.mark.parametrize('region', ['full', 'end15cm', 'end5cm'])
+def test_parse_main_args_configures_selected_local_reconstruction(region):
+    import main
+    args = main.parse_main_args([
+        '--task', 'recon', '--multi_region_calib', 'False',
+        '--optimization_region', region,
+    ])
+    context = main.configure_calibration_args(args)
+    assert context['optimization_region'] == region
 
 
 def test_crop_inside_global_segment_is_rejected_instead_of_truncated():
@@ -201,15 +215,16 @@ def test_sensor_exact_boundary_and_reverse_preserve_global_ids():
 
 def test_main_preloaded_lists_support_reconstructor_two_axis_indexing(monkeypatch):
     import main
+    level_count = len(main.build_argument_parser().get_default('calibration_regions')['end5cm']['thresholds']) + 1
     class ConfigReached(Exception):
         pass
     def capture(**kwargs):
         # _Strain_2_Cur indexes slope[level, segment], which plain nested lists reject.
-        assert kwargs['slopes'][0][5, 1] == 1.0
-        assert kwargs['weights'][0].shape == (6,)
+        assert kwargs['slopes'][0][level_count - 1, 1] == 1.0
+        assert kwargs['weights'][0].shape == (level_count,)
         raise ConfigReached
-    slopes = {d: [[1.0, 1.0] for _ in range(6)] for d in [0, 120, 240]}
-    weights = {d: [1.0] * 6 for d in [0, 120, 240]}
+    slopes = {d: [[1.0, 1.0] for _ in range(level_count)] for d in [0, 120, 240]}
+    weights = {d: [1.0] * level_count for d in [0, 120, 240]}
     monkeypatch.setattr(main, 'Optimiser', capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'recon',
                                     '--multi_region_calib', 'True', '--optimization_region', 'end5cm',

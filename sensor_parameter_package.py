@@ -46,6 +46,7 @@ PARSER_GROUPS = {
     'initialization_parameters': ('connect', 'turn_threshold', 'sensing_ranges'),
     'angle_optimization_parameters': ('ang_step', 'ang_range'),
     'runtime_control_parameters': (
+        'sensor_params',
         'multi_region_calib', 'optimization_region', 'optimization_regions',
         'full_segmentation', 'calibration_data_root', 'calibration_output_dir',
         'folder_path', 'radii', 'direct', 'thresholds', 'straight_trim',
@@ -290,6 +291,56 @@ def package_parameter_destinations(package):
         names.extend(values)
     names.extend(SPECIAL_DESTINATIONS)
     return names
+
+
+def _direction_keyed(values):
+    if not isinstance(values, dict):
+        return deepcopy(values)
+    converted = {}
+    for key, value in values.items():
+        try:
+            direct = int(key)
+        except (TypeError, ValueError):
+            direct = key
+        converted[direct] = deepcopy(value)
+    return converted
+
+
+def package_parser_defaults(package):
+    """Flatten one validated package into argparse defaults.
+
+    Region blocks are converted back to the existing ``calibration_regions``
+    schema. JSON direction keys become literal integer angles so the unchanged
+    optimizer and reconstructor can index them with 0/120/240.
+    """
+    defaults = {}
+    for group in package['shared_parameters'].values():
+        defaults.update(deepcopy(group))
+    defaults['sensor_id'] = package['sensor_id']
+    defaults['global_phases_set'] = package['multi_region']['global_phases_set']
+    defaults['rot_ang'] = package['multi_region']['rot_ang']
+    defaults['rot_dir'] = _direction_keyed(defaults.get('rot_dir'))
+    defaults['sensing_ranges'] = _direction_keyed(defaults.get('sensing_ranges'))
+
+    profiles = {}
+    for region, block in package['regions'].items():
+        profiles[region] = {
+            'length_m': deepcopy(block.get('length_m')),
+            'folder_path': deepcopy(block.get('folder_path')),
+            'radii': deepcopy(block.get('radii')),
+            'thresholds': deepcopy(block['thresholds']),
+            'segmentation': deepcopy(block['local_segmentation']),
+            'sharpness': deepcopy(block.get('sharpness')),
+            'score_window': deepcopy(block.get('score_window')),
+            'score_boundary_mode': deepcopy(block.get('score_boundary_mode', 'constant')),
+            'weights': _direction_keyed(block['weights']),
+            'slopes': _direction_keyed(block['slopes']),
+            'global_point_ids': deepcopy(block.get('support_point_ids')),
+            'global_segment_ids': deepcopy(block.get('global_segment_ids')),
+            'owned_point_ids': deepcopy(block.get('owned_point_ids')),
+        }
+    defaults['calibration_regions'] = profiles
+    return defaults
 
 
 def render_calibration_comparison(reports):

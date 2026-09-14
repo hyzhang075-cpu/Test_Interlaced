@@ -209,6 +209,7 @@
       "ang_range": 1.0
     },
     "runtime_control_parameters": {
+      "sensor_params": null,
       "multi_region_calib": false,
       "optimization_region": "full",
       "optimization_regions": [
@@ -1586,8 +1587,9 @@
   },
   "provenance": {
     "source_commit": "ec0c184f223cb0308dbbf61f7347637a94149e4f",
-    "generated_at": "2026-09-14T07:02:08.378323Z",
+    "generated_at": "2026-09-14T00:00:00+08:00",
     "parser_destination_order": [
+      "sensor_params",
       "multi_region_calib",
       "optimization_region",
       "optimization_regions",

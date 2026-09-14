@@ -42,14 +42,12 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
                                optimization_region, multi_region_calib):
     """在读取数据前生成单次定标配置，严格保持局部和全局空间段一致。
 
-multi_region_calib=False 只允许 full，供新传感器先做全长定标。
-True 允许选择嵌套定标长度；一次仍优化一个数据集，并不代表已联合优化。
+    multi_region_calib=False 选择一个区域独立定标或重构。
+    True 允许批量选择嵌套定标长度；一次仍优化一个数据集，并不代表已联合优化。
 每个局部区域必须由若干完整的全长空间段组成；不自动拆段或合并段。
 """
     ideal_len, positions = compute_fbg_geometry(start_value, end_value, samp_dist_preset)
     full_segments = _validate_partition(full_segmentation, len(positions), '全长')
-    if not multi_region_calib and optimization_region != 'full':
-        raise ValueError('局部定标需要 multi_region_calib=True；关闭区域模式时请选择 full')
     if optimization_region not in profiles:
         raise ValueError(f'未知 optimization_region={optimization_region!r}；可选 {list(profiles)}')
     profile = deepcopy(profiles[optimization_region])

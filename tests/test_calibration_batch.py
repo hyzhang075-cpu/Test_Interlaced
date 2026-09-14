@@ -70,11 +70,12 @@ def test_batch_rejects_one_folder_override_for_multiple_lengths():
 
 def test_explicit_none_resets_region_seed_but_default_uses_it():
     import main
-    seeds = {d: [1.] * 6 for d in [0, 120, 240]}
     args = parser_args('--task', 'init', '--multi_region_calib', 'True', '--optimization_region', 'end5cm')
+    level_count = len(args.calibration_regions['end5cm']['thresholds']) + 1
+    seeds = {d: [1.] * level_count for d in [0, 120, 240]}
     args.calibration_regions['end5cm']['weights'] = seeds
     main.configure_calibration_args(args)
-    assert args.weights[0].tolist() == [1.] * 6
+    assert args.weights[0].tolist() == [1.] * level_count
     reset = parser_args('--task', 'init', '--multi_region_calib', 'True', '--optimization_region', 'end5cm', '--weights', 'None')
     reset.calibration_regions['end5cm']['weights'] = seeds
     main.configure_calibration_args(reset)

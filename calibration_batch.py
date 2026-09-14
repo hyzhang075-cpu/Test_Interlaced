@@ -13,7 +13,8 @@ import numpy as np
 
 # 这些参数控制任务/界面/输出，不属于 Optimiser/Sensor 的构造参数。
 CONTROL_KEYS = {
-    'task', 'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
+    'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
+    'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
     'optimization_regions', 'full_segmentation', 'calibration_regions',
     'calibration_data_root', 'calibration_output_dir', '_explicit_seed_parameters',
     '_full_segmentation_explicit',

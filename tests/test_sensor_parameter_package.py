@@ -15,6 +15,7 @@ from sensor_parameter_package import (
     load_calibration_results,
     load_sensor_package,
     package_parameter_destinations,
+    package_parser_defaults,
     render_calibration_comparison,
     write_sensor_package,
 )
@@ -196,3 +197,64 @@ def test_comparison_report_exposes_parameters_errors_and_failed_stages():
     assert 'weights: `[241.0, 242.0' in markdown
     assert 'point=5.000 mm' in markdown
     assert 'local global phase' in markdown
+
+
+def _package_path(tmp_path, **shared_overrides):
+    package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
+    for name, value in shared_overrides.items():
+        matches = [group for group in package['shared_parameters'].values() if name in group]
+        assert len(matches) == 1
+        matches[0][name] = value
+    path = tmp_path / 'sensor.json'
+    write_sensor_package(package, path)
+    return path, package
+
+
+def test_package_parser_defaults_restore_region_profiles_and_literal_directions(tmp_path):
+    path, package = _package_path(tmp_path)
+
+    defaults = package_parser_defaults(load_sensor_package(path))
+
+    assert defaults['sensor_id'] == 'sensor-A'
+    assert defaults['global_phases_set'] == -.7
+    assert defaults['rot_ang'] == 0.0
+    assert defaults['calibration_regions']['end5cm']['thresholds'] == REGIONS['end5cm']['thresholds']
+    assert list(defaults['calibration_regions']['end5cm']['weights']) == [0, 120, 240]
+    assert defaults['calibration_regions']['end5cm']['slopes'][120][0][0] == 120.0
+
+
+def test_parse_main_args_loads_package_and_cli_explicit_value_wins(tmp_path):
+    import main
+    path, _ = _package_path(tmp_path, move_filter=11)
+
+    loaded = main.parse_main_args([
+        '--task', 'recon', '--sensor_params', str(path), '--move_filter', '5',
+    ])
+
+    assert loaded.sensor_id == 'sensor-A'
+    assert loaded.move_filter == 5
+    assert loaded.sensor_params == str(path)
+
+
+def test_parse_main_args_keeps_task_required_and_rejects_explicit_sensor_conflict(tmp_path):
+    import main
+    path, package = _package_path(tmp_path)
+    package['shared_parameters']['runtime_control_parameters']['task'] = 'recon'
+    write_sensor_package(package, path)
+
+    with pytest.raises(SystemExit):
+        main.parse_main_args(['--sensor_params', str(path)])
+    with pytest.raises(ValueError, match='sensor_id'):
+        main.parse_main_args([
+            '--task', 'recon', '--sensor_params', str(path), '--sensor_id', 'sensor-B',
+        ])
+
+
+def test_parse_main_args_rejects_unknown_package_version_before_runtime(tmp_path):
+    import main
+    path, package = _package_path(tmp_path)
+    package['format_version'] = 999
+    write_sensor_package(package, path)
+
+    with pytest.raises(ValueError, match='format_version'):
+        main.parse_main_args(['--task', 'recon', '--sensor_params', str(path)])
