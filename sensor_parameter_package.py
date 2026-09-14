@@ -447,3 +447,37 @@ def apply_validation_results(package, validation):
     )
     package['provenance']['full_geometry_validation'] = deepcopy(validation)
     return _native(package)
+
+
+def main(argv=None):
+    import argparse
+    from datetime import datetime, timezone
+    import subprocess
+
+    cli = argparse.ArgumentParser(description='Merge 0/120/240 regional calibration results')
+    cli.add_argument('--results', nargs=3, required=True, metavar=('DIRECT0', 'DIRECT120', 'DIRECT240'))
+    cli.add_argument('--output', required=True)
+    cli.add_argument('--comparison')
+    args = cli.parse_args(argv)
+    from main import build_argument_parser
+
+    reports = load_calibration_results(args.results)
+    try:
+        source_commit = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], text=True, encoding='utf-8',
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        source_commit = None
+    package = build_sensor_package(
+        build_argument_parser(), reports, source_commit=source_commit,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    write_sensor_package(package, args.output)
+    if args.comparison:
+        Path(args.comparison).write_text(
+            render_calibration_comparison(reports), encoding='utf-8',
+        )
+
+
+if __name__ == '__main__':
+    main()

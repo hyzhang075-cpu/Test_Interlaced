@@ -63,6 +63,14 @@ python main.py --task recon --curvature_interp vector_pchip
 ### 4.1. 参数优化
 #### 4.1.1. 初始化
 在main.py最下方的main()方法中找到硬件参数、标定实验参数以及优化使用的超参数并按照说明修改其default值。
+
+多区域定标、参数包导出/导入、单区域 recon、合并全长 recon、score 分析和离线验证命令见 `docs/calibration-regions.md`。已导出的参数包可用：
+
+```powershell
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib True --direct 0
+```
+
+运行前应检查包内 `multi_region.deployment_ready`；当前候选包的质量门为 false，用于继续重标定和离线分析。
 若已有使用当前 --sensor_id 命名的文件夹，将其更名为 --sensor_id(归档)
 
 若当前任务为LUNA数据分析，则阅读各通道结尾为gages.tsv的文件并按照以下步骤更新 --sensing_ranges 的default值:

@@ -15,7 +15,7 @@ parser.add_argument('--calibration_data_root', default='0908-06B6', ...)
 parser.add_argument('--calibration_regions', default={...}, ...)
 ```
 
-新传感器先使用 False/full 完成全长定标和可用性验证。`multi_region_calib=True` 且 task 为 optim 或 score 时，按 `optimization_regions` 的顺序遍历全部区域。init/recon/demo 等单区域任务仍由 `optimization_region` 选择。各区域的长度、数据目录、半径、阈值、局部分段和可选初值集中在 `calibration_regions` 字典；其他长度可用同样字段添加条目。
+新传感器先使用 False/full 完成全长定标和可用性验证。`multi_region_calib=True` 且 task 为 optim 或 score 时，按 `optimization_regions` 的顺序遍历全部区域。`multi_region_calib=False` 时，init/recon 可由 `optimization_region` 单独选择 full、end15cm 或 end5cm。`multi_region_calib=True` 的 recon 使用完整参数包和全长几何。各区域的长度、数据目录、半径、阈值、局部分段和可选初值集中在 `calibration_regions` 字典；其他长度可用同样字段添加条目。
 
 | 选择 | 数据目录（0908-06B6 下） | 真实数据行号（1-based） | 分段 | 重构长度 |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ parser.add_argument('--calibration_regions', default={...}, ...)
 | end15cm | 末端测试/15cm | 16–22 | [3,2,2] | 150 mm |
 | end5cm | 末端测试/5cm | 19–22 | [2,2] | 50 mm |
 
-开启区域模式会检查所有已配置长度，确保它们共享同一全长空间分段。仅关闭区域模式做全长定标时，不强制其他局部配置有效。
+开启区域模式会检查所有已配置长度，确保它们共享同一全长空间分段。关闭区域模式时只检查并运行当前 `optimization_region`。
 
 全长长度计算：`(7 + (1370 - 510) + 10) / 1000 = 0.877 m`。
 Sensor 与 main 共用几何计算函数，直接构造 Sensor 也会根据 FBG 几何重新计算全长。OFDR/LUNA 全长路径仍保留显式长度设置，不使用 FBG 跨度。
@@ -49,6 +49,38 @@ python main.py --task optim --multi_region_calib False --optimization_region ful
 python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 0
 python main.py --task score --multi_region_calib True --direct 0
 ```
+
+三个方向完成后，可导出有序参数包：
+
+```powershell
+python sensor_parameter_package.py --results `
+  calibration_results/06B6_NeTi_v2_centraltube-20260913T152012Z-dbd50a/results.json `
+  calibration_results/06B6_NeTi_v2_centraltube-20260913T152022Z-3aa476/results.json `
+  calibration_results/06B6_NeTi_v2_centraltube-20260913T152029Z-8a1a2a/results.json `
+  --output params/06B6_NeTi_v2_centraltube_multi_region.json `
+  --comparison docs/calibration-results-20260913-comparison.md
+```
+
+JSON 顶层以 `sensor_id` 开始。`shared_parameters` 按 parser 顺序分成硬件、定标实验、优化超参数、动态展示、重构、初始化、角度优化和运行控制组。每个 parser 参数只有一个权威位置；显式 CLI 值覆盖包内默认值，`--task` 始终必须显式给出。
+
+单区域与合并重构命令：
+
+```powershell
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib False --optimization_region full --direct 0
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib False --optimization_region end15cm --direct 0
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib False --optimization_region end5cm --direct 0
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib True --direct 0
+```
+
+合并重构中，full、end15cm、end5cm 各自使用自己的 thresholds、sharpness、score 窗口、weights 和 slopes。每段先在它的定标支持点范围计算 score/mass，然后只把结果写入归属点：full 1–15，end15cm 16–18，end5cm 19–22。全长只使用 full 定标的统一 `global_phases_set` 和 `rot_ang`；局部相位只作为 provenance 保留。
+
+离线全长验证：
+
+```powershell
+python calibration_validation.py --sensor-params params/06B6_NeTi_v2_centraltube_multi_region.json
+```
+
+`deployment_ready` 只在优化、统一相位、实测 score 和全长几何全部验收后为 true。当前包为 candidate：240°/full 的 slope/weight 以及 240°/end15cm weight 阶段发散，全长回放的最大平均点误差为 187.314 mm，末端测试最大切向误差 141.643°，区域边界最大相位跳变 0.906 rad，因此仍为 false。详细结果见 `calibration-multiregion-validation.md`。
 
 第二条命令依次优化 full、end15cm、end5cm。`--weights None --slopes None` 明确要求每个区域重新初始化。`--direct` 仍控制本次循环优化的方向；0°、120°、240°需要分别运行，输出会标记本次实际优化的方向。
 
@@ -94,4 +126,4 @@ weights/slopes 默认 None，按当前区域初始化。旧 5 cm 数值保留在
 
 修改前完整测试基线为 79 passed、3 failed。批量优化和评分诊断加入后，区域相关测试覆盖 parser 迁移、区域隔离、显式 None、失败保留、参数转换及生产评分质量。
 
-本轮最终完整测试为 **115 passed、2 failed**。原先缺少 `add_vector_filter_arguments` 的失败已随 parser 重构修复；剩余两项均是既有 UDP anchor offset 测试，和区域定标链路无关。
+本轮最终完整测试为 **144 passed、2 failed**。剩余两项均是既有 UDP anchor offset 测试；从关键基线提交到当前分支，`demonstrator.py`、入口约束实现和该测试没有差异。本次新增和直接相关的定向测试全部通过。

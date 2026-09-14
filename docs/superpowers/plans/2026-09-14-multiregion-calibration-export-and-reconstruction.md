@@ -1,6 +1,6 @@
 # Multi-Region Calibration Export and Reconstruction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Merge the three direction-specific calibration runs into one ordered sensor package, load it through `main.py`, and reconstruct either one selected calibration region or the complete sensor with region-specific thresholds, weights, and slopes.
 
@@ -35,7 +35,7 @@
 - Consumes: `build_argument_parser()` and three `results.json` paths.
 - Produces: `load_calibration_results(paths: Sequence[Path]) -> dict`, `build_sensor_package(parser, reports: Sequence[dict]) -> dict`, `write_sensor_package(package: dict, path: Path) -> None`, and `load_sensor_package(path: Path, expected_sensor_id: str | None = None) -> dict`.
 
-- [ ] **Step 1: Write failing exporter tests**
+- [x] **Step 1: Write failing exporter tests**
 
 Create compact result fixtures with full/end15cm/end5cm entries and assert:
 
@@ -57,13 +57,13 @@ def test_current_parser_destinations_have_one_authoritative_package_location():
 
 Add tests for mismatched sensor IDs, mismatched region contexts, missing regions, non-finite values, weights length, slopes shape, and duplicate directions.
 
-- [ ] **Step 2: Run exporter tests and confirm failure**
+- [x] **Step 2: Run exporter tests and confirm failure**
 
 Run: `python -m pytest tests/test_sensor_parameter_package.py -q`
 
 Expected: import failure because `sensor_parameter_package.py` does not exist.
 
-- [ ] **Step 3: Implement parser grouping and strict report validation**
+- [x] **Step 3: Implement parser grouping and strict report validation**
 
 Define ordered group membership using parser destination names. Keep each name in exactly one group and verify at export time that the union matches every parser action except `help`:
 
@@ -122,7 +122,7 @@ SPECIAL_PARAMETER_LOCATIONS = {
 
 Move region-specific `folder_path`, `radii`, `thresholds`, `straight_trim`, `segmentation`, `weights`, and `slopes` into region blocks. Move the unified phase and rot_ang into `multi_region`. Record the original ordered parser destinations under provenance without duplicating their values.
 
-- [ ] **Step 4: Implement candidate/deployable quality gates**
+- [x] **Step 4: Implement candidate/deployable quality gates**
 
 Return machine-readable gates such as:
 
@@ -143,11 +143,11 @@ Return machine-readable gates such as:
 
 Always permit candidate export. Set `deployment_ready=True` only if every required gate is true. A request for strict deployment export raises `ValueError` listing failed gates.
 
-- [ ] **Step 5: Export and compare the three supplied results**
+- [x] **Step 5: Export and compare the three supplied results**
 
 Generate `docs/calibration-results-20260913-comparison.md` with weights, slope shapes and values, per-radius point/end errors, stage statuses, boundary hits, phases, and rot_ang. Generate the ordered candidate package at `params/06B6_NeTi_v2_centraltube_multi_region.json`; it must have `deployment_ready=false` for the supplied runs.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run: `python -m pytest tests/test_sensor_parameter_package.py tests/test_calibration_batch.py tests/test_calibration_regions.py -q`
 
@@ -172,7 +172,7 @@ git commit -m "feat: export ordered multiregion sensor packages"
 - Consumes: `load_sensor_package()` from Task 1.
 - Produces: `parse_main_args(argv: Sequence[str] | None = None) -> argparse.Namespace`, revised `configure_calibration_args(args)`, and package-derived region seeds.
 
-- [ ] **Step 1: Write failing parser and local recon tests**
+- [x] **Step 1: Write failing parser and local recon tests**
 
 Add tests equivalent to:
 
@@ -192,25 +192,25 @@ def test_cli_explicit_value_overrides_package_default(tmp_path):
 
 Also assert that task is still required, sensor ID conflicts fail, package values survive JSON list/tuple conversion, and unknown format versions fail before Optimiser creation.
 
-- [ ] **Step 2: Run focused tests and confirm failures**
+- [x] **Step 2: Run focused tests and confirm failures**
 
 Run: `python -m pytest tests/test_calibration_regions.py tests/test_sensor_parameter_package.py -q`
 
 Expected: local region rejection and missing `parse_main_args`/`--sensor_params` behavior.
 
-- [ ] **Step 3: Implement two-phase CLI parsing**
+- [x] **Step 3: Implement two-phase CLI parsing**
 
 Add a bootstrap parser for `--sensor_params` and `--sensor_id`, load the package, build the full parser, apply package defaults, then parse the complete CLI. Preserve explicit CLI precedence and prevent a packaged task from satisfying the required `--task` argument.
 
-- [ ] **Step 4: Revise regional selection semantics**
+- [x] **Step 4: Revise regional selection semantics**
 
 Remove the resolver rule that false mode permits only full. In `prepare_calibration_jobs`, keep false mode as `[optimization_region]` and true mode as `optimization_regions`. For recon, false mode selects one region; true mode requires a complete multi-region package and full geometry.
 
-- [ ] **Step 5: Load selected region parameters for local recon**
+- [x] **Step 5: Load selected region parameters for local recon**
 
 Convert JSON direction keys back to integer angles and NumPy arrays, populate the selected region's thresholds/segmentation/weights/slopes, and pass them through existing `validate_calibration_parameters()`.
 
-- [ ] **Step 6: Run regression tests and commit**
+- [x] **Step 6: Run regression tests and commit**
 
 Run:
 
@@ -236,7 +236,7 @@ git commit -m "feat: load sensor packages and select recon regions"
 - Consumes: validated `multi_region_parameters` package block from Task 2.
 - Produces: `_assemble_multiregion_parameters(strain_data, direct) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]`, returning final magnitude, angle, slope map, and diagnostic region records; legacy `_Strain_2_Cur()` remains callable.
 
-- [ ] **Step 1: Write failing assembler tests**
+- [x] **Step 1: Write failing assembler tests**
 
 Use a small six-point fixture with three regions having two, three, and four levels. Assert independent thresholds and dimensions:
 
@@ -252,17 +252,17 @@ def test_each_region_uses_its_own_thresholds_weights_and_slopes():
 
 Add tests that support-range scores are calculated before owned-point extraction, every point is owned exactly once, global segment mapping is respected, and directions use 0/120/240.
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run: `python -m pytest tests/test_multiregion_reconstruction.py -q`
 
 Expected: missing multi-region constructor/assembler.
 
-- [ ] **Step 3: Add optional constructor input without breaking positional arguments**
+- [x] **Step 3: Add optional constructor input without breaking positional arguments**
 
 Add `multi_region_parameters=None` as a keyword-only parameter after the existing `*args` boundary, or consume it through kwargs without changing tested positional ordering. Normalize and validate it once during construction.
 
-- [ ] **Step 4: Extract threshold-parameterized score helpers**
+- [x] **Step 4: Extract threshold-parameterized score helpers**
 
 Allow score computation to receive thresholds, sharpness, window size, and boundary mode explicitly while preserving legacy defaults:
 
@@ -281,15 +281,15 @@ def _get_scores(self, magnitude, *, thresholds=None, sharpness=None,
     return np.asarray(scores)
 ```
 
-- [ ] **Step 5: Implement base slope and final parameter maps**
+- [x] **Step 5: Implement base slope and final parameter maps**
 
 Build the base slope per global segment from its owner region's level-zero slope. Compute each region's masses on support points, mix region-specific weights/slopes for the selected literal direction, copy owned points into full arrays, and retain diagnostics for validation. Pass the final arrays into the unchanged strain conversion, interpolation, frame, and integration path.
 
-- [ ] **Step 6: Preserve single-region output exactly**
+- [x] **Step 6: Preserve single-region output exactly**
 
 Run legacy and region-aware code with a one-region equivalent package and assert `magnitude`, `angle`, `final_weight`, and `slope_map` are numerically equal.
 
-- [ ] **Step 7: Run focused and reconstruction regression tests**
+- [x] **Step 7: Run focused and reconstruction regression tests**
 
 Run:
 
@@ -297,7 +297,7 @@ Run:
 python -m pytest tests/test_multiregion_reconstruction.py tests/test_vector_magnitude_input.py tests/test_vector_filter_configuration.py tests/test_reconstruction_intermediates.py tests/test_reconstructor_end_pose.py -q
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add reconstructor.py tests/test_multiregion_reconstruction.py tests/test_vector_filter_configuration.py
@@ -316,19 +316,19 @@ git commit -m "feat: assemble multiregion reconstruction parameters"
 - Consumes: existing `diagnose_score_distribution(optim)` and the three calibration datasets.
 - Produces: `summarize_score_runs(reports: Sequence[dict]) -> dict` and a three-direction threshold recommendation report.
 
-- [ ] **Step 1: Write failing score-summary tests**
+- [x] **Step 1: Write failing score-summary tests**
 
 Assert that summaries preserve direction, region, radius, global point, quantiles, average mass, endpoint mass, and sigmoid 10–90% width. Add a separability flag when adjacent target radii cannot be distinguished by the current highest classes.
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run: `python -m pytest tests/test_calibration_score_summary.py tests/test_calibration_batch.py -q`
 
-- [ ] **Step 3: Implement the combined summary**
+- [x] **Step 3: Implement the combined summary**
 
 Keep production `_get_base()`, `_get_scores()`, and `_alloc_mass()` as the source of diagnostic values. Do not derive replacement thresholds from theoretical curvature alone.
 
-- [ ] **Step 4: Run score for all directions**
+- [x] **Step 4: Run score for all directions**
 
 Run each direction with the current package/parser data:
 
@@ -340,11 +340,11 @@ python main.py --task score --multi_region_calib True --direct 240
 
 Summarize the resulting score reports in `docs/calibration-score-20260914.md`.
 
-- [ ] **Step 5: Decide whether thresholds/sharpness must change**
+- [x] **Step 5: Decide whether thresholds/sharpness must change**
 
 If 30/20/15 mm occupy indistinguishable masses, update only the affected region configuration using measured distribution gaps and record the selected values and transition widths. Mark all old optimized parameters for that region incompatible until re-optimization; do not combine new thresholds with old weights/slopes.
 
-- [ ] **Step 6: Run tests and commit analysis/code**
+- [x] **Step 6: Run tests and commit analysis/code**
 
 Run: `python -m pytest tests/test_calibration_score_summary.py tests/test_calibration_batch.py tests/test_calibration_regions.py -q`
 
@@ -364,27 +364,27 @@ Commit code and analysis. Do not commit large generated plots unless already per
 - Consumes: candidate package, full 22-point geometry, full/end15cm/end5cm source datasets.
 - Produces: `validate_multiregion_package(package, parser_defaults) -> dict` with per-direction/per-region/per-radius errors, boundary diagnostics, and gate results.
 
-- [ ] **Step 1: Write failing validation tests**
+- [x] **Step 1: Write failing validation tests**
 
 Use synthetic straight-prefix/circular-tail curves to verify point error, tip position error, tangent angle error, pose error, and boundary metrics. Assert that one failed direction prevents deployment even when aggregate averages pass.
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run: `python -m pytest tests/test_calibration_validation.py -q`
 
-- [ ] **Step 3: Implement full-point replay without GUI or hardware**
+- [x] **Step 3: Implement full-point replay without GUI or hardware**
 
 Construct Sensor/Optimiser inputs with all 22 real points, apply the merged assembler, and compare each experiment against its correct full or straight-prefix/circular-tail ideal geometry. Calculate boundary changes at global segment transitions 4→5 and 5→6 for base curvature, masses, final weight, slope map, accumulated phase, and curvature vector.
 
-- [ ] **Step 4: Produce per-direction reports**
+- [x] **Step 4: Produce per-direction reports**
 
 Report full 2000–200 mm, end15cm 100/75/50/30 mm, and end5cm 30/20/15 mm separately for 0/120/240. Include tip position, tangent, pose, and boundary continuity. Do not hide 240° failures in combined means.
 
-- [ ] **Step 5: Apply phase and rot_ang gates**
+- [x] **Step 5: Apply phase and rot_ang gates**
 
 Use the full-region phase as the only runtime candidate, record local phases as provenance, and validate local coefficients under continuous full-length accumulation. Search or verify one global rot_ang on merged full geometry. If phase or rot_ang validation fails, keep `deployment_ready=false`.
 
-- [ ] **Step 6: Update package gates and test**
+- [x] **Step 6: Update package gates and test**
 
 Write validation results back into a newly generated package, never mutate source result files. Run:
 
@@ -392,7 +392,7 @@ Write validation results back into a newly generated package, never mutate sourc
 python -m pytest tests/test_calibration_validation.py tests/test_sensor_parameter_package.py tests/test_multiregion_reconstruction.py -q
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add calibration_validation.py sensor_parameter_package.py tests/test_calibration_validation.py docs/calibration-multiregion-validation.json docs/calibration-multiregion-validation.md params/06B6_NeTi_v2_centraltube_multi_region.json
@@ -410,33 +410,33 @@ git commit -m "feat: validate multiregion calibration deployment"
 - Consumes: all prior task outputs.
 - Produces: documented export, load, local recon, merged recon, score, and validation commands.
 
-- [ ] **Step 1: Document exact commands and safety gates**
+- [x] **Step 1: Document exact commands and safety gates**
 
 Document candidate export, package import, three single-region recon commands, merged full recon, score analysis, full validation, CLI override precedence, and the meaning of `deployment_ready`.
 
-- [ ] **Step 2: Run required targeted tests**
+- [x] **Step 2: Run required targeted tests**
 
 ```powershell
 python -m pytest tests/test_vector_filter_configuration.py tests/test_calibration_batch.py tests/test_calibration_regions.py -q
 ```
 
-- [ ] **Step 3: Run all new and affected tests**
+- [x] **Step 3: Run all new and affected tests**
 
 ```powershell
 python -m pytest tests/test_sensor_parameter_package.py tests/test_multiregion_reconstruction.py tests/test_calibration_score_summary.py tests/test_calibration_validation.py tests/test_vector_magnitude_input.py tests/test_reconstruction_intermediates.py tests/test_reconstructor_end_pose.py -q
 ```
 
-- [ ] **Step 4: Run the complete test suite**
+- [x] **Step 4: Run the complete test suite**
 
 Run: `python -m pytest -q`
 
 Record exact pass/fail counts and investigate any new failure. Existing unrelated UDP anchor failures may be reported only after confirming they reproduce on the base commit or are unchanged by this work.
 
-- [ ] **Step 5: Review repository state**
+- [x] **Step 5: Review repository state**
 
 Run `git status --short`, `git diff --check`, and `git log --oneline dev-entrylimit-reducefilter..HEAD`. Confirm the user's pre-existing `main.py` line-ending change and runtime output directory were not accidentally committed unless implementation necessarily modified `main.py` with preserved content.
 
-- [ ] **Step 6: Commit final documentation**
+- [x] **Step 6: Commit final documentation**
 
 ```powershell
 git add docs/calibration-regions.md README.md docs/superpowers/plans/2026-09-14-multiregion-calibration-export-and-reconstruction.md

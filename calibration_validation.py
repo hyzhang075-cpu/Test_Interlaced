@@ -229,3 +229,19 @@ def write_validation_report(report, json_path, markdown_path):
                   'point error relative to the isolated regional reconstruction. It does not '
                   'override the tip-orientation and boundary-continuity failures.', ''])
     markdown_path.write_text('\n'.join(lines), encoding='utf-8')
+
+
+def main(argv=None):
+    import argparse
+
+    cli = argparse.ArgumentParser(description='Replay a multi-region package on full geometry')
+    cli.add_argument('--sensor-params', required=True)
+    cli.add_argument('--json-output', default='docs/calibration-multiregion-validation.json')
+    cli.add_argument('--markdown-output', default='docs/calibration-multiregion-validation.md')
+    args = cli.parse_args(argv)
+    report = validate_multiregion_package(args.sensor_params)
+    write_validation_report(report, args.json_output, args.markdown_output)
+
+
+if __name__ == '__main__':
+    main()
