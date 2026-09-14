@@ -56,9 +56,10 @@ def test_reconstructor_preserves_existing_positional_parameter_order():
     exec(compile(ast.Module(body=[cls], type_ignores=[]), '<reconstructor constructor>', 'exec'), namespace)
 
     parameters = list(inspect.signature(namespace['Reconstructor'].__init__).parameters)
-    assert parameters[-7:] == [
+    assert parameters[-8:] == [
         'move_filter', 'kalman_params', 'curvature_interp',
-        'nonnegative_curvature', 'args', 'move_filter_for_vector', 'kwargs',
+        'nonnegative_curvature', 'args', 'move_filter_for_vector',
+        'multi_region_parameters', 'kwargs',
     ]
 
 

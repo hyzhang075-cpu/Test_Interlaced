@@ -29,6 +29,11 @@ def configure_calibration_args(args):
 数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
 返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
 """
+    if args.task == 'recon' and args.multi_region_calib:
+        if getattr(args, '_sensor_package', None) is None:
+            raise ValueError('multi_region_calib=True 的全长 recon 需要 --sensor_params 参数包')
+        args.optimization_region = 'full'
+        args.multi_region_parameters = args._sensor_package
     profiles = deepcopy(args.calibration_regions)
     if args.optimization_region not in profiles:
         raise ValueError(f'未知 optimization_region={args.optimization_region!r}')

@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import CubicHermiteSpline, PchipInterpolator
@@ -13,7 +15,7 @@ class Reconstructor(Initialiser):
     def __init__(self, soft=True, frame_rule='TNB', rot_ang=0.0, turn_threshold=2.0, init_weight=1.0, weights=None, slopes=None, min_consecutive=3, sharpness=4.8, end_start=-6, end_weights=False, thresholds=[0.8, 1.5, 2.0, 3.0, 4.0], 
                  TNB_threshold=0.15, interp_num=120, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
                  curvature_interp='hermite', nonnegative_curvature=False,
-                 *args, move_filter_for_vector=False, **kwargs):
+                 *args, move_filter_for_vector=False, multi_region_parameters=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
@@ -53,6 +55,11 @@ class Reconstructor(Initialiser):
         self.interp_num = interp_num
         self.curvature_interp = self._normalise_curvature_interp(curvature_interp)
         self.nonnegative_curvature = bool(nonnegative_curvature)
+        self.multi_region_parameters = (
+            self._normalise_multiregion_parameters(multi_region_parameters)
+            if multi_region_parameters is not None else None
+        )
+        self.last_parameter_assembly = None
 
     @staticmethod
     def _normalise_curvature_interp(method):
@@ -140,7 +147,7 @@ class Reconstructor(Initialiser):
             if isinstance(magnitude_ratio, dict):
                 magnitude_ratio = magnitude_ratio[keys[1]]
 
-            _, _, _, interp_dist, r, _, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, init_T=[1.0, 0.0, 0.0], verbose=verbose, force_ideal_magnitude=force_ideal_magnitude)
+            _, _, _, interp_dist, r, _, _, _, _ = self._reconstruct_frame(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, init_T=[1.0, 0.0, 0.0], verbose=verbose, force_ideal_magnitude=force_ideal_magnitude, direct=direct)
 
             r_postrot = r @ rot_matrix.T
             flat_results[path] = r_postrot
@@ -155,7 +162,7 @@ class Reconstructor(Initialiser):
 
         return r_results_postrot, interp_dist
 
-    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio, init_T, verbose=False, unwrap_threshold=0.65, align_threshold=0.15, angle_prev=None, angle_unwrap_prev=None, force_ideal_magnitude=False):
+    def _reconstruct_frame(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio, init_T, verbose=False, unwrap_threshold=0.65, align_threshold=0.15, angle_prev=None, angle_unwrap_prev=None, force_ideal_magnitude=False, direct=None):
         """
         对单组应变数据执行完整的单帧三维重构流程。
 
@@ -215,7 +222,7 @@ class Reconstructor(Initialiser):
         - self.cur_interp 会被更新为当前帧插值后的曲率数组，主要用于调试或外部诊断。
         """
         # ---------- 计算重构使用的曲率大小与方向 ----------
-        magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, verbose=verbose)
+        magnitude, angle = self._Strain_2_Cur(keys=keys, calib_shape=calib_shape, calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=magnitude_ratio, verbose=verbose, direct=direct)
         magnitude_raw = magnitude.copy()
         angle_raw = angle.copy()
         if force_ideal_magnitude:
@@ -483,7 +490,7 @@ class Reconstructor(Initialiser):
 
         return angle_unwrap
 
-    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio=1.0, verbose=False):
+    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, magnitude_ratio=1.0, verbose=False, direct=None):
         """
         将一组应变数据转换为最终用于三维重构的曲率大小与方向角。
 
@@ -535,6 +542,23 @@ class Reconstructor(Initialiser):
         - calib_shape == 'S' 时，slope 通常被解释为两套分段系数：
         前 num_segments 个用于普通段，后 num_segments 个用于转折段。
         """
+        if self.multi_region_parameters is not None:
+            if direct is None:
+                raise ValueError('multi-region reconstruction requires direct=0/120/240')
+            if keys is None:
+                strain_data = np.asarray(calib_Data).T
+            elif len(keys) == 1:
+                strain_data = np.asarray(calib_Data[keys[0]]).T
+            elif len(keys) == 2:
+                strain_data = np.asarray(calib_Data[keys[0]][keys[1]]).T
+            magnitude, angle, _, _, diagnostics = self._assemble_multiregion_parameters(
+                strain_data, direct, magnitude_ratio=magnitude_ratio,
+            )
+            self.last_parameter_assembly = diagnostics
+            if verbose:
+                print(f'multi-region parameter assembly: {diagnostics}')
+            return magnitude, angle
+
         # ---------- 初始准备 ----------
         base_slopes = slope[0]
 
@@ -701,7 +725,8 @@ class Reconstructor(Initialiser):
         - final_masses: 各等级的概率质量分布，形状为 (num_levels, total_points)
         """
         masses = []
-        remained = np.ones(self.total_points)
+        scores = np.asarray(scores, dtype=float)
+        remained = np.ones(scores.shape[1])
         for score in scores[::-1]:
             mass = remained * score
             masses.append(mass)
@@ -709,7 +734,8 @@ class Reconstructor(Initialiser):
         final_masses = np.vstack((remained, np.asarray(masses[::-1])))
         return np.clip(final_masses, 0.0, 1.0)
 
-    def _get_scores(self, magnitude):
+    def _get_scores(self, magnitude, *, thresholds=None, sharpness=None,
+                    min_consecutive=None, boundary_mode='constant'):
         """
         根据曲率大小计算各等级的软分级分数。
 
@@ -724,13 +750,170 @@ class Reconstructor(Initialiser):
         输出：
         - scores: 各等级对应的分数数组，形状通常为 (num_levels - 1, total_points)
         """
+        thresholds = self.thresholds if thresholds is None else thresholds
+        sharpness = self.sharpness if sharpness is None else sharpness
+        min_consecutive = self.min_consecutive if min_consecutive is None else min_consecutive
         scores = []
-        for i in range(self.num_levels-1):
-            level_score = 1.0 / (1.0 + np.exp(-self.sharpness * (np.asarray(magnitude) - self.thresholds[i])))
-            if self.min_consecutive > 1:
-                level_score = self._moving_average_scipy(data=level_score, window_size=self.min_consecutive, mode='constant')
+        for threshold in thresholds:
+            level_score = 1.0 / (1.0 + np.exp(-sharpness * (np.asarray(magnitude) - threshold)))
+            if min_consecutive > 1:
+                level_score = self._moving_average_scipy(
+                    data=level_score, window_size=min_consecutive, mode=boundary_mode,
+                )
             scores.append(level_score)
         return np.asarray(scores)
+
+    def _normalise_multiregion_parameters(self, config):
+        config = deepcopy(config)
+        meta = config.get('multi_region', config)
+        regions = config.get('regions')
+        order = list(meta.get('region_order', ()))
+        directions = list(meta.get('directions', ()))
+        if directions != [0, 120, 240]:
+            raise ValueError(f'multi-region direct 必须恰好为 0、120、240；收到 {directions}')
+        if not order or not isinstance(regions, dict) or set(order) != set(regions):
+            raise ValueError('multi-region region_order 与 regions 不一致')
+
+        sensor_points = [int(point) for point in np.asarray(self.global_point_ids).tolist()]
+        owned_all = []
+        for name in order:
+            block = regions[name]
+            thresholds = np.asarray(block.get('thresholds'), dtype=float)
+            segmentation = np.asarray(block.get('local_segmentation'), dtype=int)
+            support = [int(point) for point in block.get('support_point_ids', ())]
+            owned = [int(point) for point in block.get('owned_point_ids', ())]
+            segment_ids = [int(segment) for segment in block.get('global_segment_ids', ())]
+            if (thresholds.ndim != 1 or np.any(~np.isfinite(thresholds))
+                    or np.any(thresholds <= 0) or np.any(np.diff(thresholds) <= 0)):
+                raise ValueError(f'{name} thresholds 必须严格递增')
+            if (segmentation.ndim != 1 or len(segmentation) != len(segment_ids)
+                    or np.any(segmentation <= 0) or int(segmentation.sum()) != len(support)):
+                raise ValueError(f'{name} local segmentation/support 不一致')
+            if not set(owned).issubset(support) or not set(support).issubset(sensor_points):
+                raise ValueError(f'{name} owned/support points 无效')
+            levels = len(thresholds) + 1
+            normalized_weights = {}
+            normalized_slopes = {}
+            for direct in directions:
+                key = str(direct) if str(direct) in block['weights'] else direct
+                weights = np.asarray(block['weights'][key], dtype=float)
+                slopes = np.asarray(block['slopes'][key], dtype=float)
+                if weights.shape != (levels,) or not np.all(np.isfinite(weights)):
+                    raise ValueError(f'{direct}/{name} weights shape 应为 {(levels,)}')
+                if slopes.shape != (levels, len(segmentation)) or not np.all(np.isfinite(slopes)):
+                    raise ValueError(
+                        f'{direct}/{name} slopes shape 应为 {(levels, len(segmentation))}'
+                    )
+                normalized_weights[direct] = weights
+                normalized_slopes[direct] = slopes
+            block['thresholds'] = thresholds
+            block['local_segmentation'] = segmentation
+            block['support_point_ids'] = support
+            block['owned_point_ids'] = owned
+            block['global_segment_ids'] = segment_ids
+            block['weights'] = normalized_weights
+            block['slopes'] = normalized_slopes
+            block['sharpness'] = float(block.get('sharpness', self.sharpness))
+            block['score_window'] = max(1, int(block.get('score_window', self.min_consecutive)))
+            block['score_boundary_mode'] = block.get('score_boundary_mode', 'constant')
+            owned_all.extend(owned)
+        if sorted(owned_all) != sorted(sensor_points) or len(owned_all) != len(set(owned_all)):
+            raise ValueError(
+                f'multi-region owned points 必须无重叠覆盖全部传感点；收到 {owned_all}'
+            )
+        return {'region_order': order, 'directions': directions, 'regions': regions}
+
+    @staticmethod
+    def _local_segment_labels(segmentation):
+        return np.repeat(np.arange(len(segmentation)), segmentation.astype(int))
+
+    def _assemble_multiregion_parameters(self, strain_data, direct, magnitude_ratio=1.0):
+        """Assemble pointwise parameters using each region's own score model."""
+        config = self.multi_region_parameters
+        if config is None:
+            raise ValueError('multi_region_parameters 未配置')
+        if direct not in config['directions']:
+            raise ValueError(f'direct 必须为 0、120、240；收到 {direct}')
+        strain_data = np.asarray(strain_data, dtype=float)
+        if strain_data.ndim != 2 or strain_data.shape[1] != self.total_points:
+            raise ValueError(
+                f'strain_data 应为 (channels, {self.total_points})，收到 {strain_data.shape}'
+            )
+        point_index = {int(point): index for index, point in enumerate(self.global_point_ids)}
+        base_slope_map = np.empty(self.total_points, dtype=float)
+
+        for name in config['region_order']:
+            block = config['regions'][name]
+            support_labels = self._local_segment_labels(block['local_segmentation'])
+            support_lookup = {
+                point: local_index for local_index, point in enumerate(block['support_point_ids'])
+            }
+            base_slopes = block['slopes'][direct][0]
+            for point in block['owned_point_ids']:
+                local_index = support_lookup[point]
+                base_slope_map[point_index[point]] = base_slopes[support_labels[local_index]]
+
+        base_segments, base_slopes = self._generate_dynamic_segments(base_slope_map)
+        base_angles = self._calculate_dynamic_angles(
+            mode='recon', segments=base_segments, seg_slopes=base_slopes,
+        )
+        base_magnitude, _ = self._calculate_curvature_and_angle(
+            epsilon=strain_data, alpha_dynamic=base_angles,
+        )
+        score_magnitude = np.asarray(base_magnitude, dtype=float) * magnitude_ratio
+
+        final_weight = np.empty(self.total_points, dtype=float)
+        slope_map = np.empty(self.total_points, dtype=float)
+        diagnostics = {
+            'direct': direct,
+            'base_slope_map': base_slope_map.tolist(),
+            'base_magnitude': np.asarray(base_magnitude).tolist(),
+        }
+        for name in config['region_order']:
+            block = config['regions'][name]
+            support_indices = np.asarray([point_index[p] for p in block['support_point_ids']], dtype=int)
+            owned_indices = np.asarray([point_index[p] for p in block['owned_point_ids']], dtype=int)
+            support_lookup = {
+                point: local_index for local_index, point in enumerate(block['support_point_ids'])
+            }
+            owned_local = np.asarray([support_lookup[p] for p in block['owned_point_ids']], dtype=int)
+            support_score = score_magnitude[support_indices]
+            scores = self._get_scores(
+                support_score,
+                thresholds=block['thresholds'],
+                sharpness=block['sharpness'],
+                min_consecutive=block['score_window'],
+                boundary_mode=block['score_boundary_mode'],
+            )
+            masses = self._alloc_mass(scores)
+            weights = block['weights'][direct]
+            support_weights = np.sum(masses * weights[:, None], axis=0)
+            labels = self._local_segment_labels(block['local_segmentation'])
+            slopes = block['slopes'][direct]
+            slope_vectors = slopes[:, labels]
+            support_slopes = np.sum(masses * slope_vectors, axis=0)
+            final_weight[owned_indices] = support_weights[owned_local]
+            slope_map[owned_indices] = support_slopes[owned_local]
+            diagnostics[name] = {
+                'support_point_ids': list(block['support_point_ids']),
+                'owned_point_ids': list(block['owned_point_ids']),
+                'thresholds': block['thresholds'].tolist(),
+                'scores': scores.tolist(),
+                'masses': masses.tolist(),
+                'mass_shape': list(masses.shape),
+            }
+
+        weighted_strain = strain_data * final_weight
+        final_segments, final_slopes = self._generate_dynamic_segments(slope_map)
+        final_angles = self._calculate_dynamic_angles(
+            mode='recon', segments=final_segments, seg_slopes=final_slopes,
+        )
+        magnitude, angle = self._calculate_curvature_and_angle(
+            epsilon=weighted_strain, alpha_dynamic=final_angles,
+        )
+        diagnostics['final_weight'] = final_weight.tolist()
+        diagnostics['slope_map'] = slope_map.tolist()
+        return magnitude, angle, final_weight, slope_map, diagnostics
     
     def _generate_dynamic_segments(self, slope_map):
         """
