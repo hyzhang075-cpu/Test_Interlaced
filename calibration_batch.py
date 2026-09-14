@@ -161,6 +161,67 @@ def diagnose_score_distribution(optim):
     return report
 
 
+def summarize_score_runs(reports):
+    """Combine score reports without replacing measured values by theory."""
+    reports = sorted(reports, key=lambda report: report.get('direct', -1))
+    directions = [report.get('direct') for report in reports]
+    if directions != [0, 120, 240]:
+        raise ValueError(f'score direct 必须恰好为 0、120、240；收到 {directions}')
+    region_names = list(reports[0].get('regions', {}))
+    summary = {'directions': directions, 'regions': {}}
+    metadata_fields = (
+        'basis', 'thresholds', 'sharpness', 'score_window',
+        'boundary_mode', 'sigmoid_10_90_width_m_inv',
+    )
+    for region in region_names:
+        distributions = []
+        for report in reports:
+            entry = report.get('regions', {}).get(region, {})
+            if entry.get('status') != 'complete' or 'score_distribution' not in entry:
+                raise ValueError(f'{report["direct"]}/{region} score 未完成')
+            distributions.append(entry['score_distribution'])
+        metadata = {name: deepcopy(distributions[0].get(name)) for name in metadata_fields}
+        for distribution in distributions[1:]:
+            for name in metadata_fields:
+                if distribution.get(name) != metadata[name]:
+                    raise ValueError(f'{region} 跨方向 score {name} 不一致')
+        region_summary = {**metadata, 'directions': {}}
+        for direct, distribution in zip(directions, distributions):
+            rows = []
+            for measured in distribution['samples']:
+                keys = measured.get('keys', [])
+                radius = keys[0] if keys else None
+                rows.append({
+                    'shape': measured.get('shape'),
+                    'keys': deepcopy(keys),
+                    'radius_mm': radius,
+                    'theoretical_curvature_m_inv': measured.get('theoretical_curvature_m_inv'),
+                    'global_point_ids': deepcopy(measured.get('global_point_ids')),
+                    'score_magnitude': deepcopy(measured.get('score_magnitude')),
+                    'quantiles': deepcopy(measured.get('quantiles')),
+                    'mean_level_mass': deepcopy(measured.get('mean_level_mass')),
+                    'tip_level_mass': deepcopy(measured.get('tip_level_mass')),
+                })
+            high = sorted(
+                (row for row in rows if row['shape'] == 'circ'
+                 and isinstance(row['radius_mm'], (int, float))
+                 and 0 < row['radius_mm'] <= 30),
+                key=lambda row: row['radius_mm'], reverse=True,
+            )
+            dominant = [int(np.argmax(row['mean_level_mass'])) for row in high]
+            separable = len(high) < 2 or all(
+                left != right for left, right in zip(dominant, dominant[1:])
+            )
+            region_summary['directions'][str(direct)] = {
+                'samples': rows,
+                'high_curvature_radii_mm': [row['radius_mm'] for row in high],
+                'dominant_levels': dominant,
+                'high_curvature_separable': separable,
+            }
+        summary['regions'][region] = region_summary
+    return _native(summary)
+
+
 def _plot_scores(report, path):
     # 科学图独立保存，避免初始化 GUI 或阻塞批量任务。
     from matplotlib.figure import Figure
