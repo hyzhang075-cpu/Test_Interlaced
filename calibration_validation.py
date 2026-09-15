@@ -7,6 +7,116 @@ from pathlib import Path
 import numpy as np
 
 
+REGION_ORDER = ('full', 'end15cm', 'end5cm')
+
+
+def circular_angle_error_deg(actual, expected):
+    """Smallest absolute angular difference between two radian phases."""
+    delta = float(actual) - float(expected)
+    return float(abs(np.degrees(np.arctan2(np.sin(delta), np.cos(delta)))))
+
+
+def integrate_phase_to_point(global_phase, distances, slope_map, point_index):
+    """Reproduce Initialiser's discrete twist integration through one point."""
+    distances = np.asarray(distances, dtype=float)
+    slope_map = np.asarray(slope_map, dtype=float)
+    point_index = int(point_index)
+    if distances.ndim != 1 or slope_map.shape != distances.shape:
+        raise ValueError('distances 和 slope_map 必须是相同长度的一维数组')
+    if point_index < 0 or point_index >= len(distances):
+        raise ValueError(f'point_index 越界: {point_index}')
+    if not np.all(np.isfinite(distances)) or not np.all(np.isfinite(slope_map)):
+        raise ValueError('phase transport 输入必须为有限数值')
+    increments = slope_map[1:point_index + 1] * np.diff(distances[:point_index + 1])
+    return float(global_phase + np.sum(increments))
+
+
+def build_phase_transport_evidence(global_phase, distances, slope_map,
+                                   local_phases, start_indices, *, tolerance_deg=30.0):
+    """Compare transported full phase with regional local phase references."""
+    result = {}
+    for region in ('end15cm', 'end5cm'):
+        predicted = integrate_phase_to_point(
+            global_phase, distances, slope_map, start_indices[region],
+        )
+        local = float(local_phases[region])
+        error = circular_angle_error_deg(predicted, local)
+        result[region] = {
+            'predicted_phase_rad': predicted,
+            'local_phase_rad': local,
+            'phase_error_deg': error,
+            'tolerance_deg': float(tolerance_deg),
+            'within_30_deg': bool(error <= tolerance_deg),
+            'blocking': region == 'end15cm',
+        }
+    return result
+
+
+def validate_score_evidence(package, score_report, source_path):
+    """Validate one shared score report against regional package thresholds."""
+    failures = []
+    if score_report.get('sensor_id') != package.get('sensor_id'):
+        failures.append(
+            f'sensor_id 不一致: {score_report.get("sensor_id")} != {package.get("sensor_id")}'
+        )
+    if score_report.get('task') != 'score':
+        failures.append(f'task 必须为 score，收到 {score_report.get("task")}')
+    report_regions = score_report.get('regions', {})
+    summaries = {}
+    for region in REGION_ORDER:
+        entry = report_regions.get(region)
+        if not isinstance(entry, dict):
+            failures.append(f'score 缺少区域 {region}')
+            continue
+        if entry.get('status') != 'complete':
+            failures.append(f'{region} score 未完成')
+        distribution = entry.get('score_distribution', {})
+        expected = [float(v) for v in package.get('regions', {}).get(region, {}).get('thresholds', [])]
+        actual = [float(v) for v in distribution.get('thresholds', [])]
+        if actual != expected:
+            failures.append(f'{region} thresholds 不一致: {actual} != {expected}')
+        width = distribution.get('sigmoid_10_90_width_m_inv')
+        samples = distribution.get('samples', [])
+        values = []
+        sample_summaries = []
+        for sample in samples:
+            magnitude = np.asarray(sample.get('score_magnitude', []), dtype=float)
+            if magnitude.size:
+                values.extend(magnitude.tolist())
+            sample_summaries.append({
+                'keys': deepcopy(sample.get('keys')),
+                'theoretical_curvature_m_inv': sample.get('theoretical_curvature_m_inv'),
+                'quantiles': deepcopy(sample.get('quantiles', {})),
+            })
+        numeric = np.asarray(values, dtype=float)
+        if width is None or not np.isfinite(float(width)) or numeric.size == 0 or not np.all(np.isfinite(numeric)):
+            failures.append(f'{region} score 包含非有限数值或空分布')
+            observed_min = observed_max = None
+        else:
+            observed_min = float(np.min(numeric))
+            observed_max = float(np.max(numeric))
+            for threshold in expected:
+                if not observed_min <= threshold <= observed_max:
+                    failures.append(
+                        f'{region} threshold {threshold} m^-1 未被实测分布跨越 '
+                        f'[{observed_min}, {observed_max}]'
+                    )
+        summaries[region] = {
+            'thresholds': actual,
+            'sigmoid_10_90_width_m_inv': width,
+            'observed_min_m_inv': observed_min,
+            'observed_max_m_inv': observed_max,
+            'samples': sample_summaries,
+        }
+    return {
+        'score_thresholds_verified': not failures,
+        'source_path': str(source_path),
+        'source_direct': score_report.get('direct'),
+        'regions': summaries,
+        'failures': failures,
+    }
+
+
 def _unit(vector):
     vector = np.asarray(vector, dtype=float)
     norm = np.linalg.norm(vector)
