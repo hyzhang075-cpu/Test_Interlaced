@@ -1024,6 +1024,13 @@ class Demonstrator(QMainWindow):
         if not 0.0 <= self.direction_consistency_threshold <= 1.0:
             raise ValueError("direction_consistency_threshold 必须位于 [0, 1]")
 
+        if (self.direction_blend_enabled
+                and getattr(self.recon, 'multi_region_parameters', None) is not None):
+            raise ValueError(
+                'multi-region demo 暂不支持三方向参数混合；请关闭 '
+                'direction_blend_enabled 并使用已验证的 direction_reference_direct'
+            )
+
         required = self.DIRECTION_ANCHORS if self.direction_blend_enabled else (self.direction_reference_direct,)
         missing_weights = [d for d in required if d not in self.recon.weights]
         missing_slopes = [d for d in required if d not in self.recon.slopes]
@@ -1286,7 +1293,12 @@ class Demonstrator(QMainWindow):
             init_T = [1.0, 0.0, 0.0]
 
         # ---------- 重构 ----------
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, Y, Z, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False,
+        reconstruction_direct = (
+            self.direction_reference_direct
+            if getattr(self.recon, 'multi_region_parameters', None) is not None
+            else None
+        )
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, Y, Z, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False, direct=reconstruction_direct,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
         rot_matrix = self.recon._get_rot_x(direct=0)
         r_results_postrot = r @ rot_matrix.T

@@ -10,7 +10,9 @@ from pathlib import Path
 
 from calibration_regions import resolve_calibration_region, validate_calibration_parameters
 from calibration_batch import optimizer_parameters, prepare_calibration_jobs, run_calibration_jobs
-from sensor_parameter_package import load_sensor_package, package_parser_defaults
+from sensor_parameter_package import (
+    load_sensor_package, package_deployment_ready, package_parser_defaults,
+)
 
 from PyQt5.QtWidgets import QApplication
 
@@ -29,9 +31,17 @@ def configure_calibration_args(args):
 数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
 返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
 """
-    if args.task == 'recon' and args.multi_region_calib:
+    if args.task in ('recon', 'demo') and args.multi_region_calib:
         if getattr(args, '_sensor_package', None) is None:
-            raise ValueError('multi_region_calib=True 的全长 recon 需要 --sensor_params 参数包')
+            raise ValueError('multi_region_calib=True 的全长 recon/demo 需要 --sensor_params 参数包')
+        if (args.task == 'demo'
+                and args._sensor_package.get('multi_region', {}).get('direction_deployment')
+                and not package_deployment_ready(args._sensor_package)):
+            direct = args.direction_reference_direct
+            state = args._sensor_package['multi_region']['direction_deployment'].get(str(direct), {})
+            raise ValueError(
+                f'demo 参考方向 {direct} 尚不可部署: {state.get("failures", [])}'
+            )
         args.optimization_region = 'full'
         args.multi_region_parameters = args._sensor_package
     profiles = deepcopy(args.calibration_regions)

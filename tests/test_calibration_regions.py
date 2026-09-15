@@ -257,3 +257,25 @@ def test_merged_recon_requires_package_and_passes_full_geometry_to_optimizer(mon
     args = main.parse_main_args(['--task', 'recon', '--multi_region_calib', 'True'])
     with pytest.raises(ValueError, match='sensor_params'):
         main.configure_calibration_args(args)
+
+
+def test_merged_demo_passes_full_geometry_and_region_package_to_optimizer(monkeypatch):
+    import main
+    package_path = ROOT / 'params' / '06B6_NeTi_v2_centraltube_multi_region.json'
+
+    class ConfigReached(Exception):
+        pass
+
+    def capture(**kwargs):
+        assert kwargs['ideal_len'] == pytest.approx(.877)
+        assert kwargs['segmentation'] == FULL_SEGMENTS
+        assert kwargs['multi_region_parameters']['multi_region']['directions'] == [0, 120, 240]
+        raise ConfigReached
+
+    monkeypatch.setattr(main, 'Optimiser', capture)
+    monkeypatch.setattr(sys, 'argv', [
+        'main.py', '--task', 'demo', '--multi_region_calib', 'True',
+        '--sensor_params', str(package_path),
+    ])
+    with pytest.raises(ConfigReached):
+        main.main()
