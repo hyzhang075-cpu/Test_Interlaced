@@ -8,6 +8,15 @@ import numpy as np
 
 
 REGION_ORDER = ('full', 'end15cm', 'end5cm')
+DEFAULT_VALIDATION_POLICY = {
+    'full_mean_error_percent_max': 1.0,
+    'full_regression_percentage_points_max': 0.2,
+    'tail_improvement_percent_min': 10.0,
+    'tip_position_percent_max': 1.0,
+    'tip_tangent_error_deg_max': 10.0,
+    'boundary_curvature_angle_jump_deg_max': 30.0,
+    'end15cm_phase_error_deg_max': 30.0,
+}
 
 
 def circular_angle_error_deg(actual, expected):
@@ -126,7 +135,8 @@ def _unit(vector):
 
 
 def compute_curve_metrics(result, ideal, *, result_tangent, ideal_tangent,
-                          distances=None, evaluation_start_m=None):
+                          distances=None, evaluation_start_m=None,
+                          full_length_m=None):
     result = np.asarray(result, dtype=float)
     ideal = np.asarray(ideal, dtype=float)
     if result.shape != ideal.shape or result.ndim != 2 or result.shape[1] != 3:
@@ -137,17 +147,84 @@ def compute_curve_metrics(result, ideal, *, result_tangent, ideal_tangent,
     tangent_rad = float(np.arccos(np.clip(np.dot(result_tangent, ideal_tangent), -1.0, 1.0)))
     tip_mm = float(errors[-1] * 1000)
     length_m = max(float(np.sum(np.linalg.norm(np.diff(ideal, axis=0), axis=1))), 1e-12)
+    denominator_m = float(full_length_m) if full_length_m is not None else length_m
+    if not np.isfinite(denominator_m) or denominator_m <= 0:
+        raise ValueError('full_length_m 必须为正的有限值')
     metrics = {
         'mean_point_error_mm': float(np.mean(errors) * 1000),
         'max_point_error_mm': float(np.max(errors) * 1000),
         'tip_position_error_mm': tip_mm,
+        'mean_point_error_percent_full_length': float(np.mean(errors) / denominator_m * 100),
+        'max_point_error_percent_full_length': float(np.max(errors) / denominator_m * 100),
+        'tip_position_error_percent_full_length': float(errors[-1] / denominator_m * 100),
         'tip_tangent_error_deg': float(np.degrees(tangent_rad)),
         'pose_error_mm': float(np.hypot(tip_mm, 1000 * length_m * tangent_rad)),
     }
     if distances is not None and evaluation_start_m is not None:
         mask = np.asarray(distances, dtype=float) >= float(evaluation_start_m) - 1e-12
         metrics['evaluated_region_point_error_mm'] = float(np.mean(errors[mask]) * 1000)
+        metrics['evaluated_region_point_error_percent_full_length'] = float(
+            np.mean(errors[mask]) / denominator_m * 100
+        )
     return metrics
+
+
+def evaluate_direction_gates(direction_report, optimization_usable,
+                             score_verified, policy=None):
+    """Apply explicit replay limits to one literal calibration direction."""
+    policy = dict(DEFAULT_VALIDATION_POLICY if policy is None else policy)
+    failures = []
+    replay = direction_report.get('replay', {})
+    for radius, row in replay.get('full', {}).items():
+        baseline = row['baseline']['mean_point_error_percent_full_length']
+        candidate = row['candidate']['mean_point_error_percent_full_length']
+        if candidate > policy['full_mean_error_percent_max']:
+            failures.append(f'full mean point error at radius {radius} is {candidate:.6g}%')
+        regression = candidate - baseline
+        if regression > policy['full_regression_percentage_points_max']:
+            failures.append(f'full regression at radius {radius} is {regression:.6g} percentage points')
+    for radius in ('30', '20', '15'):
+        row = replay.get('end5cm', {}).get(radius)
+        if row is None:
+            failures.append(f'tail improvement missing for radius {radius}')
+        elif row.get('tail_improvement_percent', float('-inf')) < policy['tail_improvement_percent_min']:
+            failures.append(
+                f'tail improvement at radius {radius} is '
+                f'{row.get("tail_improvement_percent", float("nan")):.6g}%'
+            )
+    for region, rows in replay.items():
+        for radius, row in rows.items():
+            metrics = row['candidate']
+            tip = metrics['tip_position_error_percent_full_length']
+            tangent = metrics['tip_tangent_error_deg']
+            if tip > policy['tip_position_percent_max']:
+                failures.append(f'tip position at {region}/{radius} is {tip:.6g}%')
+            if tangent > policy['tip_tangent_error_deg_max']:
+                failures.append(f'tip tangent at {region}/{radius} is {tangent:.6g} deg')
+    boundary = direction_report.get('max_boundary_curvature_angle_jump_deg', float('inf'))
+    if boundary > policy['boundary_curvature_angle_jump_deg_max']:
+        failures.append(f'boundary curvature angle jump is {boundary:.6g} deg')
+    phase = direction_report.get('phase_transport', {}).get('end15cm', {})
+    phase_ok = bool(phase.get('within_30_deg', False))
+    if not phase_ok:
+        failures.append(
+            f'end15cm phase error is {phase.get("max_phase_error_deg", float("nan")):.6g} deg'
+        )
+    geometry_failures = [failure for failure in failures if not failure.startswith('end15cm phase')]
+    gates = {
+        'optimization_usable': bool(optimization_usable),
+        'end15cm_phase_verified': phase_ok,
+        'full_geometry_verified': not geometry_failures,
+    }
+    if not optimization_usable:
+        failures.insert(0, 'optimization stages are not usable')
+    if not score_verified:
+        failures.insert(0, 'shared score thresholds are not verified')
+    return {
+        'deployment_ready': bool(score_verified and all(gates.values())),
+        'quality_gates': gates,
+        'failures': failures,
+    }
 
 
 def straight_prefix_circular_tail(distances, bend_start_m, radius_m):
@@ -185,9 +262,25 @@ def boundary_diagnostics(diagnostics, left_point_ids=(15, 18)):
             'slope_jump': float(abs(slopes[right] - slopes[left])),
             'base_curvature_jump_m_inv': float(abs(base[right] - base[left])),
             'phase_jump_rad': float(np.max(np.abs(theta[:, right] - theta[:, left]))),
+            'curvature_angle_jump_deg': circular_angle_error_deg(angle[right], angle[left]),
             'curvature_vector_jump_m_inv': float(np.linalg.norm(vectors[right] - vectors[left])),
         }
     return result
+
+
+def add_tangent_boundary_diagnostics(boundaries, interp_dist, tangents,
+                                     boundary_distances):
+    interp_dist = np.asarray(interp_dist, dtype=float)
+    tangents = np.asarray(tangents, dtype=float)
+    for key, boundary_distance in boundary_distances.items():
+        index = int(np.argmin(np.abs(interp_dist - float(boundary_distance))))
+        index = min(max(index, 1), len(tangents) - 2)
+        left = _unit(tangents[index] - tangents[index - 1])
+        right = _unit(tangents[index + 1] - tangents[index])
+        boundaries[key]['tangent_increment_jump_deg'] = float(
+            np.degrees(np.arccos(np.clip(np.dot(left, right), -1.0, 1.0)))
+        )
+    return boundaries
 
 
 def validation_failure_summary(report):
@@ -226,10 +319,35 @@ def _reconstruct_frame(full, frame, direct):
     _, _, _, interp_dist, curve, tangent, *_ = result
     rot_direction = full.rot_dir[full.calib_shapes.index('circ')]
     rotation = full._get_rot_x(direct=direct, rot_dir=rot_direction)
-    return np.asarray(interp_dist), curve @ rotation.T, tangent @ rotation.T
+    diagnostics = deepcopy(getattr(full, 'last_parameter_assembly', None))
+    return (np.asarray(interp_dist), curve @ rotation.T, tangent @ rotation.T,
+            diagnostics)
 
 
-def validate_multiregion_package(package_path):
+def _full_region_slope_map(full, frame, direct):
+    """Calculate the full profile's score-blended pointwise slopes."""
+    base_slopes = np.asarray(full.slopes[direct][0], dtype=float)
+    _, magnitude, _, _ = full._get_base(
+        keys=None, calib_Data=frame, base_slopes=base_slopes, verbose=False,
+    )
+    scores = full._get_scores(magnitude=np.asarray(magnitude, dtype=float))
+    masses = full._alloc_mass(scores)
+    labels = np.empty(full.total_points, dtype=int)
+    for segment, (start, end) in enumerate(full.base_segments):
+        labels[start:end] = segment
+    slope_vectors = np.asarray(full.slopes[direct], dtype=float)[:, labels]
+    return np.sum(masses * slope_vectors, axis=0)
+
+
+def _tail_improvement_percent(baseline, candidate):
+    baseline = float(baseline)
+    candidate = float(candidate)
+    if baseline <= 0:
+        return 0.0 if candidate >= baseline else 100.0
+    return float((baseline - candidate) / baseline * 100)
+
+
+def validate_multiregion_package(package_path, score_results, policy=None):
     """Replay full and local experiments through one 22-point reconstruction."""
     import main
     from calibration_batch import optimizer_parameters
@@ -237,6 +355,12 @@ def validate_multiregion_package(package_path):
 
     package_path = str(Path(package_path).resolve())
     package = json.loads(Path(package_path).read_text(encoding='utf-8'))
+    score_path = Path(score_results)
+    if score_path.is_dir():
+        score_path = score_path / 'results.json'
+    score_report = json.loads(score_path.read_text(encoding='utf-8'))
+    score_evidence = validate_score_evidence(package, score_report, str(score_path.resolve()))
+    policy = dict(DEFAULT_VALIDATION_POLICY if policy is None else policy)
 
     def make(region, merged=False):
         argv = ['--task', 'recon', '--sensor_params', package_path,
@@ -252,11 +376,18 @@ def validate_multiregion_package(package_path):
         return optim
 
     full = make('full', merged=True)
+    full_only = make('full', merged=False)
     local = {'end15cm': make('end15cm'), 'end5cm': make('end5cm')}
     report = {
         'basis': 'full 22-point reconstruction with region-owned point parameters',
         'global_phases_set': full.global_phases_set,
         'rot_ang': full.rot_ang,
+        'full_length_m': float(full.ideal_len),
+        'validation_policy': policy,
+        'shared_quality_gates': {
+            'score_thresholds_verified': score_evidence['score_thresholds_verified'],
+        },
+        'score_evidence': score_evidence,
         'directions': {},
     }
     plan = {
@@ -265,8 +396,20 @@ def validate_multiregion_package(package_path):
         'end5cm': [30, 20, 15],
     }
     point_index = {int(point): index for index, point in enumerate(full.global_point_ids)}
+    global_sample_dist = np.asarray(
+        package['regions']['full']['global_sample_dist_m'], dtype=float,
+    )
+    local_phases = package.get('provenance', {}).get('local_global_phases_set', {})
+    start_indices = {
+        region: point_index[int(package['regions'][region]['support_point_ids'][0])]
+        for region in ('end15cm', 'end5cm')
+    }
+    boundary_distances = {
+        '15->16': float(global_sample_dist[15]),
+        '18->19': float(global_sample_dist[18]),
+    }
     for direct in (0, 120, 240):
-        direction = {}
+        direction = {'replay': {}, 'phase_transport_samples': {'end15cm': {}, 'end5cm': {}}}
         straight = np.asarray(full.processed_Data['circ'][direct][0]).copy()
         for region, radii in plan.items():
             rows = {}
@@ -282,32 +425,96 @@ def validate_multiregion_package(package_path):
                     indices = [point_index[int(point)] for point in ids]
                     frame[indices] = local_frame
                     bend_start = full.ideal_len - (0.15 if region == 'end15cm' else 0.05)
-                interp_dist, curve, tangent = _reconstruct_frame(full, frame, direct)
+                base_dist, base_curve, base_tangent, _ = _reconstruct_frame(
+                    full_only, frame, direct,
+                )
+                interp_dist, curve, tangent, diagnostics = _reconstruct_frame(full, frame, direct)
                 ideal, ideal_tangent = straight_prefix_circular_tail(
                     interp_dist - interp_dist[0], bend_start,
                     0.0 if radius == 0 else radius / 1000.0,
                 )
-                metrics = compute_curve_metrics(
+                candidate_metrics = compute_curve_metrics(
                     curve, ideal, result_tangent=tangent[-1], ideal_tangent=ideal_tangent,
                     distances=interp_dist - interp_dist[0], evaluation_start_m=bend_start,
+                    full_length_m=full.ideal_len,
                 )
-                if region != 'full':
-                    source_errors = package['regions'][region]['errors'][str(direct)]
-                    isolated = source_errors['point_errors_by_sample']['circ'][str(radius)] * 1000
-                    metrics['isolated_calibration_point_error_mm'] = float(isolated)
-                    metrics['merged_minus_isolated_point_error_mm'] = float(
-                        metrics['evaluated_region_point_error_mm'] - isolated
+                baseline_metrics = compute_curve_metrics(
+                    base_curve, ideal, result_tangent=base_tangent[-1], ideal_tangent=ideal_tangent,
+                    distances=base_dist - base_dist[0], evaluation_start_m=bend_start,
+                    full_length_m=full.ideal_len,
+                )
+                boundaries = boundary_diagnostics(diagnostics)
+                try:
+                    add_tangent_boundary_diagnostics(
+                        boundaries, interp_dist, tangent, boundary_distances,
                     )
-                metrics['boundaries'] = boundary_diagnostics(full.last_parameter_assembly)
-                rows[str(radius)] = metrics
-            direction[region] = rows
+                except ValueError:
+                    for values in boundaries.values():
+                        values['tangent_increment_jump_deg'] = None
+                candidate_metrics['boundaries'] = boundaries
+                baseline_tail = baseline_metrics.get(
+                    'evaluated_region_point_error_percent_full_length',
+                    baseline_metrics['mean_point_error_percent_full_length'],
+                )
+                candidate_tail = candidate_metrics.get(
+                    'evaluated_region_point_error_percent_full_length',
+                    candidate_metrics['mean_point_error_percent_full_length'],
+                )
+                rows[str(radius)] = {
+                    'baseline': baseline_metrics,
+                    'candidate': candidate_metrics,
+                    'tail_improvement_percent': _tail_improvement_percent(
+                        baseline_tail, candidate_tail,
+                    ),
+                }
+                if region in ('end15cm', 'end5cm'):
+                    slope_map = _full_region_slope_map(full_only, frame, direct)
+                    phases = {
+                        name: local_phases[name][str(direct)]
+                        for name in ('end15cm', 'end5cm')
+                    }
+                    phase_values = build_phase_transport_evidence(
+                        full.global_phases_set, global_sample_dist,
+                        slope_map, phases, start_indices,
+                        tolerance_deg=policy['end15cm_phase_error_deg_max'],
+                    )
+                    direction['phase_transport_samples'][region][str(radius)] = phase_values[region]
+            direction['replay'][region] = rows
+        phase_summary = {}
+        for region in ('end15cm', 'end5cm'):
+            samples = direction['phase_transport_samples'][region]
+            maximum = max(value['phase_error_deg'] for value in samples.values())
+            phase_summary[region] = {
+                'blocking': region == 'end15cm',
+                'max_phase_error_deg': maximum,
+                'tolerance_deg': policy['end15cm_phase_error_deg_max'],
+                'within_30_deg': bool(maximum <= policy['end15cm_phase_error_deg_max']),
+                'samples': samples,
+            }
+        direction['phase_transport'] = phase_summary
+        boundary_angles = [
+            boundary['curvature_angle_jump_deg']
+            for rows in direction['replay'].values()
+            for row in rows.values()
+            for boundary in row['candidate']['boundaries'].values()
+            if np.isfinite(boundary['curvature_angle_jump_deg'])
+        ]
+        direction['max_boundary_curvature_angle_jump_deg'] = max(boundary_angles)
+        optimization_usable = package['multi_region']['direction_deployment'][str(direct)][
+            'quality_gates'
+        ]['optimization_usable']
+        decision = evaluate_direction_gates(
+            direction, optimization_usable,
+            score_evidence['score_thresholds_verified'], policy,
+        )
+        direction.update(decision)
+        direction['full_geometry'] = {
+            'replay': direction['replay'],
+            'max_boundary_curvature_angle_jump_deg': direction[
+                'max_boundary_curvature_angle_jump_deg'
+            ],
+        }
         report['directions'][str(direct)] = direction
-    report['quality_gates'] = {
-        'phase_reference_verified': False,
-        'rot_ang_verified': False,
-        'full_geometry_verified': False,
-        'reason': validation_failure_summary(report),
-    }
     return report
 
 

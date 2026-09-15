@@ -9,10 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from calibration_validation import (
+    DEFAULT_VALIDATION_POLICY,
     build_phase_transport_evidence,
     boundary_diagnostics,
     circular_angle_error_deg,
     compute_curve_metrics,
+    evaluate_direction_gates,
     integrate_phase_to_point,
     straight_prefix_circular_tail,
     validate_score_evidence,
@@ -26,12 +28,14 @@ def test_curve_metrics_include_tip_tangent_and_pose_error():
     metrics = compute_curve_metrics(
         result, ideal, result_tangent=[1, .1, 0], ideal_tangent=[1, 0, 0],
         distances=np.linspace(0, .1, 6), evaluation_start_m=.06,
+        full_length_m=.2,
     )
     assert metrics['mean_point_error_mm'] > 0
     assert metrics['tip_position_error_mm'] == pytest.approx(2.0)
     assert metrics['tip_tangent_error_deg'] > 0
     assert metrics['pose_error_mm'] > metrics['tip_position_error_mm']
     assert metrics['evaluated_region_point_error_mm'] > metrics['mean_point_error_mm']
+    assert metrics['tip_position_error_percent_full_length'] == pytest.approx(1.0)
 
 
 def test_tail_ideal_is_continuous_at_region_start():
@@ -145,3 +149,90 @@ def test_score_evidence_rejects_incompatible_reports(mutation, match):
     evidence = validate_score_evidence(_score_package(), report, 'score/results.json')
     assert evidence['score_thresholds_verified'] is False
     assert any(match in reason for reason in evidence['failures'])
+
+
+def _metric(mean_percent=.5, tip_percent=.5, tangent_deg=5.0):
+    return {
+        'mean_point_error_percent_full_length': mean_percent,
+        'evaluated_region_point_error_percent_full_length': mean_percent,
+        'tip_position_error_percent_full_length': tip_percent,
+        'tip_tangent_error_deg': tangent_deg,
+    }
+
+
+def test_direction_gates_accept_policy_boundaries_and_nonblocking_end5_phase():
+    replay = {
+        'full': {
+            '2000': {'baseline': _metric(.4), 'candidate': _metric(.6)},
+        },
+        'end15cm': {
+            '30': {'baseline': _metric(.8), 'candidate': _metric(.7),
+                   'tail_improvement_percent': 12.5},
+        },
+        'end5cm': {
+            radius: {'baseline': _metric(1.0), 'candidate': _metric(.9),
+                     'tail_improvement_percent': 10.0}
+            for radius in ('30', '20', '15')
+        },
+    }
+    report = {
+        'replay': replay,
+        'phase_transport': {
+            'end15cm': {'max_phase_error_deg': 30.0, 'within_30_deg': True, 'blocking': True},
+            'end5cm': {'max_phase_error_deg': 90.0, 'within_30_deg': False, 'blocking': False},
+        },
+        'max_boundary_curvature_angle_jump_deg': 30.0,
+    }
+    result = evaluate_direction_gates(
+        report, optimization_usable=True, score_verified=True,
+        policy=DEFAULT_VALIDATION_POLICY,
+    )
+    assert result['quality_gates']['end15cm_phase_verified'] is True
+    assert result['quality_gates']['full_geometry_verified'] is True
+    assert result['deployment_ready'] is True
+
+
+@pytest.mark.parametrize('field,value,expected', [
+    ('full_error', 1.01, 'full mean point error'),
+    ('regression', .21, 'full regression'),
+    ('improvement', 9.9, 'tail improvement'),
+    ('tip', 1.01, 'tip position'),
+    ('tangent', 10.1, 'tip tangent'),
+    ('boundary', 30.1, 'boundary curvature angle'),
+    ('phase', 30.1, 'end15cm phase'),
+])
+def test_direction_gates_name_each_failed_limit(field, value, expected):
+    replay = {
+        'full': {'2000': {'baseline': _metric(.8), 'candidate': _metric(.8)}},
+        'end5cm': {r: {'baseline': _metric(.9), 'candidate': _metric(.8),
+                       'tail_improvement_percent': 11.111}
+                   for r in ('30', '20', '15')},
+    }
+    report = {
+        'replay': replay,
+        'phase_transport': {
+            'end15cm': {'max_phase_error_deg': 20, 'within_30_deg': True, 'blocking': True},
+            'end5cm': {'max_phase_error_deg': 80, 'within_30_deg': False, 'blocking': False},
+        },
+        'max_boundary_curvature_angle_jump_deg': 20,
+    }
+    if field == 'full_error':
+        replay['full']['2000']['candidate']['mean_point_error_percent_full_length'] = value
+    elif field == 'regression':
+        replay['full']['2000']['baseline']['mean_point_error_percent_full_length'] = .8
+        replay['full']['2000']['candidate']['mean_point_error_percent_full_length'] = .8 + value
+    elif field == 'improvement':
+        replay['end5cm']['15']['tail_improvement_percent'] = value
+    elif field == 'tip':
+        replay['full']['2000']['candidate']['tip_position_error_percent_full_length'] = value
+    elif field == 'tangent':
+        replay['full']['2000']['candidate']['tip_tangent_error_deg'] = value
+    elif field == 'boundary':
+        report['max_boundary_curvature_angle_jump_deg'] = value
+    else:
+        report['phase_transport']['end15cm'].update(
+            max_phase_error_deg=value, within_30_deg=False,
+        )
+    result = evaluate_direction_gates(report, True, True, DEFAULT_VALIDATION_POLICY)
+    assert result['deployment_ready'] is False
+    assert any(expected in failure for failure in result['failures'])
