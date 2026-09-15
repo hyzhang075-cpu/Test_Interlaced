@@ -140,7 +140,7 @@ class Optimiser(Reconstructor):
 
     def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True, force_ideal_magnitude=False):
         """
-        对单一参数类型连续优化，直到收敛、发散或达到最大轮数。
+        对单一参数类型连续优化，直到收敛、无改善、数值发散或达到最大轮数。
 
         参数：
         - coeff: 要优化的参数类型，只能为 'slopes' 或 'weights'。
@@ -153,13 +153,14 @@ class Optimiser(Reconstructor):
         1. 保存每轮开始前的 weights 和 slopes，用于发散回滚；
         2. 将当前 slopes 按 slope_upper_bound 归一化；
         3. 调用 _optim_coeff_iter() 执行一轮优化；
-        4. 若本轮 loss 大于上一轮 best_loss，则认为发散并回滚到上一轮参数；
-        5. 若 loss 改善量处于 [0, min_loss_diff]，则认为收敛；
-        6. 否则继续下一轮，直到达到 max_iter。
+        4. 若本轮 loss 为非有限值，则认为数值发散并回滚；
+        5. 若本轮得到有限但更差的 loss，则标记无改善并回滚；
+        6. 若 loss 改善量处于 [0, min_loss_diff]，则认为收敛；
+        7. 否则继续下一轮，直到达到 max_iter。
 
         输出：
         - current_loss: 阶段结束时的最佳 loss。
-        - status: 字符串，取值为 'diverge'、'converge' 或 'max_iter'。
+        - status: 字符串，取值为 'diverge'、'no_improvement'、'converge' 或 'max_iter'。
         - first_loss: 本阶段第一次实际计算得到的初始 loss。
 
         说明：
@@ -194,13 +195,21 @@ class Optimiser(Reconstructor):
 
             prev_loss = best_loss
 
+            if not np.isfinite(new_loss):
+                self.weights[self.direct] = prev_weights
+                self.slopes[self.direct] = prev_slopes
+                current_loss = prev_loss
+
+                print(f"{coeff_name}优化出现非有限 loss，已回滚")
+                return current_loss, "diverge", first_loss
+
             if new_loss > prev_loss:
                 self.weights[self.direct] = prev_weights
                 self.slopes[self.direct] = prev_slopes
                 current_loss = prev_loss
 
-                print(f"{coeff_name}优化发散，已回滚")
-                return current_loss, "diverge", first_loss
+                print(f"{coeff_name}优化未改善，已回滚")
+                return current_loss, "no_improvement", first_loss
 
             current_loss = new_loss
             best_loss = new_loss

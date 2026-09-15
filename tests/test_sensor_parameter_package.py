@@ -161,6 +161,15 @@ def test_unverified_phase_and_diverged_stage_produce_candidate_only():
     assert any('240/full slopes diverged' in failure for failure in gates['failures'])
 
 
+def test_no_improvement_stage_is_not_optimization_complete():
+    package = build_sensor_package(
+        _parser(), [_report(0), _report(120), _report(240, stage_status='no_improvement')]
+    )
+    gates = package['multi_region']['quality_gates']
+    assert gates['optimization_complete'] is False
+    assert any('240/full slopes no_improvement' in failure for failure in gates['failures'])
+
+
 def test_json_round_trip_preserves_order_and_rejects_strict_deployment(tmp_path):
     package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
     path = tmp_path / 'sensor.json'

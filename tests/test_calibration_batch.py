@@ -34,6 +34,12 @@ def test_parser_contains_sensor_region_configuration_and_accepts_none():
     assert args.calibration_data_root == '0908-06B6'
 
 
+def test_parser_parses_numeric_optimizer_bounds_from_cli():
+    args = parser_args('--weight_bounds', '(0.4, 3.0)', '--slope_upper_bound', '80')
+    assert args.weight_bounds == (0.4, 3.0)
+    assert args.slope_upper_bound == 80.0
+
+
 def test_full_segmentation_cli_override_does_not_conflict_with_parser_default():
     import main
     args = parser_args('--task', 'init', '--segmentation', '[2,3,5,2,3,7]')
@@ -100,6 +106,8 @@ def test_batch_saves_completed_regions_before_later_failure(tmp_path):
             self.point_errors_avg = {'circ': {200: .01}}
             self.end_errors = {'circ': {200: .02}}
             self.k_point, self.k_end, self.k_pitch, self.k_radius = 1, .3, 1, 1
+            self.weight_bounds = [(0.6, 5.0)]
+            self.slope_upper_bound = 50.0
         def optim_coeff(self, verbose=True):
             region = self.calibration_context['optimization_region']
             seen.append(region)
@@ -108,6 +116,9 @@ def test_batch_saves_completed_regions_before_later_failure(tmp_path):
             return {'stages': {'slopes': {'status': 'converge'}}}
     with pytest.raises(RuntimeError, match='second region'):
         runner().run_calibration_jobs(jobs, Optim, output_root=tmp_path)
+    output_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
+    assert output_dir.name.startswith('06B6_NeTi_v2_centraltube-')
+    assert '-direct0-' in output_dir.name
     report = json.loads(next(tmp_path.rglob('results.json')).read_text(encoding='utf-8'))
     assert seen == ['full', 'end15cm']
     assert report['regions']['full']['status'] == 'complete'
@@ -115,6 +126,25 @@ def test_batch_saves_completed_regions_before_later_failure(tmp_path):
     assert report['regions']['full']['errors']['normal_weighted_loss'] == pytest.approx(.016)
     assert report['regions']['end15cm']['status'] == 'failed'
     assert report['regions']['end5cm']['status'] == 'pending'
+
+
+def test_parameter_diagnostics_report_bounds_without_calling_them_divergence():
+    diagnostics = runner().diagnose_parameter_bounds(
+        weights=np.array([0.6, 1.0, 5.0]),
+        slopes=np.array([[-75.0, 50.0], [10.0, -75.0]]),
+        weight_bounds=(0.6, 5.0),
+        slope_upper_bound=50.0,
+    )
+    assert diagnostics['weights'] == {
+        'configured_bounds': [0.6, 5.0],
+        'lower_bound_hits': 1,
+        'upper_bound_hits': 1,
+        'total': 3,
+    }
+    assert diagnostics['slopes']['configured_abs_upper_bound'] == 50.0
+    assert diagnostics['slopes']['effective_abs_upper_bound'] == 75.0
+    assert diagnostics['slopes']['configured_bound_exceedances'] == 2
+    assert diagnostics['slopes']['effective_bound_hits'] == 2
 
 
 def test_score_report_uses_base_magnitude_and_actual_edge_masses():

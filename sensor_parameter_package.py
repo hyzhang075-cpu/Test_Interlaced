@@ -227,9 +227,10 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'optimization': statuses,
         }
 
-    failures = []
+    optimization_failures = []
     for report in reports:
-        failures.extend(_stage_failures(report))
+        optimization_failures.extend(_stage_failures(report))
+    failures = list(optimization_failures)
     failures.extend([
         'global phase reference is unverified',
         'score thresholds are unverified',
@@ -244,10 +245,7 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
     if rot_ang is None:
         failures.append('full rot_ang differs by direction')
     quality_gates = {
-        'optimization_complete': not any(
-            ' diverged' in item or ' missing' in item or ' max_iter' in item
-            for item in failures
-        ),
+        'optimization_complete': not optimization_failures,
         'phase_reference_verified': False,
         'score_verified': False,
         'full_geometry_verified': False,

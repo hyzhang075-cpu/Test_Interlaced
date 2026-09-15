@@ -278,7 +278,7 @@ def build_argument_parser():
         },
     }, help='各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布')
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
-                        help='批量优化/评分诊断输出目录，按传感器与时间创建新目录')
+                        help='批量优化/评分诊断输出目录，按传感器、UTC时间和优化角度创建新目录')
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_centraltube", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
@@ -315,8 +315,8 @@ def build_argument_parser():
     # 优化使用的超参数
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
     parser.add_argument('--freeze', type=list, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None。分区index从0开始。')
-    parser.add_argument('--weight_bounds', type=tuple, default=(0.6, 5.0), help='曲率权重范围')
-    parser.add_argument('--slope_upper_bound', type=tuple, default=50.0, help='扭转系数大小上限')
+    parser.add_argument('--weight_bounds', type=ast.literal_eval, default=(0.6, 5.0), help='曲率权重范围')
+    parser.add_argument('--slope_upper_bound', type=float, default=50.0, help='扭转系数大小上限')
     parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
 
     parser.add_argument('--max_iter', type=int, default=10, help='优化的最大轮次')

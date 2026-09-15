@@ -84,6 +84,16 @@ def collect_calibration_result(optim, stages):
     normal_loss = (optim.k_point * optim.avg_point_err['calib']
                    + optim.k_end * optim.avg_end_err['calib']
                    + optim.k_pitch * optim.avg_pitch_err + optim.k_radius * optim.avg_radius_err)
+    weight_bounds = optim.weight_bounds[0] if (
+        isinstance(optim.weight_bounds, list) and len(optim.weight_bounds) == 1
+    ) else optim.weight_bounds
+    optimization = deepcopy(stages)
+    optimization['parameter_bounds'] = diagnose_parameter_bounds(
+        weights=optim.weights[optim.direct],
+        slopes=optim.slopes[optim.direct],
+        weight_bounds=weight_bounds,
+        slope_upper_bound=optim.slope_upper_bound,
+    )
     return _native({
         'parameters': {
             'weights': {optim.direct: optim.weights[optim.direct]},
@@ -99,7 +109,32 @@ def collect_calibration_result(optim, stages):
             'point_errors_by_sample': optim.point_errors_avg,
             'end_errors_by_sample': optim.end_errors,
         },
-        'optimization': stages,
+        'optimization': optimization,
+    })
+
+
+def diagnose_parameter_bounds(weights, slopes, weight_bounds, slope_upper_bound, *, atol=1e-4):
+    """记录最终参数的边界命中；边界命中与优化阶段状态分别报告。"""
+    weights = np.asarray(weights, dtype=float).reshape(-1)
+    slopes = np.asarray(slopes, dtype=float).reshape(-1)
+    lower, upper = (float(value) for value in weight_bounds)
+    configured_slope_bound = float(slope_upper_bound)
+    max_abs_slope = float(np.max(np.abs(slopes))) if slopes.size else 0.0
+    effective_slope_bound = max(configured_slope_bound, max_abs_slope)
+    return _native({
+        'weights': {
+            'configured_bounds': [lower, upper],
+            'lower_bound_hits': int(np.isclose(weights, lower, rtol=0, atol=atol).sum()),
+            'upper_bound_hits': int(np.isclose(weights, upper, rtol=0, atol=atol).sum()),
+            'total': int(weights.size),
+        },
+        'slopes': {
+            'configured_abs_upper_bound': configured_slope_bound,
+            'effective_abs_upper_bound': effective_slope_bound,
+            'configured_bound_exceedances': int((np.abs(slopes) > configured_slope_bound + atol).sum()),
+            'effective_bound_hits': int(np.isclose(np.abs(slopes), effective_slope_bound, rtol=0, atol=atol).sum()),
+            'total': int(slopes.size),
+        },
     })
 
 
@@ -256,7 +291,8 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
 """
     first = jobs[0][0]
     sensor = re.sub(r'[^\w.-]+', '_', first.sensor_id).strip('.') or 'sensor'
-    run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex[:6]
+    run_id = (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+              + f'-direct{first.direct}-' + uuid4().hex[:6])
     output = Path(output_root) / f'{sensor}-{run_id}'
     output.mkdir(parents=True, exist_ok=False)
     report = {'sensor_id': first.sensor_id, 'task': first.task, 'direct': first.direct,
