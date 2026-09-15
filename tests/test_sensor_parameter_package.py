@@ -197,6 +197,22 @@ def test_load_calibration_results_reads_json_and_rejects_duplicate_direct(tmp_pa
         load_calibration_results([*paths, duplicate])
 
 
+def test_load_calibration_results_accepts_result_directories(tmp_path):
+    paths = []
+    for direct in (0, 120, 240):
+        directory = tmp_path / f'run-direct{direct}'
+        directory.mkdir()
+        (directory / 'results.json').write_text(
+            json.dumps(_report(direct)), encoding='utf-8'
+        )
+        paths.append(directory)
+
+    reports = load_calibration_results(paths)
+
+    assert [report['direct'] for report in reports] == [0, 120, 240]
+    assert all(Path(report['_source_path']).name == 'results.json' for report in reports)
+
+
 def test_comparison_report_exposes_parameters_errors_and_failed_stages():
     reports = [_report(0), _report(120), _report(240, stage_status='diverge')]
 

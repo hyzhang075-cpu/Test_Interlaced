@@ -98,6 +98,8 @@ def load_calibration_results(paths):
     seen = set()
     for raw_path in paths:
         path = Path(raw_path)
+        if path.is_dir():
+            path = path / 'results.json'
         report = json.loads(path.read_text(encoding='utf-8'))
         direct = report.get('direct')
         if direct in seen:

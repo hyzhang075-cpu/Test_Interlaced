@@ -118,7 +118,7 @@ def test_batch_saves_completed_regions_before_later_failure(tmp_path):
     with pytest.raises(RuntimeError, match='second region'):
         runner().run_calibration_jobs(jobs, Optim, output_root=tmp_path)
     output_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
-    assert output_dir.name.startswith('06B6_NeTi_v2_centraltube-')
+    assert output_dir.name.startswith(f'{args.sensor_id}-')
     assert '-direct0-' in output_dir.name
     assert re.search(r'-\d{8}T\d{6}[+-]\d{4}-direct0-', output_dir.name)
     report = json.loads(next(tmp_path.rglob('results.json')).read_text(encoding='utf-8'))
