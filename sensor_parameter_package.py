@@ -145,6 +145,40 @@ def _stage_failures(report):
     return failures
 
 
+def _direction_stage_failures(reports):
+    return {
+        str(report['direct']): _stage_failures(report)
+        for report in reports
+    }
+
+
+def _shared_parameter(package, name, default=None):
+    for group in package.get('shared_parameters', {}).values():
+        if name in group:
+            return group[name]
+    return default
+
+
+def package_deployment_ready(package):
+    """Return readiness for the package's configured demo direction mode."""
+    multi = package.get('multi_region', {})
+    shared = multi.get('shared_quality_gates', {})
+    if shared.get('score_thresholds_verified') is not True:
+        return False
+    states = multi.get('direction_deployment', {})
+    if _shared_parameter(package, 'direction_blend_enabled', False):
+        required = multi.get('directions', REQUIRED_DIRECTIONS)
+    else:
+        required = [_shared_parameter(package, 'direction_reference_direct', 0)]
+    def direction_ready(direct):
+        gates = states.get(str(direct), {}).get('quality_gates', {})
+        return all(gates.get(name) is True for name in (
+            'optimization_usable', 'end15cm_phase_verified',
+            'full_geometry_verified',
+        ))
+    return all(direction_ready(direct) for direct in required)
+
+
 def _owned_points(supports, region_index):
     inner = set()
     for later in REGION_ORDER[region_index + 1:]:
@@ -229,30 +263,33 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'optimization': statuses,
         }
 
-    optimization_failures = []
-    for report in reports:
-        optimization_failures.extend(_stage_failures(report))
-    failures = list(optimization_failures)
-    failures.extend([
-        'global phase reference is unverified',
-        'score thresholds are unverified',
-        'full geometry reconstruction is unverified',
-    ])
+    direction_failures = _direction_stage_failures(reports)
     full_phase_values = list(local_phases['full'].values())
     full_rot_values = list(local_rot_angles['full'].values())
     global_phase = full_phase_values[0] if len(set(full_phase_values)) == 1 else None
     rot_ang = full_rot_values[0] if len(set(full_rot_values)) == 1 else None
+    shared_reference_failures = []
     if global_phase is None:
-        failures.append('full global phase differs by direction')
+        shared_reference_failures.append('full global phase differs by direction')
     if rot_ang is None:
-        failures.append('full rot_ang differs by direction')
-    quality_gates = {
-        'optimization_complete': not optimization_failures,
-        'phase_reference_verified': False,
-        'score_verified': False,
-        'full_geometry_verified': False,
-        'failures': failures,
-    }
+        shared_reference_failures.append('full rot_ang differs by direction')
+    direction_deployment = {}
+    for direct in REQUIRED_DIRECTIONS:
+        key = str(direct)
+        failures = list(direction_failures[key]) + shared_reference_failures
+        failures.extend([
+            f'{direct}/end15cm transported phase is unverified',
+            f'{direct}/full geometry reconstruction is unverified',
+        ])
+        direction_deployment[key] = {
+            'deployment_ready': False,
+            'quality_gates': {
+                'optimization_usable': not direction_failures[key],
+                'end15cm_phase_verified': False,
+                'full_geometry_verified': False,
+            },
+            'failures': failures,
+        }
 
     shared = {
         group: {name: _native(defaults[name]) for name in names}
@@ -268,9 +305,12 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'directions': list(REQUIRED_DIRECTIONS),
             'global_phases_set': _native(global_phase),
             'rot_ang': _native(rot_ang),
-            'deployment_ready': all(value is True for key, value in quality_gates.items()
-                                    if key != 'failures'),
-            'quality_gates': quality_gates,
+            'deployment_ready': False,
+            'shared_quality_gates': {
+                'score_thresholds_verified': False,
+            },
+            'direction_deployment': direction_deployment,
+            'available_deployment_directions': [],
         },
         'regions': region_blocks,
         'provenance': {
@@ -419,32 +459,59 @@ def load_sensor_package(path, expected_sensor_id=None, *, require_deployable=Fal
         raise ValueError(
             f'sensor_id 不一致: expected={expected_sensor_id}, actual={package.get("sensor_id")}'
         )
-    if require_deployable and not package.get('multi_region', {}).get('deployment_ready'):
-        failures = package.get('multi_region', {}).get('quality_gates', {}).get('failures', [])
+    if require_deployable and not package_deployment_ready(package):
+        failures = []
+        for state in package.get('multi_region', {}).get('direction_deployment', {}).values():
+            failures.extend(state.get('failures', []))
         raise ValueError(f'parameter package is not deployment ready: {failures}')
     return package
 
 
 def apply_validation_results(package, validation):
-    """Attach immutable validation evidence and refresh deployment gates."""
+    """Attach immutable validation evidence and refresh per-direction gates."""
     package = deepcopy(package)
-    gates = package['multi_region']['quality_gates']
-    validation_gates = validation.get('quality_gates', {})
-    gates['phase_reference_verified'] = bool(
-        validation_gates.get('phase_reference_verified', False)
-    )
-    gates['full_geometry_verified'] = bool(
-        validation_gates.get('full_geometry_verified', False)
-    )
-    reason = validation_gates.get('reason')
-    if reason and reason not in gates['failures']:
-        gates['failures'].append(reason)
-    package['multi_region']['deployment_ready'] = all(
-        gates.get(name) is True for name in (
-            'optimization_complete', 'phase_reference_verified',
-            'score_verified', 'full_geometry_verified',
+    multi = package['multi_region']
+    validation_directions = validation.get('directions', {})
+    missing = [str(d) for d in multi['directions'] if str(d) not in validation_directions]
+    if missing:
+        raise ValueError(f'validation 缺少方向: {missing}')
+    score_verified = bool(validation.get('shared_quality_gates', {}).get(
+        'score_thresholds_verified', False
+    ))
+    multi['shared_quality_gates'] = deepcopy(validation.get('shared_quality_gates', {}))
+    multi['shared_quality_gates']['score_thresholds_verified'] = score_verified
+    available = []
+    for direct in multi['directions']:
+        key = str(direct)
+        state = multi['direction_deployment'][key]
+        evidence = validation_directions[key]
+        evidence_gates = evidence.get('quality_gates', {})
+        gates = state['quality_gates']
+        gates['end15cm_phase_verified'] = bool(
+            evidence_gates.get('end15cm_phase_verified', False)
         )
-    )
+        gates['full_geometry_verified'] = bool(
+            evidence_gates.get('full_geometry_verified', False)
+        )
+        state['phase_transport'] = deepcopy(evidence.get('phase_transport', {}))
+        state['full_geometry'] = deepcopy(evidence.get('full_geometry', {}))
+        optimization_failures = [
+            item for item in state.get('failures', [])
+            if 'transported phase is unverified' not in item
+            and 'full geometry reconstruction is unverified' not in item
+        ]
+        state['failures'] = optimization_failures + list(evidence.get('failures', []))
+        state['deployment_ready'] = (
+            score_verified
+            and all(gates.get(name) is True for name in (
+                'optimization_usable', 'end15cm_phase_verified',
+                'full_geometry_verified',
+            ))
+        )
+        if state['deployment_ready']:
+            available.append(direct)
+    multi['available_deployment_directions'] = available
+    multi['deployment_ready'] = package_deployment_ready(package)
     package['provenance']['full_geometry_validation'] = deepcopy(validation)
     return _native(package)
 

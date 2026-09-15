@@ -16,6 +16,7 @@ from sensor_parameter_package import (
     load_calibration_results,
     load_sensor_package,
     package_parameter_destinations,
+    package_deployment_ready,
     package_parser_defaults,
     render_calibration_comparison,
     write_sensor_package,
@@ -155,19 +156,23 @@ def test_unverified_phase_and_diverged_stage_produce_candidate_only():
     )
 
     assert package['multi_region']['deployment_ready'] is False
-    gates = package['multi_region']['quality_gates']
-    assert gates['optimization_complete'] is False
-    assert gates['phase_reference_verified'] is False
-    assert any('240/full slopes diverged' in failure for failure in gates['failures'])
+    directions = package['multi_region']['direction_deployment']
+    assert directions['0']['quality_gates']['optimization_usable'] is True
+    assert directions['120']['quality_gates']['optimization_usable'] is True
+    assert directions['240']['quality_gates']['optimization_usable'] is False
+    assert directions['0']['quality_gates']['end15cm_phase_verified'] is False
+    assert any('240/full slopes diverged' in failure for failure in directions['240']['failures'])
 
 
 def test_no_improvement_stage_is_not_optimization_complete():
     package = build_sensor_package(
         _parser(), [_report(0), _report(120), _report(240, stage_status='no_improvement')]
     )
-    gates = package['multi_region']['quality_gates']
-    assert gates['optimization_complete'] is False
-    assert any('240/full slopes no_improvement' in failure for failure in gates['failures'])
+    directions = package['multi_region']['direction_deployment']
+    assert directions['0']['quality_gates']['optimization_usable'] is True
+    assert directions['120']['quality_gates']['optimization_usable'] is True
+    assert directions['240']['quality_gates']['optimization_usable'] is False
+    assert any('240/full slopes no_improvement' in failure for failure in directions['240']['failures'])
 
 
 def test_json_round_trip_preserves_order_and_rejects_strict_deployment(tmp_path):
@@ -288,14 +293,45 @@ def test_parse_main_args_rejects_unknown_package_version_before_runtime(tmp_path
 
 def test_validation_evidence_keeps_failed_candidate_non_deployable():
     package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
-    validation = {'quality_gates': {
-        'phase_reference_verified': False,
-        'full_geometry_verified': False,
-        'reason': '240-degree full reconstruction failed',
-    }, 'directions': {'240': {}}}
+    package['shared_parameters']['dynamic_display_parameters']['direction_reference_direct'] = 240
+    validation = {
+        'shared_quality_gates': {'score_thresholds_verified': True},
+        'directions': {
+            str(direct): {
+                'quality_gates': {
+                    'end15cm_phase_verified': direct != 240,
+                    'full_geometry_verified': direct != 240,
+                },
+                'failures': [] if direct != 240 else ['240-degree full reconstruction failed'],
+                'phase_transport': {'end5cm': {'blocking': False, 'within_30_deg': False}},
+            }
+            for direct in (0, 120, 240)
+        },
+    }
 
     updated = apply_validation_results(package, validation)
 
     assert updated['multi_region']['deployment_ready'] is False
     assert updated['provenance']['full_geometry_validation'] == validation
-    assert '240-degree full reconstruction failed' in updated['multi_region']['quality_gates']['failures']
+    assert updated['multi_region']['available_deployment_directions'] == [0, 120]
+    assert updated['multi_region']['direction_deployment']['0']['deployment_ready'] is True
+    assert updated['multi_region']['direction_deployment']['240']['deployment_ready'] is False
+    assert updated['multi_region']['direction_deployment']['240']['phase_transport']['end5cm']['blocking'] is False
+
+
+def test_package_readiness_uses_reference_direction_when_blending_is_disabled():
+    package = build_sensor_package(_parser(), [_report(0), _report(120), _report(240)])
+    package['shared_parameters']['dynamic_display_parameters'].update({
+        'direction_blend_enabled': False,
+        'direction_reference_direct': 0,
+    })
+    package['multi_region']['shared_quality_gates']['score_thresholds_verified'] = True
+    for direct, ready in ((0, True), (120, False), (240, False)):
+        gates = package['multi_region']['direction_deployment'][str(direct)]['quality_gates']
+        gates['end15cm_phase_verified'] = ready
+        gates['full_geometry_verified'] = ready
+
+    assert package_deployment_ready(package) is True
+
+    package['shared_parameters']['dynamic_display_parameters']['direction_blend_enabled'] = True
+    assert package_deployment_ready(package) is False
