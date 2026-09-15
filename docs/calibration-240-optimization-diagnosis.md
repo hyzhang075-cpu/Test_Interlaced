@@ -76,7 +76,7 @@ from this run alone.
    only if validation improves rather than merely allowing larger coefficients.
 
 New result directories use
-`<sensor>-<UTC timestamp>-direct<angle>-<collision suffix>`, for example
-`06B6_NeTi_v2_centraltube-20260915T090000Z-direct240-a1b2c3`.
+`<sensor>-<local timestamp with UTC offset>-direct<angle>-<collision suffix>`, for example
+`06B6_NeTi_v2_centraltube-20260915T170000+0800-direct240-a1b2c3`.
 Each new `results.json` also records weight and slope boundary diagnostics under
 `regions.<region>.optimization.parameter_bounds`.

@@ -1,7 +1,7 @@
 """按区域执行独立定标，保存结果，并诊断实际用于选档的基础曲率。"""
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 import pprint
@@ -291,7 +291,7 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
 """
     first = jobs[0][0]
     sensor = re.sub(r'[^\w.-]+', '_', first.sensor_id).strip('.') or 'sensor'
-    run_id = (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    run_id = (datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%z')
               + f'-direct{first.direct}-' + uuid4().hex[:6])
     output = Path(output_root) / f'{sensor}-{run_id}'
     output.mkdir(parents=True, exist_ok=False)

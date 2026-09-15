@@ -278,7 +278,7 @@ def build_argument_parser():
         },
     }, help='各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布')
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
-                        help='批量优化/评分诊断输出目录，按传感器、UTC时间和优化角度创建新目录')
+                        help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_centraltube", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
