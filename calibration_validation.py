@@ -521,31 +521,75 @@ def validate_multiregion_package(package_path, score_results, policy=None):
 def write_validation_report(report, json_path, markdown_path):
     json_path = Path(json_path)
     markdown_path = Path(markdown_path)
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    json_temporary = json_path.with_suffix(json_path.suffix + '.tmp')
+    json_temporary.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n',
+        encoding='utf-8',
+    )
+    json_temporary.replace(json_path)
     lines = [
         '# Multi-region full-geometry validation', '',
         f'- unified global phase: `{report["global_phases_set"]}`',
         f'- unified rot_ang: `{report["rot_ang"]}`',
-        f'- full geometry verified: `{report["quality_gates"]["full_geometry_verified"]}`', '',
-        '| direct | region | radius (mm) | region point (mm) | isolated point (mm) | delta (mm) | tip position (mm) | tip tangent (deg) |',
-        '|---:|---|---:|---:|---:|---:|---:|---:|',
+        f'- shared score thresholds verified: `{report["shared_quality_gates"]["score_thresholds_verified"]}`',
+        '', '## Direction gates', '',
+        '| direct | deployable | optimization | end15 phase | full geometry | failures |',
+        '|---:|---:|---:|---:|---:|---|',
     ]
-    for direct, regions in report['directions'].items():
-        for region, radii in regions.items():
-            for radius, values in radii.items():
+    for direct, direction in report['directions'].items():
+        gates = direction['quality_gates']
+        lines.append(
+            f'| {direct} | {direction["deployment_ready"]} | '
+            f'{gates["optimization_usable"]} | {gates["end15cm_phase_verified"]} | '
+            f'{gates["full_geometry_verified"]} | '
+            f'{"; ".join(direction.get("failures", []))} |'
+        )
+    lines.extend([
+        '', '## Phase transport', '',
+        '| direct | region | maximum error (deg) | tolerance (deg) | pass | blocking |',
+        '|---:|---|---:|---:|---:|---:|',
+    ])
+    for direct, direction in report['directions'].items():
+        for region, phase in direction['phase_transport'].items():
+            lines.append(
+                f'| {direct} | {region} | {phase["max_phase_error_deg"]:.3f} | '
+                f'{phase["tolerance_deg"]:.3f} | {phase["within_30_deg"]} | '
+                f'{phase["blocking"]} |'
+            )
+    lines.extend([
+        '', '## Reconstruction replay', '',
+        '| direct | region | radius (mm) | baseline tail (% full) | candidate tail (% full) | improvement (%) | tip position (mm) | tip position (% full) | tip tangent (deg) |',
+        '|---:|---|---:|---:|---:|---:|---:|---:|---:|',
+    ])
+    for direct, direction in report['directions'].items():
+        for region, radii in direction['replay'].items():
+            for radius, row in radii.items():
+                baseline = row['baseline']
+                candidate = row['candidate']
+                baseline_tail = baseline.get(
+                    'evaluated_region_point_error_percent_full_length',
+                    baseline['mean_point_error_percent_full_length'],
+                )
+                candidate_tail = candidate.get(
+                    'evaluated_region_point_error_percent_full_length',
+                    candidate['mean_point_error_percent_full_length'],
+                )
                 lines.append(
                     f'| {direct} | {region} | {radius} | '
-                    f'{values["evaluated_region_point_error_mm"]:.3f} | '
-                    f'{values.get("isolated_calibration_point_error_mm", float("nan")):.3f} | '
-                    f'{values.get("merged_minus_isolated_point_error_mm", float("nan")):.3f} | '
-                    f'{values["tip_position_error_mm"]:.3f} | '
-                    f'{values["tip_tangent_error_deg"]:.3f} |'
+                    f'{baseline_tail:.3f} | {candidate_tail:.3f} | '
+                    f'{row["tail_improvement_percent"]:.3f} | '
+                    f'{candidate["tip_position_error_mm"]:.3f} | '
+                    f'{candidate["tip_position_error_percent_full_length"]:.3f} | '
+                    f'{candidate["tip_tangent_error_deg"]:.3f} |'
                 )
-    lines.extend(['', '## Gate result', '', report['quality_gates']['reason'], '',
-                  'A negative delta means the merged full-length reconstruction reduced the '
-                  'point error relative to the isolated regional reconstruction. It does not '
-                  'override the tip-orientation and boundary-continuity failures.', ''])
-    markdown_path.write_text('\n'.join(lines), encoding='utf-8')
+    lines.extend(['', '## Shared score evidence', '',
+                  f'- source: `{report["score_evidence"]["source_path"]}`',
+                  f'- failures: `{json.dumps(report["score_evidence"]["failures"], ensure_ascii=False)}`', ''])
+    markdown_temporary = markdown_path.with_suffix(markdown_path.suffix + '.tmp')
+    markdown_temporary.write_text('\n'.join(lines), encoding='utf-8')
+    markdown_temporary.replace(markdown_path)
 
 
 def main(argv=None):
@@ -553,11 +597,25 @@ def main(argv=None):
 
     cli = argparse.ArgumentParser(description='Replay a multi-region package on full geometry')
     cli.add_argument('--sensor-params', required=True)
+    cli.add_argument('--score-results', required=True)
     cli.add_argument('--json-output', default='docs/calibration-multiregion-validation.json')
     cli.add_argument('--markdown-output', default='docs/calibration-multiregion-validation.md')
+    cli.add_argument('--package-output', required=True)
+    for name, default in DEFAULT_VALIDATION_POLICY.items():
+        cli.add_argument('--' + name.replace('_', '-'), type=float, default=default)
     args = cli.parse_args(argv)
-    report = validate_multiregion_package(args.sensor_params)
+    policy = {name: getattr(args, name) for name in DEFAULT_VALIDATION_POLICY}
+    report = validate_multiregion_package(
+        args.sensor_params, args.score_results, policy=policy,
+    )
     write_validation_report(report, args.json_output, args.markdown_output)
+    from sensor_parameter_package import (
+        apply_validation_results, load_sensor_package, write_sensor_package,
+    )
+    package = load_sensor_package(args.sensor_params)
+    validated = apply_validation_results(package, report)
+    write_sensor_package(validated, args.package_output)
+    return report, validated
 
 
 if __name__ == '__main__':

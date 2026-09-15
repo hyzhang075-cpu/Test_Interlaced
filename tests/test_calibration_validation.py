@@ -1,12 +1,14 @@
 from pathlib import Path
+import json
 import sys
 
 import numpy as np
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+import calibration_validation as validation_module
 
 from calibration_validation import (
     DEFAULT_VALIDATION_POLICY,
@@ -236,3 +238,61 @@ def test_direction_gates_name_each_failed_limit(field, value, expected):
     result = evaluate_direction_gates(report, True, True, DEFAULT_VALIDATION_POLICY)
     assert result['deployment_ready'] is False
     assert any(expected in failure for failure in result['failures'])
+
+
+def test_validation_cli_writes_report_and_separate_validated_package(tmp_path, monkeypatch):
+    metrics = _metric()
+    metrics.update(tip_position_error_mm=4.0)
+    report = {
+        'global_phases_set': -.7,
+        'rot_ang': 31.8,
+        'shared_quality_gates': {'score_thresholds_verified': True},
+        'score_evidence': {'source_path': 'score/results.json', 'failures': []},
+        'directions': {
+            str(direct): {
+                'deployment_ready': direct == 0,
+                'quality_gates': {
+                    'optimization_usable': direct != 240,
+                    'end15cm_phase_verified': direct == 0,
+                    'full_geometry_verified': direct == 0,
+                },
+                'failures': [] if direct == 0 else ['failed'],
+                'phase_transport': {
+                    'end15cm': {'max_phase_error_deg': 10, 'tolerance_deg': 30,
+                                'within_30_deg': True, 'blocking': True},
+                    'end5cm': {'max_phase_error_deg': 80, 'tolerance_deg': 30,
+                               'within_30_deg': False, 'blocking': False},
+                },
+                'replay': {'full': {'200': {
+                    'baseline': metrics, 'candidate': metrics,
+                    'tail_improvement_percent': 0,
+                }}},
+            }
+            for direct in (0, 120, 240)
+        },
+    }
+    source = tmp_path / 'source.json'
+    source.write_text('{}', encoding='utf-8')
+    json_output = tmp_path / 'report.json'
+    markdown_output = tmp_path / 'report.md'
+    package_output = tmp_path / 'validated.json'
+    monkeypatch.setattr(validation_module, 'validate_multiregion_package',
+                        lambda *args, **kwargs: report)
+    import sensor_parameter_package
+    monkeypatch.setattr(sensor_parameter_package, 'load_sensor_package', lambda path: {'source': True})
+    monkeypatch.setattr(sensor_parameter_package, 'apply_validation_results',
+                        lambda package, evidence: {'validated': evidence is report})
+    monkeypatch.setattr(sensor_parameter_package, 'write_sensor_package',
+                        lambda package, path: Path(path).write_text(json.dumps(package), encoding='utf-8'))
+
+    _, validated = validation_module.main([
+        '--sensor-params', str(source), '--score-results', 'score-dir',
+        '--json-output', str(json_output), '--markdown-output', str(markdown_output),
+        '--package-output', str(package_output),
+    ])
+
+    assert validated == {'validated': True}
+    assert json.loads(json_output.read_text(encoding='utf-8'))['directions']['0']['deployment_ready']
+    assert 'Direction gates' in markdown_output.read_text(encoding='utf-8')
+    assert json.loads(package_output.read_text(encoding='utf-8')) == {'validated': True}
+    assert source.read_text(encoding='utf-8') == '{}'
