@@ -279,3 +279,30 @@ def test_merged_demo_passes_full_geometry_and_region_package_to_optimizer(monkey
     ])
     with pytest.raises(ConfigReached):
         main.main()
+
+
+def test_multiregion_demo_warns_but_runs_with_non_deployable_package(monkeypatch, capsys):
+    import main
+    package_path = ROOT / 'params' / '06B6_NeTi_v2_ftube_multi_region.json'
+
+    class ConfigReached(Exception):
+        pass
+
+    def capture(**kwargs):
+        assert kwargs['multi_region_parameters']['multi_region']['deployment_ready'] is False
+        raise ConfigReached
+
+    monkeypatch.setattr(main, 'Optimiser', capture)
+    monkeypatch.setattr(sys, 'argv', [
+        'main.py', '--task', 'demo', '--multi_region_calib', 'True',
+        '--sensor_params', str(package_path),
+    ])
+
+    with pytest.raises(ConfigReached):
+        main.main()
+
+    output = capsys.readouterr().out
+    assert 'WARNING' in output
+    assert 'deployment_ready=False' in output
+    assert 'direction_reference_direct=120' in output
+    assert '120/end15cm transported phase is unverified' in output

@@ -28,6 +28,7 @@ CONTROL_KEYS = {
 
 
 def optimizer_parameters(args):
+    """复制可传给 Optimiser 的参数，排除任务调度、界面和输出控制项。"""
     return {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
 
 
@@ -74,6 +75,7 @@ def _native(value):
 
 
 def _save_report(path, report):
+    """以临时文件原子写入 JSON 报告，避免中断时留下半写文件。"""
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(_native(report), ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
     temporary.replace(path)
@@ -157,6 +159,7 @@ def diagnose_score_distribution(optim):
     }
 
     def leaves(data, path=()):
+        """递归列出嵌套标定数据中的叶节点键路径。"""
         if isinstance(data, dict):
             for key, value in data.items():
                 yield from leaves(value, path + (key,))
@@ -258,6 +261,7 @@ def summarize_score_runs(reports):
 
 
 def _plot_scores(report, path):
+    """将实测基础曲率和各等级平均权重保存为无界面的诊断图。"""
     # 科学图独立保存，避免初始化 GUI 或阻塞批量任务。
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg

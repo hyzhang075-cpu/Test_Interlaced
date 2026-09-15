@@ -764,6 +764,11 @@ class Reconstructor(Initialiser):
         return np.asarray(scores)
 
     def _normalise_multiregion_parameters(self, config):
+        """校验并规范化多区域参数包，建立 0/120/240 方向的 NumPy 参数表。
+
+        每个区域的 support 点用于局部评分，owned 点决定最终写入范围；所有 owned
+        点必须无重叠地覆盖完整传感器，防止拼接时出现未赋值或重复赋值。
+        """
         config = deepcopy(config)
         meta = config.get('multi_region', config)
         regions = config.get('regions')
@@ -825,10 +830,16 @@ class Reconstructor(Initialiser):
 
     @staticmethod
     def _local_segment_labels(segmentation):
+        """把局部分段长度展开成逐点的局部分段编号。"""
         return np.repeat(np.arange(len(segmentation)), segmentation.astype(int))
 
     def _assemble_multiregion_parameters(self, strain_data, direct, magnitude_ratio=1.0):
-        """Assemble pointwise parameters using each region's own score model."""
+        """使用各区域自己的曲率阈值和 sigmoid 配置装配逐点参数。
+
+        先用每个区域第 0 档 slope 形成全长基础相位并估计评分曲率，再在各区域
+        support 点计算等级质量；最终只把混合后的 weight 和 slope 写入该区域的
+        owned 点。``direct`` 是字面方向角 0、120 或 240。
+        """
         config = self.multi_region_parameters
         if config is None:
             raise ValueError('multi_region_parameters 未配置')

@@ -127,6 +127,7 @@ def validate_score_evidence(package, score_report, source_path):
 
 
 def _unit(vector):
+    """返回三维向量的单位方向；拒绝零向量和非有限输入。"""
     vector = np.asarray(vector, dtype=float)
     norm = np.linalg.norm(vector)
     if not np.isfinite(norm) or norm <= 0:
@@ -137,6 +138,11 @@ def _unit(vector):
 def compute_curve_metrics(result, ideal, *, result_tangent, ideal_tangent,
                           distances=None, evaluation_start_m=None,
                           full_length_m=None):
+    """计算曲线点位、末端位置和末端切向误差。
+
+    坐标输入使用 m；输出同时保留 mm，并以完整传感器长度为分母给出百分比。
+    ``evaluation_start_m`` 用于单独统计末端区域，但百分比仍相对全长。
+    """
     result = np.asarray(result, dtype=float)
     ideal = np.asarray(ideal, dtype=float)
     if result.shape != ideal.shape or result.ndim != 2 or result.shape[1] != 3:
@@ -228,6 +234,7 @@ def evaluate_direction_gates(direction_report, optimization_usable,
 
 
 def straight_prefix_circular_tail(distances, bend_start_m, radius_m):
+    """生成直线前段加圆弧末段的理想曲线及末端单位切向量，长度单位为 m。"""
     distances = np.asarray(distances, dtype=float)
     if radius_m <= 0:
         curve = np.column_stack((distances, np.zeros((len(distances), 2))))
@@ -244,6 +251,7 @@ def straight_prefix_circular_tail(distances, bend_start_m, radius_m):
 
 
 def boundary_diagnostics(diagnostics, left_point_ids=(15, 18)):
+    """计算指定相邻全局点之间的权重、slope、相位和曲率跳变。"""
     weights = np.asarray(diagnostics['final_weight'], dtype=float)
     slopes = np.asarray(diagnostics['slope_map'], dtype=float)
     base = np.asarray(diagnostics['base_magnitude'], dtype=float)
@@ -270,6 +278,7 @@ def boundary_diagnostics(diagnostics, left_point_ids=(15, 18)):
 
 def add_tangent_boundary_diagnostics(boundaries, interp_dist, tangents,
                                      boundary_distances):
+    """在区域边界最近的插值位置补充切向增量夹角，角度单位为 deg。"""
     interp_dist = np.asarray(interp_dist, dtype=float)
     tangents = np.asarray(tangents, dtype=float)
     for key, boundary_distance in boundary_distances.items():
@@ -284,6 +293,7 @@ def add_tangent_boundary_diagnostics(boundaries, interp_dist, tangents,
 
 
 def validation_failure_summary(report):
+    """汇总旧格式回放报告中的最大误差，供失败信息和人工检查使用。"""
     full_errors = []
     tail_tangent_errors = []
     phase_jumps = []
@@ -306,10 +316,12 @@ def validation_failure_summary(report):
 
 
 def _ideal_full_circular(distances, radius_m):
+    """生成从传感器起点开始弯曲的完整理想圆弧。"""
     return straight_prefix_circular_tail(distances, 0.0, radius_m)
 
 
 def _reconstruct_frame(full, frame, direct):
+    """按指定 0/120/240 方向重构一帧，并统一旋转到误差评估坐标系。"""
     result = full._reconstruct_frame(
         keys=None, calib_shape='circ', calib_Data=frame,
         weight=full.weights[direct], slope=full.slopes[direct],
@@ -340,6 +352,7 @@ def _full_region_slope_map(full, frame, direct):
 
 
 def _tail_improvement_percent(baseline, candidate):
+    """计算 multi-region 相对 full 基线的末端平均误差改善百分比。"""
     baseline = float(baseline)
     candidate = float(candidate)
     if baseline <= 0:
@@ -363,6 +376,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
     policy = dict(DEFAULT_VALIDATION_POLICY if policy is None else policy)
 
     def make(region, merged=False):
+        """构造单区域基线或完整多区域回放所需的 Optimiser。"""
         argv = ['--task', 'recon', '--sensor_params', package_path,
                 '--optimization_region', region,
                 '--multi_region_calib', 'True' if merged else 'False']
@@ -519,6 +533,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
 
 
 def write_validation_report(report, json_path, markdown_path):
+    """原子写入机器可读 JSON 和便于人工复核的 Markdown 验证报告。"""
     json_path = Path(json_path)
     markdown_path = Path(markdown_path)
     json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -593,6 +608,7 @@ def write_validation_report(report, json_path, markdown_path):
 
 
 def main(argv=None):
+    """运行全长定标回放验证，并输出带逐方向部署状态的新参数包。"""
     import argparse
 
     cli = argparse.ArgumentParser(description='Replay a multi-region package on full geometry')

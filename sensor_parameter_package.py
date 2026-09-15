@@ -58,6 +58,7 @@ SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set',
 
 
 def _native(value):
+    """递归转换 NumPy、Path 和容器值，生成严格 JSON 可序列化的数据。"""
     if isinstance(value, np.ndarray):
         return _native(value.tolist())
     if isinstance(value, np.generic):
@@ -74,6 +75,7 @@ def _native(value):
 
 
 def _parser_defaults(parser):
+    """按 parser 注册顺序复制全部参数默认值，用于生成可审计参数包。"""
     return {
         action.dest: deepcopy(action.default)
         for action in parser._actions
@@ -82,6 +84,7 @@ def _parser_defaults(parser):
 
 
 def _validate_parser_groups(defaults):
+    """确保每个 parser 参数恰好属于一个共享参数组或特殊顶层字段。"""
     grouped = [name for names in PARSER_GROUPS.values() for name in names]
     represented = grouped + list(SPECIAL_DESTINATIONS)
     missing = [name for name in defaults if name not in represented]
@@ -94,6 +97,7 @@ def _validate_parser_groups(defaults):
 
 
 def load_calibration_results(paths):
+    """读取三个结果文件或目录，并按字面方向角 0、120、240 排序。"""
     reports = []
     seen = set()
     for raw_path in paths:
@@ -112,6 +116,7 @@ def load_calibration_results(paths):
 
 
 def _region_context(entry, region):
+    """提取并校验结果中用于部署的区域几何与曲率分级上下文。"""
     context = entry.get('context')
     if not isinstance(context, dict):
         raise ValueError(f'{region} 缺少 context')
@@ -122,6 +127,7 @@ def _region_context(entry, region):
 
 
 def _same_context(left, right):
+    """比较两个方向的区域上下文，确认其点位、分段和阈值完全一致。"""
     keys = (
         'optimization_region', 'length_m', 'radii', 'thresholds', 'segmentation',
         'global_point_ids', 'global_segment_ids', 'global_sample_dist_m',
@@ -132,6 +138,7 @@ def _same_context(left, right):
 
 
 def _stage_failures(report):
+    """收集一个方向各区域 slope/weight 优化未收敛的阶段。"""
     failures = []
     direct = report['direct']
     for region in REGION_ORDER:
@@ -146,6 +153,7 @@ def _stage_failures(report):
 
 
 def _direction_stage_failures(reports):
+    """按 0/120/240 方向汇总优化阶段失败原因。"""
     return {
         str(report['direct']): _stage_failures(report)
         for report in reports
@@ -153,6 +161,7 @@ def _direction_stage_failures(reports):
 
 
 def _shared_parameter(package, name, default=None):
+    """跨共享参数分组查找指定参数，未记录时返回默认值。"""
     for group in package.get('shared_parameters', {}).values():
         if name in group:
             return group[name]
@@ -160,7 +169,11 @@ def _shared_parameter(package, name, default=None):
 
 
 def package_deployment_ready(package):
-    """Return readiness for the package's configured demo direction mode."""
+    """判断参数包在当前 demo 方向模式下是否通过全部部署门禁。
+
+    单方向模式只检查 ``direction_reference_direct``；方向混合模式要求三个
+    方向均通过。该状态仍可供告警和报告使用，不强制阻止动态验证启动。
+    """
     multi = package.get('multi_region', {})
     shared = multi.get('shared_quality_gates', {})
     if shared.get('score_thresholds_verified') is not True:
@@ -171,6 +184,7 @@ def package_deployment_ready(package):
     else:
         required = [_shared_parameter(package, 'direction_reference_direct', 0)]
     def direction_ready(direct):
+        """检查一个字面方向角的优化、end15cm 相位和全长几何门禁。"""
         gates = states.get(str(direct), {}).get('quality_gates', {})
         return all(gates.get(name) is True for name in (
             'optimization_usable', 'end15cm_phase_verified',
@@ -180,6 +194,7 @@ def package_deployment_ready(package):
 
 
 def _owned_points(supports, region_index):
+    """从区域支持点中扣除更短末端区域，得到无重叠的最终参数归属点。"""
     inner = set()
     for later in REGION_ORDER[region_index + 1:]:
         inner.update(supports[later])
@@ -187,6 +202,11 @@ def _owned_points(supports, region_index):
 
 
 def build_sensor_package(parser, reports, *, source_commit=None, generated_at=None):
+    """合并三个方向、三个区域的优化结果，生成有序 multi-region 参数包。
+
+    共享参数保持 parser 顺序；局部相位仅保存在 provenance 中用于相位传递
+    验证，运行时的全局相位和旋转参考来自 full 区域。
+    """
     defaults = _parser_defaults(parser)
     _validate_parser_groups(defaults)
     reports = sorted(list(reports), key=lambda item: item.get('direct', -1))
@@ -326,6 +346,7 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
 
 
 def package_parameter_destinations(package):
+    """按参数包分组顺序返回所有可回填 argparse 的参数名。"""
     names = []
     for values in package['shared_parameters'].values():
         names.extend(values)
@@ -334,6 +355,7 @@ def package_parameter_destinations(package):
 
 
 def _direction_keyed(values):
+    """把 JSON 对象中的数值方向键恢复为整数 0、120、240。"""
     if not isinstance(values, dict):
         return deepcopy(values)
     converted = {}
@@ -441,6 +463,7 @@ def render_calibration_comparison(reports):
 
 
 def write_sensor_package(package, path):
+    """创建父目录并原子写入严格 JSON 参数包。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + '.tmp')
@@ -452,6 +475,7 @@ def write_sensor_package(package, path):
 
 
 def load_sensor_package(path, expected_sensor_id=None, *, require_deployable=False):
+    """读取参数包并校验格式版本、传感器编号及可选部署状态。"""
     package = json.loads(Path(path).read_text(encoding='utf-8'))
     if package.get('format_version') != FORMAT_VERSION:
         raise ValueError(f'不支持的参数包 format_version={package.get("format_version")}')
@@ -517,6 +541,7 @@ def apply_validation_results(package, validation):
 
 
 def main(argv=None):
+    """从三个方向的 results.json 导出参数包及可选对比文档。"""
     import argparse
     from datetime import datetime, timezone
     import subprocess

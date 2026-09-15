@@ -34,13 +34,16 @@ def configure_calibration_args(args):
     if args.task in ('recon', 'demo') and args.multi_region_calib:
         if getattr(args, '_sensor_package', None) is None:
             raise ValueError('multi_region_calib=True 的全长 recon/demo 需要 --sensor_params 参数包')
-        if (args.task == 'demo'
-                and args._sensor_package.get('multi_region', {}).get('direction_deployment')
-                and not package_deployment_ready(args._sensor_package)):
+        if args.task == 'demo' and not package_deployment_ready(args._sensor_package):
             direct = args.direction_reference_direct
-            state = args._sensor_package['multi_region']['direction_deployment'].get(str(direct), {})
-            raise ValueError(
-                f'demo 参考方向 {direct} 尚不可部署: {state.get("failures", [])}'
+            state = args._sensor_package.get('multi_region', {}).get(
+                'direction_deployment', {}
+            ).get(str(direct), {})
+            print(
+                '[WARNING] multi-region demo 使用尚未通过部署门禁的参数包: '
+                f'deployment_ready=False, direction_reference_direct={direct}, '
+                f'failures={state.get("failures", [])}。'
+                '本次运行仅用于动态验证区域拼接效果。'
             )
         args.optimization_region = 'full'
         args.multi_region_parameters = args._sensor_package
@@ -230,6 +233,7 @@ def add_anchor_arguments(parser):
 class _StoreCalibrationParameter(argparse.Action):
     """区分未传初值与显式传入 None，保证旧命令仍可强制重新初始化。"""
     def __call__(self, parser, namespace, values, option_string=None):
+        """保存 weights/slopes，并记录该初值由命令行显式提供。"""
         setattr(namespace, self.dest, values)
         explicit = list(getattr(namespace, '_explicit_seed_parameters', []))
         explicit.append(self.dest)
@@ -239,11 +243,13 @@ class _StoreCalibrationParameter(argparse.Action):
 class _StoreFullSegmentation(argparse.Action):
     """记录全长分段是否由命令行显式给出，而非仅采用传感器默认值。"""
     def __call__(self, parser, namespace, values, option_string=None):
+        """保存全长分段，并设置显式覆盖标记供区域一致性校验使用。"""
         setattr(namespace, self.dest, values)
         namespace._full_segmentation_explicit = True
 
 
 def build_argument_parser():
+    """创建主程序参数解析器，集中定义硬件、定标、优化和展示参数。"""
 # ---------- 初始化 ----------
     parser = argparse.ArgumentParser()
     # 以下区域配置也属于传感器参数；复制整个 parser 区块即可保留、迁移。
@@ -272,7 +278,7 @@ def build_argument_parser():
             'length_m': 0.15,
             'folder_path': '末端测试/15cm',
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
-            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 8.0, 20],
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20],
             'segmentation': [3, 2, 2],
             'weights': None, 'slopes': None,
         },
@@ -282,7 +288,7 @@ def build_argument_parser():
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30, 20, 15]},
             # score(0/120/240) 显示 20/15 mm 在 35 m^-1 最高档饱和；
             # 45 m^-1 用于下一轮重新优化，不得与旧 9 组参数混用。
-            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 8.0, 20, 35, 45],
+            'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20, 35, 45],
             'segmentation': [2, 2],
             'weights': None, 'slopes': None,
         },
@@ -290,7 +296,7 @@ def build_argument_parser():
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_centraltube", help='传感器编号')
+    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_ftube", help='传感器编号')
     parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
     parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
@@ -415,7 +421,7 @@ def build_argument_parser():
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值
     # parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
-    parser.add_argument('--rot_ang', type=float, default=0.0, help='绕x轴旋转角度, 初始为0.0')
+    parser.add_argument('--rot_ang', type=float, default=31.8, help='绕x轴旋转角度, 初始为0.0')
     # ===============================不带窗======================================
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, 末端调weight
     # parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 0.10000062686770492, 4.547478524913153, 1.022984574255862, 1.9443742771509285, 1.642872707914389, 1.4723019459684745]), 
@@ -543,6 +549,7 @@ def build_argument_parser():
 
 
 def _explicit_cli_destinations(parser, argv):
+    """返回本次命令行显式指定的 argparse 目标名，用于覆盖参数包默认值。"""
     option_destinations = {
         option: action.dest
         for action in parser._actions
@@ -584,6 +591,7 @@ def parse_main_args(argv=None):
 
 
 def main():
+    """解析任务配置，并分派 init、optim、score、recon、ang 或 demo 流程。"""
     args = parse_main_args()
 
     # 存储零状态只作用于动态展示；其他任务保持原有静态数据流程。

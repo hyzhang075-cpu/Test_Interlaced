@@ -64,13 +64,100 @@ python main.py --task recon --curvature_interp vector_pchip
 #### 4.1.1. 初始化
 在main.py最下方的main()方法中找到硬件参数、标定实验参数以及优化使用的超参数并按照说明修改其default值。
 
-多区域定标、参数包导出/导入、单区域 recon、合并全长 recon、score 分析和离线验证命令见 `docs/calibration-regions.md`。已导出的参数包可用：
+### 4.0 多区域模式
+
+`multi_region_calib` 控制一次任务是使用单一区域，还是批量优化/完整拼接三个区域。当前默认区域为：
+
+- `full`：完整传感器。
+- `end15cm`：末端 15 cm。
+- `end5cm`：末端 5 cm。
+
+`optimization_region` 指定单次使用的区域；`optimization_regions` 指定 `optim` 在多区域模式下依次处理的区域，默认值为 `['full', 'end15cm', 'end5cm']`。
+
+| task | `multi_region_calib=False` | `multi_region_calib=True` |
+|---|---|---|
+| `init` | 初始化 `optimization_region` 指定的一个区域 | 仍只初始化 `optimization_region`，同时校验三个区域与全长分段是否兼容 |
+| `optim` | 只优化 `optimization_region` | 按 `optimization_regions` 依次优化 full、end15cm、end5cm |
+| `recon` | 重构 `optimization_region` 指定的单一区域 | 使用完整传感器点位和参数包中的三个区域参数逐点拼接重构 |
+| `demo` | 使用当前单区域参数动态展示 | 使用完整传感器点位和参数包中的三个区域参数动态拼接重构 |
+
+#### 4.0.1 init：逐段检查初始化结果
+
+`init` 不会自动遍历三个区域。需要分别指定 `optimization_region` 运行，从而检查每段数据、局部相位和分段拟合：
 
 ```powershell
-python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_multi_region.json --multi_region_calib True --direct 0
+python main.py --task init --multi_region_calib True --optimization_region full --weights None --slopes None
+python main.py --task init --multi_region_calib True --optimization_region end15cm --weights None --slopes None
+python main.py --task init --multi_region_calib True --optimization_region end5cm --weights None --slopes None
 ```
 
-运行前应检查包内 `multi_region.deployment_ready`；当前候选包的质量门为 false，用于继续重标定和离线分析。
+设置为 `True` 时，程序还会检查三个区域是否能映射到同一套全长点位和全长分段。只想检查一个尚未加入完整区域配置的区域时，可使用 `--multi_region_calib False`。
+
+#### 4.0.2 optim：按方向优化全部区域
+
+下面一条命令会在同一次运行中依次优化 full、end15cm 和 end5cm，但只处理 `direct=0` 这一个标定方向：
+
+```powershell
+python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 0
+```
+
+0°、120°、240° 必须分别运行：
+
+```powershell
+python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 0
+python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 120
+python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 240
+```
+
+每次运行都会创建独立目录：
+
+```text
+calibration_results/<sensor_id>-<本地时间>-direct<方向>-<随机编号>/
+```
+
+目录中的 `results.json` 保存该方向三个区域的 weights、slopes、误差和优化状态。三个方向完成后，用 `sensor_parameter_package.py` 合并参数；具体导出及定标回放验证命令见 [多区域定标说明](docs/calibration-regions.md)。
+
+如果只需重新优化一个区域，应关闭多区域模式：
+
+```powershell
+python main.py --task optim --multi_region_calib False --optimization_region end5cm --weights None --slopes None --direct 0
+```
+
+#### 4.0.3 recon：单区域与完整拼接回放
+
+单区域重构使用 `multi_region_calib=False`。加载参数包后，程序会选择对应区域自己的 thresholds、weights、slopes 和局部分段：
+
+```powershell
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_region_validated.json --multi_region_calib False --optimization_region full --direct 0
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_region_validated.json --multi_region_calib False --optimization_region end15cm --direct 0
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_region_validated.json --multi_region_calib False --optimization_region end5cm --direct 0
+```
+
+完整多区域重构必须同时提供参数包并设置 `multi_region_calib=True`：
+
+```powershell
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_region_validated.json --multi_region_calib True --direct 0
+```
+
+此时程序固定采用完整传感器几何。每个区域先根据自己的曲率 thresholds 和 sigmoid 设置计算等级，再从对应方向的 weights、slopes 中逐点装配参数；`optimization_region` 不再决定裁剪范围。
+
+#### 4.0.4 demo：动态检查区域拼接
+
+完整多区域动态展示使用已合并的参数包。推荐使用带定标回放证据的 `_validated.json`：
+
+```powershell
+python main.py --task demo `
+  --sensor_params params/06B6_NeTi_v2_ftube_multi_region_validated.json `
+  --multi_region_calib True `
+  --direction_reference_direct 120
+```
+
+multi-region demo 当前使用 `direction_reference_direct` 指定的一套方向参数，不支持三方向动态软混合，因此不要添加 `--direction_blend_enabled`。可将参考方向改为 `0`、`120` 或 `240`，分别观察动态效果。
+
+参数包中 `deployment_ready=False` 时，demo 会在命令行打印 `[WARNING]`、参考方向和门禁失败原因，但仍继续运行，便于实际检查 end15cm/end5cm 交界处的曲率、位置和姿态连续性。该告警表示离线验证尚未通过，不会改变本次动态重构使用的参数。
+
+`06B6_NeTi_v2_ftube_multi_region.json` 与 `_validated.json` 的重构参数相同；后者额外保存 score、相位传递和完整定标回放证据，因此动态验证优先使用 `_validated.json`。
+
 若已有使用当前 --sensor_id 命名的文件夹，将其更名为 --sensor_id(归档)
 
 若当前任务为LUNA数据分析，则阅读各通道结尾为gages.tsv的文件并按照以下步骤更新 --sensing_ranges 的default值:
