@@ -132,7 +132,7 @@
       "maxsize": 10,
       "data_freq": 100,
       "use_stored_zero": true,
-      "zero_reference_path": "E:\\shape_exp\\支气管镜代码\\params\\06B6_NeTi_v2_centraltube_zero_reference.json",
+      "zero_reference_path": "./params/06B6_NeTi_v2_ftube_zero_reference.json",
       "total_scale": 1.0,
       "imu": false,
       "imu_com": "COM6",
@@ -302,7 +302,7 @@
   "regions": {
     "full": {
       "length_m": null,
-      "folder_path": "E:\\shape_exp\\支气管镜代码\\0908-06B6\\全段测试",
+      "folder_path": "全段测试",
       "radii": {
         "circ": [
           0,
@@ -845,7 +845,7 @@
     },
     "end15cm": {
       "length_m": 0.15,
-      "folder_path": "E:\\shape_exp\\支气管镜代码\\0908-06B6\\末端测试\\15cm",
+      "folder_path": "末端测试/15cm",
       "radii": {
         "circ": [
           0,
@@ -1312,7 +1312,7 @@
     },
     "end5cm": {
       "length_m": 0.05,
-      "folder_path": "E:\\shape_exp\\支气管镜代码\\0908-06B6\\末端测试\\5cm",
+      "folder_path": "末端测试/5cm",
       "radii": {
         "circ": [
           0,
@@ -1897,9 +1897,9 @@
       "ang_range"
     ],
     "source_results": [
-      "E:\\shape_exp\\支气管镜代码\\calibration_results\\06B6_NeTi_v2_ftube-20260915T171647+0800-direct0-47934c\\results.json",
-      "E:\\shape_exp\\支气管镜代码\\calibration_results\\06B6_NeTi_v2_ftube-20260915T171651+0800-direct120-a6cdc5\\results.json",
-      "E:\\shape_exp\\支气管镜代码\\calibration_results\\06B6_NeTi_v2_ftube-20260915T171657+0800-direct240-20c5df\\results.json"
+      "./calibration_results/06B6_NeTi_v2_ftube-20260915T171647+0800-direct0-47934c/results.json",
+      "./calibration_results/06B6_NeTi_v2_ftube-20260915T171651+0800-direct120-a6cdc5/results.json",
+      "./calibration_results/06B6_NeTi_v2_ftube-20260915T171657+0800-direct240-20c5df/results.json"
     ],
     "local_global_phases_set": {
       "full": {

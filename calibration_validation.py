@@ -365,6 +365,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
     import main
     from calibration_batch import optimizer_parameters
     from optimiser import Optimiser
+    from sensor_parameter_package import _project_relative_path
 
     package_path = str(Path(package_path).resolve())
     package = json.loads(Path(package_path).read_text(encoding='utf-8'))
@@ -372,7 +373,9 @@ def validate_multiregion_package(package_path, score_results, policy=None):
     if score_path.is_dir():
         score_path = score_path / 'results.json'
     score_report = json.loads(score_path.read_text(encoding='utf-8'))
-    score_evidence = validate_score_evidence(package, score_report, str(score_path.resolve()))
+    score_evidence = validate_score_evidence(
+        package, score_report, _project_relative_path(score_path),
+    )
     policy = dict(DEFAULT_VALIDATION_POLICY if policy is None else policy)
 
     def make(region, merged=False):

@@ -118,6 +118,33 @@ def test_package_merges_literal_direction_angles_in_stable_order():
     assert package['provenance']['generated_at'] == '2026-09-14T00:00:00Z'
 
 
+def test_parser_and_exported_package_use_project_relative_paths():
+    parser = _parser()
+    assert parser.get_default('zero_reference_path') == (
+        './params/06B6_NeTi_v2_ftube_zero_reference.json'
+    )
+
+    reports = [_report(direct) for direct in (0, 120, 240)]
+    for report in reports:
+        report['_source_path'] = str(
+            ROOT / 'calibration_results' / f'run-direct{report["direct"]}' / 'results.json'
+        )
+        for region in REGIONS:
+            report['regions'][region]['context']['folder_path'] = str(
+                ROOT / '0908-06B6' / region
+            )
+
+    package = build_sensor_package(parser, reports)
+
+    # Region folders are relative to calibration_data_root, avoiding a duplicated
+    # ``0908-06B6/0908-06B6`` prefix when main resolves them at runtime.
+    assert package['regions']['full']['folder_path'] == 'full'
+    assert package['provenance']['source_results'][0] == (
+        './calibration_results/run-direct0/results.json'
+    )
+    assert not any(':' in path for path in package['provenance']['source_results'])
+
+
 def test_every_parser_destination_has_one_authoritative_package_location():
     parser = _parser()
     expected = [action.dest for action in parser._actions if action.dest != 'help']

@@ -350,7 +350,7 @@ def build_argument_parser():
     parser.add_argument('--maxsize', type=int, default=10, choices=[10, 2], help='FiberTecc使用10, Hippo使用2')
     parser.add_argument('--data_freq', type=int, default=100, help='解调仪频率')
     parser.add_argument('--use_stored_zero', type=_str2bool, default=True, help='demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零')
-    parser.add_argument('--zero_reference_path', type=str, default=str(Path(__file__).resolve().parent / 'params' / '06B6_NeTi_v2_ftube_zero_reference.json'), help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
+    parser.add_argument('--zero_reference_path', type=str, default='./params/06B6_NeTi_v2_ftube_zero_reference.json', help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
     parser.add_argument('--total_scale', type=float, default=1.0, help='动态显示大小')
     parser.add_argument('--imu', type=bool, default=False, help='是否启用IMU')
     parser.add_argument('--imu_com', type=str, default='COM6', help='IMU接口')

@@ -55,6 +55,37 @@ PARSER_GROUPS = {
 }
 
 SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set', 'rot_ang')
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _project_relative_path(value):
+    """将项目内路径写成以 ``./`` 开头的 POSIX 相对路径，便于跨电脑迁移。"""
+    if value is None:
+        return None
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            path = path.resolve().relative_to(PROJECT_ROOT)
+        except ValueError:
+            return path.as_posix()
+    relative = path.as_posix()
+    return relative if relative.startswith('./') else f'./{relative}'
+
+
+def _calibration_relative_path(value, calibration_data_root):
+    """将区域数据目录保存为相对 calibration_data_root 的路径。"""
+    if value is None:
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        return path.as_posix().removeprefix('./')
+    root = Path(calibration_data_root)
+    if not root.is_absolute():
+        root = PROJECT_ROOT / root
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _native(value):
@@ -109,7 +140,7 @@ def load_calibration_results(paths):
         if direct in seen:
             raise ValueError(f'定标方向重复: {direct}')
         seen.add(direct)
-        report['_source_path'] = str(path.resolve())
+        report['_source_path'] = _project_relative_path(path)
         reports.append(report)
     return sorted(reports, key=lambda item: REQUIRED_DIRECTIONS.index(item['direct'])
                   if item.get('direct') in REQUIRED_DIRECTIONS else len(REQUIRED_DIRECTIONS))
@@ -266,7 +297,9 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
 
         region_blocks[region] = {
             'length_m': context.get('length_m'),
-            'folder_path': context.get('folder_path'),
+            'folder_path': _calibration_relative_path(
+                context.get('folder_path'), defaults['calibration_data_root'],
+            ),
             'radii': deepcopy(context.get('radii')),
             'thresholds': thresholds,
             'sharpness': defaults['sharpness'],
@@ -337,7 +370,9 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'source_commit': source_commit,
             'generated_at': generated_at,
             'parser_destination_order': list(defaults),
-            'source_results': [report.get('_source_path') for report in reports],
+            'source_results': [
+                _project_relative_path(report.get('_source_path')) for report in reports
+            ],
             'local_global_phases_set': local_phases,
             'local_rot_ang': local_rot_angles,
         },
@@ -494,6 +529,10 @@ def load_sensor_package(path, expected_sensor_id=None, *, require_deployable=Fal
 def apply_validation_results(package, validation):
     """Attach immutable validation evidence and refresh per-direction gates."""
     package = deepcopy(package)
+    validation = deepcopy(validation)
+    score_evidence = validation.get('score_evidence', {})
+    if score_evidence.get('source_path') is not None:
+        score_evidence['source_path'] = _project_relative_path(score_evidence['source_path'])
     multi = package['multi_region']
     validation_directions = validation.get('directions', {})
     missing = [str(d) for d in multi['directions'] if str(d) not in validation_directions]
