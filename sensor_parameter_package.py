@@ -437,7 +437,7 @@ def render_calibration_comparison(reports):
                 *radius_lines,
                 '',
             ])
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines).rstrip() + '\n'
 
 
 def write_sensor_package(package, path):
