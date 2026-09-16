@@ -44,7 +44,7 @@ def prepare_calibration_jobs(args, configure):
             any(not isinstance(region, str) for region in regions) or len(set(regions)) != len(regions)):
         raise ValueError('optimization_regions 必须是非空、无重复的区域名称列表')
     if len(regions) > 1:
-        for key in ('folder_path', 'radii', 'thresholds', 'segmentation', 'straight_trim', 'weights', 'slopes'):
+        for key in ('folder_path', 'radii', 'thresholds', 'segmentation', 'straight_trim', 'weights', 'slopes', 'end_weights', 'end_start'):
             if getattr(args, key) is not None:
                 raise ValueError(f'批量任务不能共用单个 {key} 覆盖值；请写入 calibration_regions 各区域配置')
     jobs = []
@@ -120,6 +120,8 @@ def collect_calibration_result(optim, stages):
         'parameters': {
             'weights': {optim.direct: optim.weights[optim.direct]},
             'slopes': {optim.direct: optim.slopes[optim.direct]},
+            'end_weights': bool(getattr(optim, 'end_weights', False)),
+            'end_start': getattr(optim, 'end_start', (getattr(optim, 'calibration_context', None) or {}).get('end_start', -5)),
             'global_phases_set': optim.global_phases_set,
             'rot_ang': optim.rot_ang,
             'phase_reference': getattr(optim, 'phase_reference', None),

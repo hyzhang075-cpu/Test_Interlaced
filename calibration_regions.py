@@ -9,6 +9,17 @@ from copy import deepcopy
 import numpy as np
 
 
+def validate_end_weight_config(enabled, start, point_count):
+    """校验区域末端权重开关与负索引；索引只包含真实support点。"""
+    if not isinstance(enabled, (bool, np.bool_)):
+        raise ValueError('end_weights 必须是布尔值')
+    if isinstance(start, bool) or not isinstance(start, (int, np.integer)) or start >= 0:
+        raise ValueError('end_start 必须是负整数')
+    if enabled and -start > point_count:
+        raise ValueError('end_start 超出区域真实点数量')
+    return bool(enabled), int(start)
+
+
 def compute_fbg_geometry(start_value, end_value, samp_dist_preset):
     """mm 输入，返回全长(m)和未裁剪真实采样坐标(m)。
 
@@ -90,6 +101,8 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
         raise ValueError(f'{optimization_region} 缺少 radii 或 folder_path')
 
     samples = positions[start_index:] - crop_start
+    profile['end_weights'], profile['end_start'] = validate_end_weight_config(
+        profile.get('end_weights', False), profile.get('end_start', -5), len(samples))
     samples[np.abs(samples) < 1e-12] = 0.0
     profile.update(
         ideal_len=ideal_len,

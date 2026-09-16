@@ -69,6 +69,11 @@ def configure_calibration_args(args):
         full_segments = args.segmentation
     profiles['full']['segmentation'] = list(full_segments)
     selected = profiles[args.optimization_region]
+    # CLI覆盖仅作用于所选区域；None表示使用区域配置。旧包缺字段时保持关闭。
+    for key, fallback in (('end_weights', False), ('end_start', -5)):
+        override = getattr(args, key)
+        selected[key] = selected.get(key, fallback) if override is None else override
+        setattr(args, key, selected[key])
     explicit_cli = set(getattr(args, '_explicit_cli_parameters', ()))
     if selected.get('sharpness') is not None and 'sharpness' not in explicit_cli:
         args.sharpness = selected['sharpness']
@@ -286,6 +291,7 @@ def build_argument_parser():
             'folder_path': '全段测试',
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]},
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0],
+            'end_weights': False, 'end_start': -5,
             'weights': None, 'slopes': None,
         },
         'end15cm': {
@@ -293,6 +299,7 @@ def build_argument_parser():
             'folder_path': '末端测试/15cm',
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20],
+            'end_weights': False, 'end_start': -5,
             'segmentation': [3, 2, 2],
             'weights': None, 'slopes': None,
         },
@@ -303,6 +310,7 @@ def build_argument_parser():
             # score(0/120/240) 显示 20/15 mm 在 35 m^-1 最高档饱和；
             # 45 m^-1 用于下一轮重新优化，不得与旧 9 组参数混用。
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20, 35, 45],
+            'end_weights': True, 'end_start': -1,
             'segmentation': [2, 2],
             'weights': None, 'slopes': None,
         },
@@ -420,8 +428,8 @@ def build_argument_parser():
     parser.add_argument('--nonnegative_curvature', action='store_true', help='对插值后的曲率施加非负约束')
     parser.add_argument('--sharpness', type=float, default=4.8, help='sigmoid软评分硬度')
     # parser.add_argument('--end_weights', type=bool, default=False, help='是否对末端另算权重') #肉眼看穿过标准圆圈的点数（前后段weight不一致），然后在直线段看见的点数来判断在距离多少（旁边有格尺），然后回到init图中看看离末端有几个fbg（例如9个），那就在下面'--end_start', type=int, default=-6, help='末端起点')这里改成-9
-    parser.add_argument('--end_weights', type=bool, default=False, help='是否对末端另算权重') #考虑末端15cm
-    parser.add_argument('--end_start', type=int, default=-5, help='末端起点')
+    parser.add_argument('--end_weights', type=_str2bool, default=None, help='覆盖所选区域末端权重开关；默认使用calibration_regions')
+    parser.add_argument('--end_start', type=int, default=None, help='覆盖所选区域末端起点负索引；仅计真实点')
     parser.add_argument('--TNB_threshold', type=float, default=0.0, help='TNB重构直线判定阈值')
     # 初始化时必须手动调整的超参数
     parser.add_argument('--straight_trim', type=float, default=None, help='由优化区域长度计算；显式值必须一致')

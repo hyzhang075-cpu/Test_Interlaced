@@ -14,6 +14,13 @@ PRESET = [510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809,
 FULL_SEGMENTS = [2, 3, 5, 2, 3, 3, 2, 2]
 
 
+@pytest.mark.parametrize('enabled,start', [(True, -5), (True, 0), (True, 1), (True, -1.5), ('False', -1)])
+def test_end_weight_region_validation_rejects_invalid_flags_and_indices(enabled, start):
+    from calibration_regions import validate_end_weight_config
+    with pytest.raises(ValueError):
+        validate_end_weight_config(enabled, start, 4)
+
+
 def resolve(**overrides):
     assert importlib.util.find_spec('calibration_regions'), 'missing region resolver'
     from calibration_regions import resolve_calibration_region
@@ -221,10 +228,10 @@ def test_main_preloaded_lists_support_reconstructor_two_axis_indexing(monkeypatc
     def capture(**kwargs):
         # _Strain_2_Cur indexes slope[level, segment], which plain nested lists reject.
         assert kwargs['slopes'][0][level_count - 1, 1] == 1.0
-        assert kwargs['weights'][0].shape == (level_count,)
+        assert kwargs['weights'][0].shape == (2 * level_count,)
         raise ConfigReached
     slopes = {d: [[1.0, 1.0] for _ in range(level_count)] for d in [0, 120, 240]}
-    weights = {d: [1.0] * level_count for d in [0, 120, 240]}
+    weights = {d: [1.0] * (2 * level_count) for d in [0, 120, 240]}
     monkeypatch.setattr(main, 'Optimiser', capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'recon',
                                     '--multi_region_calib', 'False', '--optimization_region', 'end5cm',

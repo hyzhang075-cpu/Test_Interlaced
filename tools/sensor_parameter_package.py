@@ -11,6 +11,7 @@ if __package__ in (None, "") and str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+from calibration_regions import validate_end_weight_config
 
 
 FORMAT_VERSION = 2
@@ -170,7 +171,9 @@ def _same_context(left, right):
         'sample_dist_m', 'crop_origin_m', 'reconstruction_length_m',
         'ideal_len', 'straight_trim',
     )
-    return all(_native(left.get(key)) == _native(right.get(key)) for key in keys)
+    return (all(_native(left.get(key)) == _native(right.get(key)) for key in keys)
+            and left.get('end_weights', False) == right.get('end_weights', False)
+            and left.get('end_start', -5) == right.get('end_start', -5))
 
 
 def _stage_failures(report):
@@ -270,6 +273,9 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         thresholds = list(context['thresholds'])
         segmentation = list(context['segmentation'])
         levels = len(thresholds) + 1
+        end_weights, end_start = validate_end_weight_config(
+            context.get('end_weights', False), context.get('end_start', -5), len(supports[region]))
+        weight_count = levels * (2 if end_weights else 1)
         weights = {}
         slopes = {}
         errors = {}
@@ -286,11 +292,14 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             if not _same_context(context, other_context):
                 raise ValueError(f'{region} 跨方向 context 不一致')
             params = entry.get('parameters', {})
+            if (params.get('end_weights', end_weights) != end_weights
+                    or params.get('end_start', end_start) != end_start):
+                raise ValueError(f'{direct}/{region} 参数与context的末端权重配置不一致')
             direct_key = str(direct)
             weight = np.asarray(params.get('weights', {}).get(direct_key), dtype=float)
             slope = np.asarray(params.get('slopes', {}).get(direct_key), dtype=float)
-            if weight.shape != (levels,) or not np.all(np.isfinite(weight)):
-                raise ValueError(f'{direct}/{region} weights 形状应为 {(levels,)}，收到 {weight.shape}')
+            if weight.shape != (weight_count,) or not np.all(np.isfinite(weight)):
+                raise ValueError(f'{direct}/{region} weights 形状应为 {(weight_count,)}，收到 {weight.shape}')
             expected_slope = (levels, len(segmentation))
             if slope.shape != expected_slope or not np.all(np.isfinite(slope)):
                 raise ValueError(f'{direct}/{region} slopes 形状应为 {expected_slope}，收到 {slope.shape}')
@@ -309,6 +318,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             ),
             'radii': deepcopy(context.get('radii')),
             'thresholds': thresholds,
+            'end_weights': end_weights,
+            'end_start': end_start,
             'sharpness': defaults['sharpness'],
             'score_window': defaults['min_consecutive'],
             'score_boundary_mode': 'constant',
@@ -446,6 +457,8 @@ def package_parser_defaults(package):
             'folder_path': deepcopy(block.get('folder_path')),
             'radii': deepcopy(block.get('radii')),
             'thresholds': deepcopy(block['thresholds']),
+            'end_weights': deepcopy(block.get('end_weights', False)),
+            'end_start': deepcopy(block.get('end_start', -5)),
             'segmentation': deepcopy(block['local_segmentation']),
             'sharpness': deepcopy(block.get('sharpness')),
             'score_window': deepcopy(block.get('score_window')),

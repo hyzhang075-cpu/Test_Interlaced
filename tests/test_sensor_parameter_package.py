@@ -54,6 +54,36 @@ def test_export_preserves_fixed_phase_references_and_direction_scope():
         build_sensor_package(_parser(), reports)
 
 
+def test_end_weight_package_roundtrip_keeps_region_scope_and_old_packages_disabled(tmp_path):
+    reports = [_report(d) for d in (0, 120, 240)]
+    for report in reports:
+        entry = report['regions']['end5cm']
+        entry['context'].update(end_weights=True, end_start=-1)
+        key = str(report['direct'])
+        entry['parameters']['weights'][key] *= 2
+    package = build_sensor_package(_parser(), reports)
+    profiles = package_parser_defaults(package)['calibration_regions']
+    assert profiles['end5cm']['end_weights'] is True
+    assert profiles['end5cm']['end_start'] == -1
+    assert profiles['full']['end_weights'] is False
+    assert profiles['end15cm']['end_weights'] is False
+    path = tmp_path / 'sensor.json'
+    write_sensor_package(package, path)
+    import main
+    args = main.parse_main_args(['--task', 'recon', '--sensor_params', str(path),
+                                 '--optimization_region', 'end5cm',
+                                 '--full_segmentation', '[2,2]',
+                                 '--samp_dist_preset', '[0,11,45,100]'])
+    main.configure_calibration_args(args)
+    assert args.end_weights is True and args.end_start == -1
+    assert args.weights[0].shape == (2 * (len(profiles['end5cm']['thresholds'])+1),)
+    legacy = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    assert package_parser_defaults(legacy)['calibration_regions']['end5cm']['end_weights'] is False
+    reports[1]['regions']['end5cm']['context']['end_start'] = -2
+    with pytest.raises(ValueError, match='context'):
+        build_sensor_package(_parser(), reports)
+
+
 def _entry(region, direct, *, stage_status='converge'):
     cfg = REGIONS[region]
     levels = len(cfg['thresholds']) + 1

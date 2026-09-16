@@ -369,6 +369,20 @@ python main.py --task demo `
 
 在项目根目录执行工具，例如 `python tools/sensor_parameter_package.py --help`，也可用 `python -m tools.sensor_parameter_package --help`。`main.py` 的任务命令和 `params` 文件路径保持原用法。
 
+### 区域独立末端权重
+
+`calibration_regions` 中的 `end_weights/end_start` 决定各区域是否另算末端权重。当前parser区域默认值为：full、end15cm关闭；end5cm开启，`end_start=-1`，只补偿全局第22个真实点。虚拟末点随后复制第22点补偿后的曲率。
+
+设某区域有N个曲率等级：关闭时weights长度为N；开启时长度为2N，前N个为普通点权重，后N个为末端点权重，两组按该区域同一套实测曲率评分混合。slopes仍为N行，不增加一组。此功能沿用原有先slope、后weight优化，不增加单调性约束。
+
+```bash
+python main.py --task optim --multi_region_calib True --weights None --slopes None --direct 0
+```
+
+分别将direct换为120、240运行。不要为批量任务传入全局`--end_weights/--end_start`，请在区域字典中修改；单区域对照可使用`--optimization_region end5cm --end_weights False`。新配置下end5cm有10个等级，优化生成20个weights，slopes保持10×2。
+
+导出工具会保存每个区域的end_weights、end_start和完整双组weights，main及多区域recon/demo加载后按各区域真实support点范围分配。旧参数包缺少字段时保持关闭，不自动复制旧weights生成新定标结果。加载旧包时会继承其旧区域配置；要使用当前parser的新区域默认值重新优化，请省略`--sensor_params`，优化后导出到新的文件名。
+
 ### 固定上游相位与跨界 slope 对比测试
 
 `--use_full_transported_phase` 默认 `False`。开启后，按照 full → end15cm → end5cm 顺序优化：

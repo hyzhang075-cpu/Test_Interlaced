@@ -5,6 +5,7 @@ from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import CubicHermiteSpline, PchipInterpolator
 
 from initialiser import Initialiser
+from calibration_regions import validate_end_weight_config
 
 from tools.utils import dict_recur_paths, dict_recur_unflatten, dict_recur_extract_path
 
@@ -31,6 +32,7 @@ class Reconstructor(Initialiser):
         self.num_levels = len(self.thresholds) + 1 
         self.base_segments = self._calculate_segments(total_points=self.total_points)
         self.end_mask = np.arange(self.total_points) >= self.total_points + end_start
+        self.end_start = end_start
         self.TNB_threshold = TNB_threshold # FS重构时直接复制上一点的曲率大小阈值
 
         # 需要优化的应变权重、扭转系数以及旋转角度
@@ -797,14 +799,17 @@ class Reconstructor(Initialiser):
             if not set(owned).issubset(support) or not set(support).issubset(sensor_points):
                 raise ValueError(f'{name} owned/support points 无效')
             levels = len(thresholds) + 1
+            enabled, end_start = validate_end_weight_config(
+                block.get('end_weights', False), block.get('end_start', -5), len(support))
+            expected_weights = levels * (2 if enabled else 1)
             normalized_weights = {}
             normalized_slopes = {}
             for direct in directions:
                 key = str(direct) if str(direct) in block['weights'] else direct
                 weights = np.asarray(block['weights'][key], dtype=float)
                 slopes = np.asarray(block['slopes'][key], dtype=float)
-                if weights.shape != (levels,) or not np.all(np.isfinite(weights)):
-                    raise ValueError(f'{direct}/{name} weights shape 应为 {(levels,)}')
+                if weights.shape != (expected_weights,) or not np.all(np.isfinite(weights)):
+                    raise ValueError(f'{direct}/{name} weights shape 应为 {(expected_weights,)}')
                 if slopes.shape != (levels, len(segmentation)) or not np.all(np.isfinite(slopes)):
                     raise ValueError(
                         f'{direct}/{name} slopes shape 应为 {(levels, len(segmentation))}'
@@ -817,6 +822,8 @@ class Reconstructor(Initialiser):
             block['owned_point_ids'] = owned
             block['global_segment_ids'] = segment_ids
             block['weights'] = normalized_weights
+            block['end_weights'] = enabled
+            block['end_start'] = end_start
             block['slopes'] = normalized_slopes
             block['sharpness'] = float(block.get('sharpness', self.sharpness))
             block['score_window'] = max(1, int(block.get('score_window', self.min_consecutive)))
@@ -906,7 +913,12 @@ class Reconstructor(Initialiser):
             )
             masses = self._alloc_mass(scores)
             weights = block['weights'][direct]
-            support_weights = np.sum(masses * weights[:, None], axis=0)
+            levels = masses.shape[0]
+            weight_vectors = np.broadcast_to(weights[:levels, None], masses.shape).copy()
+            if block['end_weights']:
+                # 负索引相对于区域support真实点，虚拟点随后复制补偿后的末点。
+                weight_vectors[:, block['end_start']:] = weights[levels:, None]
+            support_weights = np.sum(masses * weight_vectors, axis=0)
             labels = self._local_segment_labels(block['local_segmentation'])
             slopes = block['slopes'][direct]
             slope_vectors = slopes[:, labels]
@@ -920,6 +932,9 @@ class Reconstructor(Initialiser):
                 'scores': scores.tolist(),
                 'masses': masses.tolist(),
                 'mass_shape': list(masses.shape),
+                'end_weights': block['end_weights'],
+                'end_start': block['end_start'],
+                'effective_weights': support_weights.tolist(),
             }
 
         if fixed_bridges:

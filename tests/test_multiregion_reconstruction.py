@@ -97,6 +97,21 @@ def test_fixed_phase_mode_pins_only_bridges_in_base_and_final_maps():
     assert other[2] >= 100. and other[4] >= 1000.
 
 
+@pytest.mark.parametrize('end_start,tail_count', [(-1, 1), (-2, 2)])
+def test_region_tail_weights_use_second_bank_only_on_selected_real_points(end_start, tail_count):
+    config = package()
+    block = config['regions']['end5cm']
+    block.update(end_weights=True, end_start=end_start)
+    for direction in (0, 120, 240):
+        block['weights'][str(direction)] = [2.]*4+[5.]*4
+    obj, _ = bare_reconstructor(config)
+    strain = np.vstack((np.ones(6), np.zeros((2, 6))))
+    _, _, weights, _, _ = obj._assemble_multiregion_parameters(strain, 0)
+    np.testing.assert_allclose(weights[-tail_count:], 5.)
+    if tail_count == 1:
+        assert weights[-2] == pytest.approx(2.)
+
+
 def test_scores_are_computed_on_support_before_owned_points_are_extracted():
     config = package()
     config['regions']['end15cm']['owned_point_ids'] = [3, 4, 5]

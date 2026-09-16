@@ -41,6 +41,18 @@ def test_parser_parses_numeric_optimizer_bounds_from_cli():
     assert args.slope_upper_bound == 80.0
 
 
+def test_region_defaults_enable_tail_weights_only_for_end5():
+    import main
+    args = parser_args('--multi_region_calib', 'True')
+    jobs = runner().prepare_calibration_jobs(args, main.configure_calibration_args)
+    assert [job.end_weights for job, _ in jobs] == [False, False, True]
+    assert jobs[-1][0].end_start == -1
+    assert jobs[-1][1]['end_weights'] is True
+    args = parser_args('--optimization_region', 'end5cm', '--end_weights', 'False')
+    main.configure_calibration_args(args)
+    assert args.end_weights is False
+
+
 def test_full_segmentation_cli_override_does_not_conflict_with_parser_default():
     import main
     args = parser_args('--task', 'init', '--segmentation', '[2,3,5,2,3,7]')
@@ -129,10 +141,11 @@ def test_explicit_none_resets_region_seed_but_default_uses_it():
     import main
     args = parser_args('--task', 'init', '--multi_region_calib', 'True', '--optimization_region', 'end5cm')
     level_count = len(args.calibration_regions['end5cm']['thresholds']) + 1
-    seeds = {d: [1.] * level_count for d in [0, 120, 240]}
+    weight_count = 2 * level_count
+    seeds = {d: [1.] * weight_count for d in [0, 120, 240]}
     args.calibration_regions['end5cm']['weights'] = seeds
     main.configure_calibration_args(args)
-    assert args.weights[0].tolist() == [1.] * level_count
+    assert args.weights[0].tolist() == [1.] * weight_count
     reset = parser_args('--task', 'init', '--multi_region_calib', 'True', '--optimization_region', 'end5cm', '--weights', 'None')
     reset.calibration_regions['end5cm']['weights'] = seeds
     main.configure_calibration_args(reset)
