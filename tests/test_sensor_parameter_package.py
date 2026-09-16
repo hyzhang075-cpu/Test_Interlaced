@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sensor_parameter_package import (
+from tools.sensor_parameter_package import (
     apply_validation_results,
     build_sensor_package,
     load_calibration_results,
@@ -36,6 +36,22 @@ REGIONS = {
 def _parser():
     import main
     return main.build_argument_parser()
+
+
+def test_export_preserves_fixed_phase_references_and_direction_scope():
+    reports = [_report(d) for d in (0, 120, 240)]
+    for region in ('end15cm', 'end5cm'):
+        reports[0]['regions'][region]['parameters']['phase_reference'] = {
+            'mode': 'full_level0_fixed_bridge', 'phase_at_first_point_rad': .4,
+        }
+    result = build_sensor_package(_parser(), reports)
+    assert result['multi_region']['use_full_transported_phase'] is True
+    assert result['multi_region']['phase_reference_directions'] == [0]
+    assert package_parser_defaults(result)['use_full_transported_phase'] is True
+    assert result['regions']['end5cm']['phase_reference']['0']['phase_at_first_point_rad'] == .4
+    reports[0]['regions']['end5cm']['parameters']['phase_reference'] = None
+    with pytest.raises(ValueError):
+        build_sensor_package(_parser(), reports)
 
 
 def _entry(region, direct, *, stage_status='converge'):

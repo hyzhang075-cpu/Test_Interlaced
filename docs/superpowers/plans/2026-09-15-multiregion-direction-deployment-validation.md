@@ -4,7 +4,7 @@
 
 **Goal:** Validate a multi-region sensor package from calibration replay, record deployability per direction, and allow demo to use one validated reference direction.
 
-**Architecture:** `calibration_validation.py` computes shared score evidence, full-to-local phase transport, full-only versus multi-region replay metrics, and per-direction decisions. `sensor_parameter_package.py` applies that evidence immutably and computes runtime-aware package readiness. `main.py` passes multi-region packages into both recon and demo, while `demonstrator.py` supplies the selected direction to reconstruction.
+**Architecture:** `tools/calibration_validation.py` computes shared score evidence, full-to-local phase transport, full-only versus multi-region replay metrics, and per-direction decisions. `tools/sensor_parameter_package.py` applies that evidence immutably and computes runtime-aware package readiness. `main.py` passes multi-region packages into both recon and demo, while `demonstrator.py` supplies the selected direction to reconstruction.
 
 **Tech Stack:** Python 3, NumPy, argparse, JSON, pytest
 
@@ -25,8 +25,8 @@
 ### Task 1: Direction-aware package gate schema
 
 **Files:**
-- Modify: `sensor_parameter_package.py:134-286`
-- Modify: `sensor_parameter_package.py:418-449`
+- Modify: `tools/sensor_parameter_package.py:134-286`
+- Modify: `tools/sensor_parameter_package.py:418-449`
 - Test: `tests/test_sensor_parameter_package.py`
 
 **Interfaces:**
@@ -94,14 +94,14 @@ else:
 Run the focused tests, then:
 
 ```powershell
-git add sensor_parameter_package.py tests/test_sensor_parameter_package.py
+git add tools/sensor_parameter_package.py tests/test_sensor_parameter_package.py
 git commit -m "feat: track deployment readiness by direction"
 ```
 
 ### Task 2: Shared score and phase-transport evidence
 
 **Files:**
-- Modify: `calibration_validation.py:1-105`
+- Modify: `tools/calibration_validation.py:1-105`
 - Test: `tests/test_calibration_validation.py`
 
 **Interfaces:**
@@ -140,14 +140,14 @@ quantiles, and failures.
 - [ ] **Step 5: Run tests and commit**
 
 ```powershell
-git add calibration_validation.py tests/test_calibration_validation.py
+git add tools/calibration_validation.py tests/test_calibration_validation.py
 git commit -m "feat: validate score and transported phase evidence"
 ```
 
 ### Task 3: Full-only versus multi-region replay and direction decisions
 
 **Files:**
-- Modify: `calibration_validation.py:15-202`
+- Modify: `tools/calibration_validation.py:15-202`
 - Test: `tests/test_calibration_validation.py`
 
 **Interfaces:**
@@ -194,15 +194,15 @@ under diagnostics only.
 - [ ] **Step 6: Run tests and commit**
 
 ```powershell
-git add calibration_validation.py tests/test_calibration_validation.py
+git add tools/calibration_validation.py tests/test_calibration_validation.py
 git commit -m "feat: gate directions from full geometry replay"
 ```
 
 ### Task 4: Validation CLI, reports, and validated package output
 
 **Files:**
-- Modify: `calibration_validation.py:204-245`
-- Modify: `sensor_parameter_package.py:402-414`
+- Modify: `tools/calibration_validation.py:204-245`
+- Modify: `tools/sensor_parameter_package.py:402-414`
 - Test: `tests/test_calibration_validation.py`
 - Test: `tests/test_sensor_parameter_package.py`
 
@@ -236,7 +236,7 @@ metrics.
 - [ ] **Step 4: Run tests and commit**
 
 ```powershell
-git add calibration_validation.py sensor_parameter_package.py tests/test_calibration_validation.py tests/test_sensor_parameter_package.py
+git add tools/calibration_validation.py tools/sensor_parameter_package.py tests/test_calibration_validation.py tests/test_sensor_parameter_package.py
 git commit -m "feat: export validated multi-region packages"
 ```
 
@@ -309,7 +309,7 @@ python -m pytest tests/test_sensor_parameter_package.py tests/test_calibration_v
 - [ ] **Step 2: Run the real replay command**
 
 ```powershell
-python calibration_validation.py --sensor-params params/06B6_NeTi_v2_ftube_multi_region.json --score-results calibration_results/06B6_NeTi_v2_ftube-20260915T171510+0800-direct0-ff2631 --json-output docs/06B6_NeTi_v2_ftube-multiregion-validation.json --markdown-output docs/06B6_NeTi_v2_ftube-multiregion-validation.md --package-output params/06B6_NeTi_v2_ftube_multi_region_validated.json
+python tools/calibration_validation.py --sensor-params params/06B6_NeTi_v2_ftube_multi_region.json --score-results calibration_results/06B6_NeTi_v2_ftube-20260915T171510+0800-direct0-ff2631 --json-output docs/06B6_NeTi_v2_ftube-multiregion-validation.json --markdown-output docs/06B6_NeTi_v2_ftube-multiregion-validation.md --package-output params/06B6_NeTi_v2_ftube_multi_region_validated.json
 ```
 
 - [ ] **Step 3: Inspect evidence without weakening policy**

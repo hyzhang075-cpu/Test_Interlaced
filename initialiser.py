@@ -3,7 +3,7 @@ from scipy import stats
 
 from sensor import Sensor
 
-from utils import dict_recur_extract_path, dict_recur_flatten, dict_recur_unflatten
+from tools.utils import dict_recur_extract_path, dict_recur_flatten, dict_recur_unflatten
 
 class Initialiser(Sensor):
     """

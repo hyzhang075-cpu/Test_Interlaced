@@ -81,6 +81,22 @@ def test_each_region_uses_its_own_threshold_count_weights_and_slopes():
     np.testing.assert_allclose(calls[-1], strain * final_weight)
 
 
+def test_fixed_phase_mode_pins_only_bridges_in_base_and_final_maps():
+    config = package()
+    config['multi_region']['use_full_transported_phase'] = True
+    config['multi_region']['phase_reference_directions'] = [0]
+    obj, _ = bare_reconstructor(config)
+    strain = np.vstack((np.arange(6, dtype=float), np.zeros((2, 6))))
+    *_, slopes, diagnostics = obj._assemble_multiregion_parameters(strain, 0)
+    assert diagnostics['fixed_full_level0_bridges'] is True
+    assert diagnostics['base_slope_map'][2] == slopes[2] == 11.
+    assert diagnostics['base_slope_map'][4] == slopes[4] == 12.
+    assert slopes[3] >= 100. and slopes[5] >= 1000.
+    *_, other, diagnostics = obj._assemble_multiregion_parameters(strain, 120)
+    assert diagnostics['fixed_full_level0_bridges'] is False
+    assert other[2] >= 100. and other[4] >= 1000.
+
+
 def test_scores_are_computed_on_support_before_owned_points_are_extracted():
     config = package()
     config['regions']['end15cm']['owned_point_ids'] = [3, 4, 5]

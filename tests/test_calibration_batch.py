@@ -68,6 +68,56 @@ def test_all_regions_prepared_independently_without_mutating_parser_defaults():
     assert args.calibration_regions['end5cm']['segmentation'] == [2, 2]
 
 
+def test_fixed_phase_parser_defaults_off_and_requires_upstream_jobs():
+    import main
+    assert parser_args().use_full_transported_phase is False
+    args = parser_args('--multi_region_calib', 'True', '--use_full_transported_phase', 'True')
+    jobs = runner().prepare_calibration_jobs(args, main.configure_calibration_args)
+    assert len(jobs) == 3
+    assert all(j.use_full_transported_phase for j, _ in jobs)
+    assert '_phase_source_jobs' not in runner().optimizer_parameters(jobs[-1][0])
+    args.optimization_regions = ['end5cm']
+    with pytest.raises(ValueError):
+        runner().prepare_calibration_jobs(args, main.configure_calibration_args)
+
+
+def test_fixed_phase_batch_uses_completed_upstream_and_sets_phase_before_optim(tmp_path, monkeypatch):
+    import main
+    import calibration_phase_reference
+    module = runner()
+    args = parser_args('--multi_region_calib', 'True', '--use_full_transported_phase', 'True')
+    jobs = module.prepare_calibration_jobs(args, main.configure_calibration_args)
+    completed = []
+    references = []
+
+    class Optim:
+        def __init__(self, **params):
+            self.global_phases_set = params['global_phases_set']
+
+        def optim_coeff(self, verbose=True):
+            region = self.calibration_context['optimization_region']
+            if region != 'full':
+                assert self.global_phases_set == self.phase_reference['phase_at_first_point_rad']
+            completed.append(self)
+            return {}
+
+    def reference(full, upstream, context, direct):
+        assert full is completed[0]
+        assert upstream is completed[-1]
+        references.append(context['optimization_region'])
+        return {'mode': 'full_level0_fixed_bridge', 'phase_at_first_point_rad': float(len(completed))}
+
+    monkeypatch.setattr(calibration_phase_reference, 'build_fixed_phase_reference', reference)
+    monkeypatch.setattr(module, 'collect_calibration_result', lambda optim, stages: {
+        'parameters': {'weights': {}, 'slopes': {}, 'phase_reference': optim.phase_reference},
+        'errors': {},
+    })
+    _, report = module.run_calibration_jobs(jobs, Optim, output_root=tmp_path)
+    assert references == ['end15cm', 'end5cm']
+    assert len(completed) == 3
+    assert report['regions']['end5cm']['parameters']['phase_reference']['source_kind'] == 'current_batch'
+
+
 def test_batch_rejects_one_folder_override_for_multiple_lengths():
     import main
     args = parser_args('--multi_region_calib', 'True', '--folder_path', 'wrong-for-all')

@@ -8,9 +8,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import calibration_validation as validation_module
+import tools.calibration_validation as validation_module
 
-from calibration_validation import (
+from tools.calibration_validation import (
     DEFAULT_VALIDATION_POLICY,
     build_phase_transport_evidence,
     boundary_diagnostics,
@@ -278,7 +278,7 @@ def test_validation_cli_writes_report_and_separate_validated_package(tmp_path, m
     package_output = tmp_path / 'validated.json'
     monkeypatch.setattr(validation_module, 'validate_multiregion_package',
                         lambda *args, **kwargs: report)
-    import sensor_parameter_package
+    from tools import sensor_parameter_package
     monkeypatch.setattr(sensor_parameter_package, 'load_sensor_package', lambda path: {'source': True})
     monkeypatch.setattr(sensor_parameter_package, 'apply_validation_results',
                         lambda package, evidence: {'validated': evidence is report})

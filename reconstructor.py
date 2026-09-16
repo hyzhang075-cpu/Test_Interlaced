@@ -6,7 +6,7 @@ from scipy.interpolate import CubicHermiteSpline, PchipInterpolator
 
 from initialiser import Initialiser
 
-from utils import dict_recur_paths, dict_recur_unflatten, dict_recur_extract_path
+from tools.utils import dict_recur_paths, dict_recur_unflatten, dict_recur_extract_path
 
 class Reconstructor(Initialiser):
     """
@@ -826,7 +826,9 @@ class Reconstructor(Initialiser):
             raise ValueError(
                 f'multi-region owned points 必须无重叠覆盖全部传感点；收到 {owned_all}'
             )
-        return {'region_order': order, 'directions': directions, 'regions': regions}
+        return {'region_order': order, 'directions': directions, 'regions': regions,
+                'use_full_transported_phase': bool(meta.get('use_full_transported_phase', False)),
+                'phase_reference_directions': list(meta.get('phase_reference_directions', directions))}
 
     @staticmethod
     def _local_segment_labels(segmentation):
@@ -864,6 +866,11 @@ class Reconstructor(Initialiser):
                 local_index = support_lookup[point]
                 base_slope_map[point_index[point]] = base_slopes[support_labels[local_index]]
 
+        fixed_bridges = (config.get('use_full_transported_phase', False)
+                         and direct in config.get('phase_reference_directions', config['directions']))
+        if fixed_bridges:
+            from calibration_phase_reference import apply_full_bridge_slopes
+            apply_full_bridge_slopes(base_slope_map, config, self.global_point_ids, direct)
         base_segments, base_slopes = self._generate_dynamic_segments(base_slope_map)
         base_angles = self._calculate_dynamic_angles(
             mode='recon', segments=base_segments, seg_slopes=base_slopes,
@@ -878,6 +885,7 @@ class Reconstructor(Initialiser):
         diagnostics = {
             'direct': direct,
             'base_slope_map': base_slope_map.tolist(),
+            'fixed_full_level0_bridges': bool(fixed_bridges),
             'base_magnitude': np.asarray(base_magnitude).tolist(),
         }
         for name in config['region_order']:
@@ -914,6 +922,8 @@ class Reconstructor(Initialiser):
                 'mass_shape': list(masses.shape),
             }
 
+        if fixed_bridges:
+            apply_full_bridge_slopes(slope_map, config, self.global_point_ids, direct)
         weighted_strain = strain_data * final_weight
         final_segments, final_slopes = self._generate_dynamic_segments(slope_map)
         final_angles = self._calculate_dynamic_angles(

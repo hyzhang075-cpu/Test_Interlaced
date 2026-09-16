@@ -53,7 +53,7 @@ python main.py --task score --multi_region_calib True --direct 0
 三个方向完成后，可导出有序参数包：
 
 ```powershell
-python sensor_parameter_package.py --results `
+python tools/sensor_parameter_package.py --results `
   calibration_results/06B6_NeTi_v2_centraltube-20260913T152012Z-dbd50a/results.json `
   calibration_results/06B6_NeTi_v2_centraltube-20260913T152022Z-3aa476/results.json `
   calibration_results/06B6_NeTi_v2_centraltube-20260913T152029Z-8a1a2a/results.json `
@@ -77,7 +77,7 @@ python main.py --task recon --sensor_params params/06B6_NeTi_v2_centraltube_mult
 离线全长验证：
 
 ```powershell
-python calibration_validation.py --sensor-params params/06B6_NeTi_v2_centraltube_multi_region.json
+python tools/calibration_validation.py --sensor-params params/06B6_NeTi_v2_centraltube_multi_region.json
 ```
 
 `deployment_ready` 只在优化、统一相位、实测 score 和全长几何全部验收后为 true。当前包为 candidate：240°/full 的 slope/weight 以及 240°/end15cm weight 阶段发散，全长回放的最大平均点误差为 187.314 mm，末端测试最大切向误差 141.643°，区域边界最大相位跳变 0.906 rad，因此仍为 false。详细结果见 `calibration-multiregion-validation.md`。

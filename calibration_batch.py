@@ -13,6 +13,7 @@ import numpy as np
 
 # 这些参数控制任务/界面/输出，不属于 Optimiser/Sensor 的构造参数。
 CONTROL_KEYS = {
+    'use_full_transported_phase', '_phase_source_jobs',
     'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
     'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
     'optimization_regions', 'full_segmentation', 'calibration_regions',
@@ -47,6 +48,14 @@ def prepare_calibration_jobs(args, configure):
             if getattr(args, key) is not None:
                 raise ValueError(f'批量任务不能共用单个 {key} 覆盖值；请写入 calibration_regions 各区域配置')
     jobs = []
+    phase_enabled = bool(getattr(args, 'use_full_transported_phase', False))
+    if phase_enabled and args.task == 'optim':
+        if args.reverse:
+            raise ValueError('固定上游相位模式目前仅支持正向传感器点位')
+        for region in regions:
+            dependency = {'end15cm':'full', 'end5cm':'end15cm'}.get(region)
+            if dependency and dependency not in regions[:regions.index(region)] and getattr(args, '_sensor_package', None) is None:
+                raise ValueError('固定相位局部优化需要按full/end15cm/end5cm顺序运行，或提供sensor_params来源包')
     for region in regions:
         job = deepcopy(args)
         job.optimization_region = region
@@ -54,6 +63,17 @@ def prepare_calibration_jobs(args, configure):
         if not Path(job.folder_path).is_dir():
             raise ValueError(f'{region} 数据目录不存在: {job.folder_path}')
         jobs.append((job, context))
+        if phase_enabled and args.task == 'optim' and region != 'full':
+            source_jobs = {}
+            for source_region in ('full', 'end15cm'):
+                source = deepcopy(args)
+                source.multi_region_calib = False
+                source.optimization_region = source_region
+                source.weights = source.slopes = None
+                source._explicit_seed_parameters = []
+                source_context = configure(source)
+                source_jobs[source_region] = (source, source_context)
+            job._phase_source_jobs = source_jobs
     return jobs
 
 
@@ -102,6 +122,7 @@ def collect_calibration_result(optim, stages):
             'slopes': {optim.direct: optim.slopes[optim.direct]},
             'global_phases_set': optim.global_phases_set,
             'rot_ang': optim.rot_ang,
+            'phase_reference': getattr(optim, 'phase_reference', None),
         },
         'optimized_directions': [optim.direct],
         'errors': {
@@ -302,14 +323,45 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
     report = {'sensor_id': first.sensor_id, 'task': first.task, 'direct': first.direct,
               'regions': {args.optimization_region: {'status': 'pending'} for args, _ in jobs}}
     print(f'区域结果目录: {output}')
+    completed_optimizers = {}
     for index, (args, context) in enumerate(jobs):
         region = args.optimization_region
         entry = report['regions'][region]
-        entry.update(configuration=_native(vars(args)), context=context, status='running')
+        entry.update(configuration=_native({key:value for key,value in vars(args).items()
+                                            if key != '_phase_source_jobs'}), context=context, status='running')
         _save_report(output / 'results.json', report)
         try:
             print(f'========== {index+1}/{len(jobs)} 区域: {region}; 方向: {args.direct} ==========')
+            reference = None
+            if args.task == 'optim' and region != 'full' and getattr(args, 'use_full_transported_phase', False):
+                from calibration_phase_reference import build_fixed_phase_reference
+                full = completed_optimizers.get('full')
+                if full is None:
+                    source_args, _ = args._phase_source_jobs['full']
+                    if source_args.weights is None or source_args.slopes is None:
+                        raise ValueError('来源参数包缺少full已优化weights/slopes')
+                    full = optimizer_factory(**optimizer_parameters(source_args))
+                upstream = full
+                if region == 'end5cm':
+                    upstream = completed_optimizers.get('end15cm')
+                    if upstream is None:
+                        source_args, source_context = args._phase_source_jobs['end15cm']
+                        if source_args.weights is None or source_args.slopes is None:
+                            raise ValueError('来源参数包缺少end15cm已优化weights/slopes')
+                        saved = args._sensor_package['regions']['end15cm'].get(
+                            'phase_reference', {}).get(str(args.direct))
+                        if not saved:
+                            raise ValueError('独立end5cm固定相位优化需要先导出同方向固定相位end15cm结果')
+                        source_args.global_phases_set = saved['phase_at_first_point_rad']
+                        upstream = optimizer_factory(**optimizer_parameters(source_args))
+                reference = build_fixed_phase_reference(full, upstream, context, args.direct)
+                reference['source_kind'] = ('current_batch' if upstream in completed_optimizers.values()
+                                            else 'sensor_package')
+                reference['source_sensor_params'] = getattr(args, 'sensor_params', None)
+                args.global_phases_set = reference['phase_at_first_point_rad']
+                entry['configuration']['global_phases_set'] = args.global_phases_set
             optim = optimizer_factory(**optimizer_parameters(args))
+            optim.phase_reference = reference
             optim.calibration_context = context
             if args.task == 'score':
                 entry['score_distribution'] = diagnose_score_distribution(optim)
@@ -317,6 +369,7 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
             else:
                 stages = optim.optim_coeff(verbose=True)
                 entry.update(collect_calibration_result(optim, stages))
+            completed_optimizers[region] = optim
             entry['status'] = 'complete'
         except Exception as exc:
             entry.update(status='failed', error=f'{type(exc).__name__}: {exc}')

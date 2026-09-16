@@ -115,7 +115,7 @@ python main.py --task optim --multi_region_calib True --weights None --slopes No
 calibration_results/<sensor_id>-<本地时间>-direct<方向>-<随机编号>/
 ```
 
-目录中的 `results.json` 保存该方向三个区域的 weights、slopes、误差和优化状态。三个方向完成后，用 `sensor_parameter_package.py` 合并参数；具体导出及定标回放验证命令见 [多区域定标说明](docs/calibration-regions.md)。
+目录中的 `results.json` 保存该方向三个区域的 weights、slopes、误差和优化状态。三个方向完成后，用 `tools/sensor_parameter_package.py` 合并参数；具体导出及定标回放验证命令见 [多区域定标说明](docs/calibration-regions.md)。
 
 如果只需重新优化一个区域，应关闭多区域模式：
 
@@ -362,6 +362,43 @@ python main.py --task demo `
 - 单套模式和三方向软过渡都只影响动态展示，不改变静态参数优化流程。
 
 更完整的原理和排查方法见 [动态三方向参数软过渡：原理、注意事项与踩坑记录](docs/动态三方向参数软过渡_原理_注意事项与踩坑记录.md)。
+
+### 辅助工具目录
+
+参数包导出与导入位于 `tools/sensor_parameter_package.py`，定标回放验证位于 `tools/calibration_validation.py`，零点文件处理位于 `tools/zero_reference.py`，通用辅助函数位于 `tools/utils.py`。代码中使用 `from tools.模块名 import ...` 导入。
+
+在项目根目录执行工具，例如 `python tools/sensor_parameter_package.py --help`，也可用 `python -m tools.sensor_parameter_package --help`。`main.py` 的任务命令和 `params` 文件路径保持原用法。
+
+### 固定上游相位与跨界 slope 对比测试
+
+`--use_full_transported_phase` 默认 `False`。开启后，按照 full → end15cm → end5cm 顺序优化：
+
+```bash
+python main.py --task optim --multi_region_calib True --use_full_transported_phase True --weights None --slopes None --direct 0
+```
+
+对 `120`、`240` 分别运行，再用 `tools/sensor_parameter_package.py --results ... --output ...` 合并三方向新结果。建议使用新的输出文件名，例如 `params/06B6_NeTi_v2_ftube_multi_region_full_phase.json`，保留原参数用于对照。导出工具从优化结果记录识别新模式；旧参数包不会自动获得新相位。
+
+参考相位只使用上游非零圆弧弯曲样本，排除半径 `0` 的直线状态。各样本按原有曲率评分混合上游 slope，推算到区域前一个真实点，再对相位取圆周均值。跨界间隔（例如全局点 15→16、18→19）固定使用 full 第 0 档 slope，与当前曲率档位无关；区域内部仍使用该区域自己的 thresholds、slope 和 weight。end5cm 的上游包含已优化的 end15cm。
+
+局部优化开始前一次性固定相位，整个优化期间不随候选 slope 更新。两阶段优化、损失和选档流程保持原逻辑。结果同时保存物理裁剪起点与首个真实点的相位，当前算法将后者作为 `global_phases_set`。full 第 0 档指 slope 数组的第 0 行，并不使用直线状态的相位。
+
+独立优化 end15cm 可以使用含 full 结果的来源参数包：
+
+```bash
+python main.py --task optim --sensor_params params/06B6_NeTi_v2_ftube_multi_region.json --multi_region_calib False --optimization_region end15cm --use_full_transported_phase True --weights None --slopes None --direct 0
+```
+
+独立优化 end5cm 则要求来源包中同方向的 end15cm 已使用新模式优化并导出。来源数据目录仍需可访问。新模式目前支持正向点位。
+
+加载新参数包时，recon/demo 自动继承新模式；只对包含新模式局部结果的方向固定跨界 slope：
+
+```bash
+python main.py --task demo --sensor_params params/06B6_NeTi_v2_ftube_multi_region_full_phase.json --multi_region_calib True
+python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_region_full_phase.json --multi_region_calib False --optimization_region end15cm --direct 0
+```
+
+关闭优化开关可生成原逻辑对照结果。运行新包时显式传入 `--use_full_transported_phase False` 可对比跨界装配策略；这不会重新优化参数，因此完整算法对比应分别优化两套参数。实际运行的上游相位仍随应变和曲率选档变化，固定参考是定标弯曲样本的均值，不能保证每帧相位完全一致；定标回放验证会计算实际装配相位与固定参考的偏差。末端真实点幅值偏小的修正留待单独处理。
 
 ## 5.当前版本信息
 版本号：v9

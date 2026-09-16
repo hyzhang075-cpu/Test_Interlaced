@@ -26,7 +26,7 @@
 ### Task 1: Calibration result comparison and ordered package exporter
 
 **Files:**
-- Create: `sensor_parameter_package.py`
+- Create: `tools/sensor_parameter_package.py`
 - Create: `tests/test_sensor_parameter_package.py`
 - Create: `docs/calibration-results-20260913-comparison.md`
 - Modify: `.gitignore` only if the generated candidate package needs an explicit inclusion rule
@@ -61,7 +61,7 @@ Add tests for mismatched sensor IDs, mismatched region contexts, missing regions
 
 Run: `python -m pytest tests/test_sensor_parameter_package.py -q`
 
-Expected: import failure because `sensor_parameter_package.py` does not exist.
+Expected: import failure because `tools/sensor_parameter_package.py` does not exist.
 
 - [x] **Step 3: Implement parser grouping and strict report validation**
 
@@ -154,7 +154,7 @@ Run: `python -m pytest tests/test_sensor_parameter_package.py tests/test_calibra
 Commit only Task 1 files:
 
 ```powershell
-git add sensor_parameter_package.py tests/test_sensor_parameter_package.py docs/calibration-results-20260913-comparison.md params/06B6_NeTi_v2_centraltube_multi_region.json
+git add tools/sensor_parameter_package.py tests/test_sensor_parameter_package.py docs/calibration-results-20260913-comparison.md params/06B6_NeTi_v2_centraltube_multi_region.json
 git commit -m "feat: export ordered multiregion sensor packages"
 ```
 
@@ -353,11 +353,11 @@ Commit code and analysis. Do not commit large generated plots unless already per
 ### Task 5: Full-geometry offline validation and deployment gate
 
 **Files:**
-- Create: `calibration_validation.py`
+- Create: `tools/calibration_validation.py`
 - Create: `tests/test_calibration_validation.py`
 - Create: `docs/calibration-multiregion-validation.json`
 - Create: `docs/calibration-multiregion-validation.md`
-- Modify: `sensor_parameter_package.py`
+- Modify: `tools/sensor_parameter_package.py`
 - Modify: `params/06B6_NeTi_v2_centraltube_multi_region.json`
 
 **Interfaces:**
@@ -395,7 +395,7 @@ python -m pytest tests/test_calibration_validation.py tests/test_sensor_paramete
 - [x] **Step 7: Commit**
 
 ```powershell
-git add calibration_validation.py sensor_parameter_package.py tests/test_calibration_validation.py docs/calibration-multiregion-validation.json docs/calibration-multiregion-validation.md params/06B6_NeTi_v2_centraltube_multi_region.json
+git add tools/calibration_validation.py tools/sensor_parameter_package.py tests/test_calibration_validation.py docs/calibration-multiregion-validation.json docs/calibration-multiregion-validation.md params/06B6_NeTi_v2_centraltube_multi_region.json
 git commit -m "feat: validate multiregion calibration deployment"
 ```
 

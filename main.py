@@ -10,7 +10,7 @@ from pathlib import Path
 
 from calibration_regions import resolve_calibration_region, validate_calibration_parameters
 from calibration_batch import optimizer_parameters, prepare_calibration_jobs, run_calibration_jobs
-from sensor_parameter_package import (
+from tools.sensor_parameter_package import (
     load_sensor_package, package_deployment_ready, package_parser_defaults,
 )
 
@@ -46,7 +46,19 @@ def configure_calibration_args(args):
                 '本次运行仅用于动态验证区域拼接效果。'
             )
         args.optimization_region = 'full'
-        args.multi_region_parameters = args._sensor_package
+        if args.use_full_transported_phase and not args._sensor_package.get(
+                'multi_region', {}).get('use_full_transported_phase', False):
+            raise ValueError('固定跨界模式需要重新优化并导出的参数包，不能直接启用于旧参数')
+        args.multi_region_parameters = deepcopy(args._sensor_package)
+        args.multi_region_parameters['multi_region']['use_full_transported_phase'] = args.use_full_transported_phase
+    if (args.task == 'recon' and not args.multi_region_calib
+            and args.optimization_region != 'full' and args.use_full_transported_phase):
+        package = getattr(args, '_sensor_package', None)
+        reference = (package or {}).get('regions', {}).get(args.optimization_region, {}).get(
+            'phase_reference', {}).get(str(args.direct))
+        if not reference:
+            raise ValueError('固定局部相位recon需要使用新模式优化导出的sensor_params')
+        args.global_phases_set = reference['phase_at_first_point_rad']
     profiles = deepcopy(args.calibration_regions)
     if args.optimization_region not in profiles:
         raise ValueError(f'未知 optimization_region={args.optimization_region!r}')
@@ -255,6 +267,8 @@ def build_argument_parser():
     # 以下区域配置也属于传感器参数；复制整个 parser 区块即可保留、迁移。
     parser.add_argument('--sensor_params', type=str, default=None,
                         help='有序传感器参数包 JSON；显式 CLI 参数优先')
+    parser.add_argument('--use_full_transported_phase', type=_str2bool, default=False,
+                        help='局部优化使用非零弯曲状态的固定上游相位；区域跨界固定使用full第0档slope')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
                         help='True时optim/score遍历optimization_regions；False时仅全长')
     parser.add_argument('--optimization_region', type=str, default='full',

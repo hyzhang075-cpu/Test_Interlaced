@@ -155,7 +155,7 @@ The candidate package is first generated as it is today. Validation is then
 run with:
 
 ```powershell
-python calibration_validation.py `
+python tools/calibration_validation.py `
   --sensor-params params/06B6_NeTi_v2_ftube_multi_region.json `
   --score-results calibration_results/06B6_NeTi_v2_ftube-20260915T171510+0800-direct0-ff2631 `
   --json-output docs/06B6_NeTi_v2_ftube-multiregion-validation.json `
@@ -170,9 +170,9 @@ and `deployment_ready=false` for the affected directions.
 
 ## Implementation boundaries
 
-`calibration_validation.py` owns score-evidence validation, phase transport,
+`tools/calibration_validation.py` owns score-evidence validation, phase transport,
 replay metrics, gate decisions, and report generation.
-`sensor_parameter_package.py` owns package schema validation and immutable
+`tools/sensor_parameter_package.py` owns package schema validation and immutable
 application of validation evidence. `main.py` and `demonstrator.py` consume the
 per-direction deployment state and enforce the selected runtime mode.
 

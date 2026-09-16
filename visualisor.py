@@ -6,7 +6,7 @@ from datetime import datetime
 from matplotlib import animation
 from scipy import stats
 
-from utils import dict_recur_paths, dict_recur_value, update_view
+from tools.utils import dict_recur_paths, dict_recur_value, update_view
 
 class Visualisor:
     """

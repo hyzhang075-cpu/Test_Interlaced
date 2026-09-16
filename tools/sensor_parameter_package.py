@@ -3,6 +3,12 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import sys
+
+# 直接执行tools脚本时也从项目根目录导入主程序和其他模块。
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if __package__ in (None, "") and str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
 
@@ -47,6 +53,7 @@ PARSER_GROUPS = {
     'angle_optimization_parameters': ('ang_step', 'ang_range'),
     'runtime_control_parameters': (
         'sensor_params',
+        'use_full_transported_phase',
         'multi_region_calib', 'optimization_region', 'optimization_regions',
         'full_segmentation', 'calibration_data_root', 'calibration_output_dir',
         'folder_path', 'radii', 'direct', 'thresholds', 'straight_trim',
@@ -55,8 +62,6 @@ PARSER_GROUPS = {
 }
 
 SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set', 'rot_ang')
-PROJECT_ROOT = Path(__file__).resolve().parent
-
 
 def _project_relative_path(value):
     """将项目内路径写成以 ``./`` 开头的 POSIX 相对路径，便于跨电脑迁移。"""
@@ -269,6 +274,7 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         slopes = {}
         errors = {}
         statuses = {}
+        references = {}
         local_phases[region] = {}
         local_rot_angles[region] = {}
         for report in reports:
@@ -293,6 +299,7 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             errors[direct_key] = deepcopy(entry.get('errors', {}))
             statuses[direct_key] = deepcopy(entry.get('optimization', {}))
             local_phases[region][direct_key] = params.get('global_phases_set')
+            references[direct_key] = deepcopy(params.get('phase_reference'))
             local_rot_angles[region][direct_key] = params.get('rot_ang')
 
         region_blocks[region] = {
@@ -314,7 +321,17 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'slopes': slopes,
             'errors': errors,
             'optimization': statuses,
+            'phase_reference': references,
         }
+
+    reference_directions = []
+    for direct in REQUIRED_DIRECTIONS:
+        local_refs = [region_blocks[name]['phase_reference'][str(direct)]
+                      for name in ('end15cm','end5cm')]
+        if any(local_refs) and not all(local_refs):
+            raise ValueError(f'{direct} 局部固定相位模式不一致；end15cm/end5cm必须配套优化')
+        if all(local_refs):
+            reference_directions.append(direct)
 
     direction_failures = _direction_stage_failures(reports)
     full_phase_values = list(local_phases['full'].values())
@@ -348,12 +365,15 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         group: {name: _native(defaults[name]) for name in names}
         for group, names in PARSER_GROUPS.items()
     }
+    shared['runtime_control_parameters']['use_full_transported_phase'] = bool(reference_directions)
 
     package = {
         'sensor_id': sensor_id,
         'format_version': FORMAT_VERSION,
         'shared_parameters': shared,
         'multi_region': {
+            'use_full_transported_phase': bool(reference_directions),
+            'phase_reference_directions': reference_directions,
             'region_order': list(REGION_ORDER),
             'directions': list(REQUIRED_DIRECTIONS),
             'global_phases_set': _native(global_phase),

@@ -3,6 +3,12 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import sys
+
+# 直接执行tools脚本时也从项目根目录导入主程序和其他模块。
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if __package__ in (None, "") and str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
 
@@ -365,7 +371,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
     import main
     from calibration_batch import optimizer_parameters
     from optimiser import Optimiser
-    from sensor_parameter_package import _project_relative_path
+    from tools.sensor_parameter_package import _project_relative_path
 
     package_path = str(Path(package_path).resolve())
     package = json.loads(Path(package_path).read_text(encoding='utf-8'))
@@ -486,10 +492,19 @@ def validate_multiregion_package(package_path, score_results, policy=None):
                 }
                 if region in ('end15cm', 'end5cm'):
                     slope_map = _full_region_slope_map(full_only, frame, direct)
+                    # 新模式验证实际装配后的上游相位：包含end15cm内部slope和full第0档跨界。
+                    if diagnostics.get('fixed_full_level0_bridges', False):
+                        slope_map = np.asarray(diagnostics['slope_map'], dtype=float)
                     phases = {
                         name: local_phases[name][str(direct)]
                         for name in ('end15cm', 'end5cm')
                     }
+                    if diagnostics.get('fixed_full_level0_bridges', False):
+                        phases = {
+                            name: package['regions'][name]['phase_reference'][str(direct)][
+                                'phase_at_first_point_rad']
+                            for name in ('end15cm', 'end5cm')
+                        }
                     phase_values = build_phase_transport_evidence(
                         full.global_phases_set, global_sample_dist,
                         slope_map, phases, start_indices,
@@ -628,7 +643,7 @@ def main(argv=None):
         args.sensor_params, args.score_results, policy=policy,
     )
     write_validation_report(report, args.json_output, args.markdown_output)
-    from sensor_parameter_package import (
+    from tools.sensor_parameter_package import (
         apply_validation_results, load_sensor_package, write_sensor_package,
     )
     package = load_sensor_package(args.sensor_params)
