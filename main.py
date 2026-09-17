@@ -443,7 +443,8 @@ def build_argument_parser():
     parser.add_argument('--sensing_ranges', type=dict, default={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, help='LUNA各通道使用的传感点范围')
     # 角度优化初始值
     # parser.add_argument('--rot_ang', type=float, default=-120, help='绕x轴旋转角度, 初始为0.0')  #动态上机角度
-    parser.add_argument('--rot_ang', type=float, default=31.8, help='绕x轴旋转角度, 初始为0.0')
+    # parser.add_argument('--rot_ang', type=float, default=31.8, help='绕x轴旋转角度, 初始为0.0')
+    parser.add_argument('--rot_ang', type=float, default=0, help='绕x轴旋转角度, 初始为0.0')
     # ===============================不带窗======================================
     # # 曲率权重与扭转系数相关初始值, 曲率向量插值, 全段参数, 不带窗, 末端调weight
     # parser.add_argument('--weights', default={0: np.array([0.769604441191232, 0.8609085601489306, 0.8629575251635755, 0.8879480275090127, 0.8882273817193517, 0.923250790081014, 0.10000062686770492, 4.547478524913153, 1.022984574255862, 1.9443742771509285, 1.642872707914389, 1.4723019459684745]), 
