@@ -208,7 +208,7 @@ def add_vector_filter_arguments(parser):
     parser.add_argument(
         '--move_filter_for_vector',
         type=_str2bool,
-        default=True,
+        default=False,
         help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',
     )
     return parser
