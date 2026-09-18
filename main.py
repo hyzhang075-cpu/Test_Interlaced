@@ -281,9 +281,9 @@ def build_argument_parser():
     parser.add_argument('--optimization_regions', type=ast.literal_eval, default=['full', 'end15cm', 'end5cm'],
                         help='区域模式下optim/score依次处理的区域列表')
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
-                        default=[2, 3, 5, 2, 3, 3, 2, 2],
+                        default=[2, 5, 8, 2, 2, 3],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')
-    parser.add_argument('--calibration_data_root', type=str, default='0908-06B6',
+    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试"),
                         help='定标数据根目录；相对路径以main.py所在目录为基准')
     parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
         'full': {
@@ -300,7 +300,7 @@ def build_argument_parser():
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20],
             'end_weights': False, 'end_start': -5,
-            'segmentation': [3, 2, 2],
+            'segmentation': [2, 2, 3],
             'weights': None, 'slopes': None,
         },
         'end5cm': {
@@ -311,16 +311,16 @@ def build_argument_parser():
             # 45 m^-1 用于下一轮重新优化，不得与旧 9 组参数混用。
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20, 35, 45],
             'end_weights': True, 'end_start': -1,
-            'segmentation': [2, 2],
+            'segmentation': [2, 3],
             'weights': None, 'slopes': None,
         },
     }, help='各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布')
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_ftube", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--sensor_id', type=str, default="08B5", help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=22.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=6.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=None, help='FBG总长自动计算(m)；显式传值必须与几何一致')
@@ -346,8 +346,6 @@ def build_argument_parser():
     parser.add_argument('--folder_path', type=str, default=None, help='覆盖所选区域的数据目录；默认由 calibration_regions 提供')
     parser.add_argument('--rot_dir', type=list, default={0:-1,120:-1,240:-1}, help='各个标定实验按逆(1)还是顺(-1)顺时针调整的方向')
     parser.add_argument('--exp_directs', type=list, default=[0, 120, 240], help='实验使用的方向')
-    # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
-    # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]}, help='标定圆弧形状半径')
     parser.add_argument('--radii', type=ast.literal_eval, default=None, help='覆盖所选区域半径字典(mm)')
     parser.add_argument('--end_len', type=float, default=0.05, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
@@ -357,9 +355,9 @@ def build_argument_parser():
     parser.add_argument('--slope_upper_bound', type=float, default=50.0, help='扭转系数大小上限')
     parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
 
-    parser.add_argument('--max_iter', type=int, default=10, help='优化的最大轮次')
-    parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
-    parser.add_argument('--k_end', type=float, default=0.3, help='优化目标中末端误差的权重')
+    parser.add_argument('--max_iter', type=int, default=20, help='优化的最大轮次')
+    parser.add_argument('--k_point', type=float, default=0.3, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_end', type=float, default=1.0, help='优化目标中末端误差的权重')
     parser.add_argument('--k_pitch', type=float, default=1.0, help='优化目标中螺距误差的权重')
     parser.add_argument('--k_radius', type=float, default=1.0, help='优化目标中半径误差的权重')
     parser.add_argument('--method', type=str, default="Powell", help='优化算法, 用于输入scipy.optimize.minimimze')
@@ -381,7 +379,7 @@ def build_argument_parser():
     parser.add_argument('--unwrap_threshold', type=float, default=0.65, help='若两帧同一点角度变化小于该阈值，则统一unwrap方向')
     parser.add_argument('--align_threshold', type=float, default=0.20, help='若某帧第一点角度变化小于该阈值，则将第一点角度与上一帧对齐')
     parser.add_argument('--direction_blend_enabled', action='store_true', help='动态展示中启用0/120/240度参数半余弦软过渡；应在rot_ang确定后再打开')
-    parser.add_argument('--direction_reference_direct', type=int, default=0, choices=[0, 120, 240], help='动态第一遍方向估计及关闭软过渡时使用的最高精度参数方向')
+    parser.add_argument('--direction_reference_direct', type=int, default=240, choices=[0, 120, 240], help='动态第一遍方向估计及关闭软过渡时使用的最高精度参数方向')
     parser.add_argument('--direction_min_curvature', type=float, default=0.5, help='动态方向估计的有效弯曲点最小曲率，低于该值时冻结上一帧方向质量')
     parser.add_argument('--direction_min_consecutive', type=int, default=3, help='动态方向估计中近端稳定弯曲区要求的最少连续点数')
     parser.add_argument('--direction_consistency_threshold', type=float, default=0.6, help='曲率加权圆周平均的最小方向一致性，低于该值时冻结上一帧方向质量')
