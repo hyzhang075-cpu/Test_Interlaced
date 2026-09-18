@@ -38,6 +38,66 @@ def _parser():
     return main.build_argument_parser()
 
 
+def test_real_point_objective_package_roundtrip_and_legacy_default(tmp_path):
+    reports = [_report(d) for d in (0, 120, 240)]
+    for report in reports:
+        report['regions']['end5cm']['context']['calibration_objective'] = 'real_points'
+    package = build_sensor_package(_parser(), reports)
+    assert package['regions']['end5cm']['calibration_objective'] == 'real_points'
+    assert package_parser_defaults(package)['end5cm_point_calib'] is True
+    assert package_parser_defaults(package)['calibration_regions']['full']['calibration_objective'] == 'geometry'
+    path = tmp_path / 'point-mode.json'
+    write_sensor_package(package, path)
+    import main
+    assert main.parse_main_args(['--task','optim','--sensor_params',str(path)]).end5cm_point_calib is True
+    assert main.parse_main_args(['--task','optim','--sensor_params',str(path),
+                                 '--end5cm_point_calib','False']).end5cm_point_calib is False
+    legacy = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    assert package_parser_defaults(legacy)['end5cm_point_calib'] is False
+    reports[1]['regions']['end5cm']['context']['calibration_objective'] = 'geometry'
+    with pytest.raises(ValueError, match='context'):
+        build_sensor_package(_parser(), reports)
+
+
+def test_weight_groups_export_import_and_direction_consistency():
+    reports = [_report(d) for d in (0,120,240)]
+    # Fixture end5cm has two real points: generic metadata validation supports two groups.
+    for report in reports:
+        entry = report['regions']['end5cm']
+        entry['context']['weight_group_ids'] = [0,1]
+        entry['parameters']['weights'][str(report['direct'])] *= 2
+    package = build_sensor_package(_parser(), reports)
+    assert package['regions']['end5cm']['weight_group_ids'] == [0,1]
+    assert package_parser_defaults(package)['calibration_regions']['end5cm']['weight_group_ids'] == [0,1]
+    legacy = build_sensor_package(_parser(), [_report(d) for d in (0,120,240)])
+    assert package_parser_defaults(legacy)['end5cm_independent_weights'] is False
+    reports[1]['regions']['end5cm']['context']['weight_group_ids'] = [1,0]
+    with pytest.raises(ValueError, match='context'):
+        build_sensor_package(_parser(), reports)
+
+
+def test_partial_end5_results_merge_keeps_upstream_and_source_history():
+    from tools.sensor_parameter_package import merge_end5_results
+    base = [_report(d) for d in (0,120,240)]
+    partial = deepcopy(base)
+    for old, new in zip(base, partial):
+        old['_source_path'] = f'./old-{old["direct"]}/results.json'
+        new['_source_path'] = f'./new-{new["direct"]}/results.json'
+        new['regions'] = {'end5cm': new['regions']['end5cm']}
+        new['regions']['end5cm']['parameters']['global_phases_set'] = .9
+    merged = merge_end5_results(base, partial)
+    assert merged[0]['regions']['full'] == base[0]['regions']['full']
+    assert merged[0]['regions']['end15cm'] == base[0]['regions']['end15cm']
+    assert merged[0]['regions']['end5cm']['parameters']['global_phases_set'] == .9
+    assert base[0]['regions']['end5cm']['parameters']['global_phases_set'] != .9
+    package = build_sensor_package(_parser(), merged)
+    assert './old-0/results.json' in package['provenance']['source_results']
+    assert './new-0/results.json' in package['provenance']['source_results']
+    partial[0]['sensor_id'] = 'another-sensor'
+    with pytest.raises(ValueError, match='sensor'):
+        merge_end5_results(base, partial)
+
+
 def test_export_preserves_fixed_phase_references_and_direction_scope():
     reports = [_report(d) for d in (0, 120, 240)]
     for region in ('end15cm', 'end5cm'):

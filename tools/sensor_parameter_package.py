@@ -11,7 +11,7 @@ if __package__ in (None, "") and str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from calibration_regions import validate_end_weight_config
+from calibration_regions import validate_end_weight_config, validate_weight_group_ids
 
 
 FORMAT_VERSION = 2
@@ -55,6 +55,8 @@ PARSER_GROUPS = {
     'runtime_control_parameters': (
         'sensor_params',
         'use_full_transported_phase',
+        'end5cm_point_calib',
+        'end5cm_independent_weights',
         'multi_region_calib', 'optimization_region', 'optimization_regions',
         'full_segmentation', 'calibration_data_root', 'calibration_output_dir',
         'folder_path', 'radii', 'direct', 'thresholds', 'straight_trim',
@@ -152,6 +154,27 @@ def load_calibration_results(paths):
                   if item.get('direct') in REQUIRED_DIRECTIONS else len(REQUIRED_DIRECTIONS))
 
 
+def merge_end5_results(base_reports, end5_reports):
+    """Reuse complete upstream calibration results and replace only end5cm."""
+    base = {r['direct']: r for r in base_reports}
+    updates = {r['direct']: r for r in end5_reports}
+    if set(base) != set(REQUIRED_DIRECTIONS) or set(updates) != set(REQUIRED_DIRECTIONS):
+        raise ValueError('base_results和results均需要0/120/240三个方向')
+    merged = []
+    for direct in REQUIRED_DIRECTIONS:
+        old, new = base[direct], updates[direct]
+        if old['sensor_id'] != new['sensor_id']:
+            raise ValueError('base_results与results的sensor_id不一致')
+        if set(old['regions']) != set(REGION_ORDER) or set(new['regions']) != {'end5cm'}:
+            raise ValueError('base_results必须包含完整三区域，results必须只包含end5cm')
+        report = deepcopy(old)
+        report['regions']['end5cm'] = deepcopy(new['regions']['end5cm'])
+        report['_base_source_path'] = old.get('_source_path')
+        report['_source_path'] = new.get('_source_path')
+        merged.append(report)
+    return merged
+
+
 def _region_context(entry, region):
     """提取并校验结果中用于部署的区域几何与曲率分级上下文。"""
     context = entry.get('context')
@@ -160,6 +183,9 @@ def _region_context(entry, region):
     required = ('thresholds', 'segmentation', 'global_point_ids', 'global_segment_ids')
     if any(name not in context for name in required):
         raise ValueError(f'{region} context 不完整')
+    objective = context.get('calibration_objective', 'geometry')
+    if objective not in ('geometry', 'real_points') or (objective == 'real_points' and region != 'end5cm'):
+        raise ValueError(f'{region} calibration_objective 不合法')
     return context
 
 
@@ -173,7 +199,9 @@ def _same_context(left, right):
     )
     return (all(_native(left.get(key)) == _native(right.get(key)) for key in keys)
             and left.get('end_weights', False) == right.get('end_weights', False)
-            and left.get('end_start', -5) == right.get('end_start', -5))
+            and left.get('end_start', -5) == right.get('end_start', -5)
+            and left.get('calibration_objective', 'geometry') == right.get('calibration_objective', 'geometry')
+            and left.get('weight_group_ids') == right.get('weight_group_ids'))
 
 
 def _stage_failures(report):
@@ -275,7 +303,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         levels = len(thresholds) + 1
         end_weights, end_start = validate_end_weight_config(
             context.get('end_weights', False), context.get('end_start', -5), len(supports[region]))
-        weight_count = levels * (2 if end_weights else 1)
+        groups = validate_weight_group_ids(context.get('weight_group_ids'), len(supports[region]))
+        weight_count = levels * (max(groups)+1 if groups is not None else (2 if end_weights else 1))
         weights = {}
         slopes = {}
         errors = {}
@@ -292,6 +321,10 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             if not _same_context(context, other_context):
                 raise ValueError(f'{region} 跨方向 context 不一致')
             params = entry.get('parameters', {})
+            if params.get('weight_group_ids', groups) != groups:
+                raise ValueError(f'{direct}/{region} 参数与context的权重分组不一致')
+            if params.get('calibration_objective', context.get('calibration_objective', 'geometry')) != context.get('calibration_objective', 'geometry'):
+                raise ValueError(f'{direct}/{region} 参数与context的定标目标不一致')
             if (params.get('end_weights', end_weights) != end_weights
                     or params.get('end_start', end_start) != end_start):
                 raise ValueError(f'{direct}/{region} 参数与context的末端权重配置不一致')
@@ -312,6 +345,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             local_rot_angles[region][direct_key] = params.get('rot_ang')
 
         region_blocks[region] = {
+            'calibration_objective': context.get('calibration_objective', 'geometry'),
+            'weight_group_ids': groups,
             'length_m': context.get('length_m'),
             'folder_path': _calibration_relative_path(
                 context.get('folder_path'), defaults['calibration_data_root'],
@@ -377,6 +412,10 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         for group, names in PARSER_GROUPS.items()
     }
     shared['runtime_control_parameters']['use_full_transported_phase'] = bool(reference_directions)
+    shared['runtime_control_parameters']['end5cm_point_calib'] = (
+        region_blocks['end5cm']['calibration_objective'] == 'real_points')
+    shared['runtime_control_parameters']['end5cm_independent_weights'] = (
+        region_blocks['end5cm']['weight_group_ids'] is not None)
 
     package = {
         'sensor_id': sensor_id,
@@ -402,7 +441,9 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'generated_at': generated_at,
             'parser_destination_order': list(defaults),
             'source_results': [
-                _project_relative_path(report.get('_source_path')) for report in reports
+                _project_relative_path(path) for report in reports
+                for path in ([report.get('_base_source_path'), report.get('_source_path')]
+                             if '_base_source_path' in report else [report.get('_source_path')])
             ],
             'local_global_phases_set': local_phases,
             'local_rot_ang': local_rot_angles,
@@ -447,12 +488,18 @@ def package_parser_defaults(package):
     defaults['sensor_id'] = package['sensor_id']
     defaults['global_phases_set'] = package['multi_region']['global_phases_set']
     defaults['rot_ang'] = package['multi_region']['rot_ang']
+    # Region metadata is authoritative; missing fields in old packages disable the new objective.
+    defaults['end5cm_point_calib'] = package['regions'].get('end5cm', {}).get(
+        'calibration_objective', 'geometry') == 'real_points'
+    defaults['end5cm_independent_weights'] = package['regions'].get('end5cm', {}).get('weight_group_ids') is not None
     defaults['rot_dir'] = _direction_keyed(defaults.get('rot_dir'))
     defaults['sensing_ranges'] = _direction_keyed(defaults.get('sensing_ranges'))
 
     profiles = {}
     for region, block in package['regions'].items():
         profiles[region] = {
+            'calibration_objective': block.get('calibration_objective', 'geometry'),
+            'weight_group_ids': deepcopy(block.get('weight_group_ids')),
             'length_m': deepcopy(block.get('length_m')),
             'folder_path': deepcopy(block.get('folder_path')),
             'radii': deepcopy(block.get('radii')),
@@ -535,6 +582,9 @@ def render_calibration_comparison(reports):
                     )
             lines.extend([
                 f'#### {region}', '',
+                f'- calibration objective: `{entry["context"].get("calibration_objective", "geometry")}`',
+                f'- real-point weight groups: `{json.dumps(entry["context"].get("weight_group_ids"))}`',
+                f'- optimization loss definitions: `{json.dumps(entry.get("optimization", {}).get("loss_definitions", {}), ensure_ascii=False)}`',
                 f'- thresholds: `{json.dumps(entry["context"]["thresholds"])}`',
                 f'- local global phase: `{params.get("global_phases_set")}`',
                 f'- local rot_ang: `{params.get("rot_ang")}`',
@@ -638,12 +688,16 @@ def main(argv=None):
 
     cli = argparse.ArgumentParser(description='Merge 0/120/240 regional calibration results')
     cli.add_argument('--results', nargs=3, required=True, metavar=('DIRECT0', 'DIRECT120', 'DIRECT240'))
+    cli.add_argument('--base_results', nargs=3,
+                     help='可选旧完整0/120/240结果；results仅包含新end5cm，复用旧full/end15cm')
     cli.add_argument('--output', required=True)
     cli.add_argument('--comparison')
     args = cli.parse_args(argv)
     from main import build_argument_parser
 
     reports = load_calibration_results(args.results)
+    if args.base_results:
+        reports = merge_end5_results(load_calibration_results(args.base_results), reports)
     try:
         source_commit = subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'], text=True, encoding='utf-8',

@@ -13,6 +13,7 @@ import numpy as np
 
 # 这些参数控制任务/界面/输出，不属于 Optimiser/Sensor 的构造参数。
 CONTROL_KEYS = {
+    'end5cm_independent_weights', '_resolved_weight_group_ids',
     'use_full_transported_phase', '_phase_source_jobs',
     'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
     'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
@@ -30,7 +31,11 @@ CONTROL_KEYS = {
 
 def optimizer_parameters(args):
     """复制可传给 Optimiser 的参数，排除任务调度、界面和输出控制项。"""
-    return {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
+    parameters = {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
+    parameters['end5cm_point_calib'] = bool(
+        getattr(args, 'end5cm_point_calib', False) and args.optimization_region == 'end5cm')
+    parameters['weight_group_ids'] = deepcopy(getattr(args, '_resolved_weight_group_ids', None))
+    return parameters
 
 
 def prepare_calibration_jobs(args, configure):
@@ -125,6 +130,9 @@ def collect_calibration_result(optim, stages):
             'global_phases_set': optim.global_phases_set,
             'rot_ang': optim.rot_ang,
             'phase_reference': getattr(optim, 'phase_reference', None),
+            'calibration_objective': ('real_points' if getattr(optim, 'end5cm_point_calib', False)
+                                      else 'geometry'),
+            'weight_group_ids': getattr(optim, 'weight_group_ids', None),
         },
         'optimized_directions': [optim.direct],
         'errors': {

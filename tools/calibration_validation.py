@@ -388,6 +388,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
         """构造单区域基线或完整多区域回放所需的 Optimiser。"""
         argv = ['--task', 'recon', '--sensor_params', package_path,
                 '--optimization_region', region,
+                '--exp_directs', '[0,120,240]',
                 '--multi_region_calib', 'True' if merged else 'False']
         args = main.parse_main_args(argv)
         # Mirror main(): stored 22-point dynamic zero references are invalid for

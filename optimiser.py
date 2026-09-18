@@ -9,9 +9,10 @@ from reconstructor import Reconstructor
 from tools.utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path, fit_radius
 
 class Optimiser(Reconstructor):
-    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, **kwargs):
+    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, end5cm_point_calib=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.direct = direct
+        self.end5cm_point_calib = end5cm_point_calib
         self.end_len = end_len
         self.max_iter = max_iter
         self.min_loss_diff = min_loss_diff
@@ -56,7 +57,10 @@ class Optimiser(Reconstructor):
         freeze_idx = self._get_freeze_idx()
         mask[freeze_idx] = True
 
-        if self.end_weights:
+        if getattr(self, 'weight_group_ids', None) is not None:
+            for group in range(1, max(self.weight_group_ids)+1):
+                mask[freeze_idx + group*self.num_levels] = True
+        elif self.end_weights:
             mask[freeze_idx + int(len(self.weights[self.direct]) / 2)] = True
 
         return mask
@@ -97,7 +101,13 @@ class Optimiser(Reconstructor):
             options = None
 
         start = time.time()
-        print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: slopes(强制理想曲率) -> weights(正常曲率) --------------------")
+        if self.end5cm_point_calib:
+            # Validate data before entering a potentially expensive optimization.
+            self._real_point_loss(direction_only=True)
+            print('end5cm真实点模式：slopes(首个真实点方向参考) -> weights(真实半径曲率)；最终仍报告几何误差')
+        stage_order = ('slopes(真实点方向) -> weights(真实点曲率幅值)' if self.end5cm_point_calib
+                       else 'slopes(强制理想曲率) -> weights(正常曲率)')
+        print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: {stage_order} --------------------")
 
         # ---------- 第一阶段：优化 slopes，强制使用理想 magnitude ----------
         slopes_loss, slopes_status, slopes_start_loss = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
@@ -133,7 +143,12 @@ class Optimiser(Reconstructor):
         print(f"最小误差: {current_loss}")
         self._print_errors()
         # 两阶段 loss 的曲率来源不同，分别保存；最终验收误差由正常重构统计获得。
-        return {'stages': {
+        return {'objective': ('real_points' if self.end5cm_point_calib else 'geometry'),
+                'loss_definitions': ({'slopes': 'mean circular direction error to first real point (1-cos)',
+                                      'weights': 'mean squared relative real-point curvature error'}
+                                     if self.end5cm_point_calib else {'slopes': 'ideal-magnitude geometry',
+                                                                    'weights': 'measured-magnitude geometry'}),
+                'stages': {
             'slopes': {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss},
             'weights': {'status': weights_status, 'start_loss': weights_start_loss, 'final_loss': weights_loss},
         }}
@@ -363,6 +378,43 @@ class Optimiser(Reconstructor):
         print(f"半径误差: {self.avg_radius_err}")
         print()
 
+    def _real_point_loss(self, *, direction_only):
+        """Use circular-bend measurements, excluding virtual points and straight states.
+
+        The first real point is unaffected by candidate slopes in the existing
+        phase transport; it anchors each sample's direction after global phase
+        has been determined. No interpolation, direction smoothing or geometric
+        error enters this loss. Each radius and each valid real point has equal
+        influence. Amplitude errors are normalized by that radius's curvature.
+        """
+        if self.calib_shapes != ['circ']:
+            raise ValueError('end5cm真实点定标目前仅支持circ圆弧数据')
+        radii = np.asarray(self.radii[self.direct]['circ'], dtype=float)
+        if not np.all(np.isfinite(radii)) or np.any(radii < 0) or not np.any(radii > 0):
+            raise ValueError('end5cm真实点定标需要有限正半径；0仅表示直线状态')
+        losses = []
+        for radius in radii[radii > 0]:
+            magnitude, angle = self._Strain_2_Cur(
+                keys=[radius], calib_shape='circ',
+                calib_Data=self.processed_Data['circ'][self.direct],
+                weight=self.weights[self.direct], slope=self.slopes[self.direct],
+                direct=self.direct,
+            )
+            magnitude = np.asarray(magnitude, dtype=float)
+            angle = np.asarray(angle, dtype=float)
+            if (magnitude.shape != (self.total_points,) or angle.shape != magnitude.shape
+                    or not np.all(np.isfinite(magnitude)) or not np.all(np.isfinite(angle))):
+                raise ValueError('end5cm真实点曲率/方向包含非法数据')
+            if direction_only:
+                valid = magnitude > 1e-12
+                if not valid[0]:
+                    raise ValueError('end5cm首个真实点无有效曲率，不能确定方向参考')
+                losses.append(float(np.mean(1. - np.cos(angle[valid] - angle[0]))))
+            else:
+                target_curvature = 1000. / radius
+                losses.append(float(np.mean((magnitude / target_curvature - 1.) ** 2)))
+        return float(np.mean(losses))
+
     def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound, force_ideal_magnitude=False):
         """
         给定当前候选参数，计算优化器使用的总损失值。
@@ -391,6 +443,7 @@ class Optimiser(Reconstructor):
 
         说明：
         - force_ideal_magnitude=True 时，曲率大小不再来自应变幅值估计，主要用于 slopes 阶段；
+        - end5cm_point_calib=True时，此布尔字段改为区分真实点方向/幅值目标，不进入几何重构；
         - 当前 'calib' 汇总误差由 _compute_error() 中的 calib_error_shapes 决定，通常包括 circ、S、end、end3；
         - rot0 不参与 'calib' 的逐点/末端误差汇总，而通过 avg_pitch_err 与 avg_radius_err 单独进入损失。
         """
@@ -399,6 +452,8 @@ class Optimiser(Reconstructor):
         self.weights[self.direct] = weights
         # self.weights[self.direct] = np.ones(self.num_levels)
         self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape)
+        if getattr(self, 'end5cm_point_calib', False):
+            return self._real_point_loss(direction_only=force_ideal_magnitude)
         # ---------- 计算误差 ----------
         rs = {}
         for calib_shape in self.calib_shapes:

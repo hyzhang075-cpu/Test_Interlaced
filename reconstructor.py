@@ -5,7 +5,7 @@ from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import CubicHermiteSpline, PchipInterpolator
 
 from initialiser import Initialiser
-from calibration_regions import validate_end_weight_config
+from calibration_regions import validate_end_weight_config, validate_weight_group_ids
 
 from tools.utils import dict_recur_paths, dict_recur_unflatten, dict_recur_extract_path
 
@@ -17,6 +17,7 @@ class Reconstructor(Initialiser):
                  TNB_threshold=0.15, interp_num=120, move_filter=3, kalman_params={'angle': {'Rk': 0.001, 'Bk': 0.001}, 'magnitude': {'Rk': 0.0001, 'Bk': 0.01}},
                  curvature_interp='hermite', nonnegative_curvature=False,
                  *args, move_filter_for_vector=False, multi_region_parameters=None, **kwargs):
+        weight_group_ids = kwargs.pop('weight_group_ids', None)
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
@@ -37,9 +38,14 @@ class Reconstructor(Initialiser):
 
         # 需要优化的应变权重、扭转系数以及旋转角度
         self.end_weights = end_weights # 是否优化末端权重
+        self.weight_group_ids = validate_weight_group_ids(weight_group_ids, self.total_points)
         self.init_weight = init_weight
         if not weights:
-            self.weights = {direct: np.ones(2 * self.num_levels) for direct in self.exp_directs} if self.end_weights else {direct: init_weight * np.ones(self.num_levels) for direct in self.exp_directs}
+            if self.weight_group_ids is not None:
+                self.weights = {direct: init_weight*np.ones((max(self.weight_group_ids)+1)*self.num_levels)
+                                for direct in self.exp_directs}
+            else:
+                self.weights = {direct: np.ones(2 * self.num_levels) for direct in self.exp_directs} if self.end_weights else {direct: init_weight * np.ones(self.num_levels) for direct in self.exp_directs}
         else:
             self.weights = weights
 
@@ -614,7 +620,11 @@ class Reconstructor(Initialiser):
                 print(f"Probability mass for curvature class {i+1}: {masses[i]}")
 
         # ---------- 计算加权后的应变 ----------
-        weight_vecs = np.array([np.where(self.end_mask, weight[i+self.num_levels] if self.end_weights else weight[i], weight[i]) for i in range(self.num_levels)]) 
+        groups = getattr(self, 'weight_group_ids', None)
+        if groups is not None:
+            weight_vecs = np.asarray(weight).reshape(-1, self.num_levels)[np.asarray(groups)].T
+        else:
+            weight_vecs = np.array([np.where(self.end_mask, weight[i+self.num_levels] if self.end_weights else weight[i], weight[i]) for i in range(self.num_levels)])
         final_weight = np.sum(masses * weight_vecs, axis=0)
         weighted_strain = strain_data * final_weight
         if verbose:
@@ -801,7 +811,8 @@ class Reconstructor(Initialiser):
             levels = len(thresholds) + 1
             enabled, end_start = validate_end_weight_config(
                 block.get('end_weights', False), block.get('end_start', -5), len(support))
-            expected_weights = levels * (2 if enabled else 1)
+            groups = validate_weight_group_ids(block.get('weight_group_ids'), len(support))
+            expected_weights = levels * (max(groups)+1 if groups is not None else (2 if enabled else 1))
             normalized_weights = {}
             normalized_slopes = {}
             for direct in directions:
@@ -824,6 +835,7 @@ class Reconstructor(Initialiser):
             block['weights'] = normalized_weights
             block['end_weights'] = enabled
             block['end_start'] = end_start
+            block['weight_group_ids'] = groups
             block['slopes'] = normalized_slopes
             block['sharpness'] = float(block.get('sharpness', self.sharpness))
             block['score_window'] = max(1, int(block.get('score_window', self.min_consecutive)))
@@ -915,7 +927,9 @@ class Reconstructor(Initialiser):
             weights = block['weights'][direct]
             levels = masses.shape[0]
             weight_vectors = np.broadcast_to(weights[:levels, None], masses.shape).copy()
-            if block['end_weights']:
+            if block['weight_group_ids'] is not None:
+                weight_vectors = weights.reshape(-1, levels)[np.asarray(block['weight_group_ids'])].T
+            elif block['end_weights']:
                 # 负索引相对于区域support真实点，虚拟点随后复制补偿后的末点。
                 weight_vectors[:, block['end_start']:] = weights[levels:, None]
             support_weights = np.sum(masses * weight_vectors, axis=0)
@@ -934,6 +948,7 @@ class Reconstructor(Initialiser):
                 'mass_shape': list(masses.shape),
                 'end_weights': block['end_weights'],
                 'end_start': block['end_start'],
+                'weight_group_ids': block['weight_group_ids'],
                 'effective_weights': support_weights.tolist(),
             }
 

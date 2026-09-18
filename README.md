@@ -383,6 +383,20 @@ python main.py --task optim --multi_region_calib True --weights None --slopes No
 
 导出工具会保存每个区域的end_weights、end_start和完整双组weights，main及多区域recon/demo加载后按各区域真实support点范围分配。旧参数包缺少字段时保持关闭，不自动复制旧weights生成新定标结果。加载旧包时会继承其旧区域配置；要使用当前parser的新区域默认值重新优化，请省略`--sensor_params`，优化后导出到新的文件名。
 
+### end5cm 真实点方向与曲率幅值定标
+
+若需要19–20普通组、21独立组、22独立组，另加 `--end5cm_independent_weights True`。此时end5cm weights为三组共30个，slopes仍10×2；单区域recon也需开启此布局，参数包加载会自动继承。旧20参数保持兼容，不能自动复制为新30参数。仅重跑end5cm时，可通过导出工具 `--base_results` 复用旧full/end15cm结果。完整执行步骤见 [三组weights执行流程](docs/calibration-regions.md)。
+
+`--end5cm_point_calib` 默认 `False`，只改变 end5cm 的优化目标。开启后仍先优化 slope、再优化 weight：在区域 `global_phases_set` 已确定的情况下，以每个非零圆弧样本的首个真实点方向为固定参考，最小化真实点19–22的圆周方向误差；随后按 `folder_path` 中真实定标数据和 `radii` 中真实半径，最小化各真实点曲率相对于 `1000/radius_mm` 的平方相对误差。直线状态不参与这两项拟合，虚拟点、空间滤波和插值也不进入新目标函数。
+
+```bash
+python main.py --task optim --multi_region_calib True --end5cm_point_calib True --weights None --slopes None --direct 0
+```
+
+分别将 direct 换为120、240运行。full、end15cm继续采用原几何目标；end5cm的thresholds、双组weights、10×2 slopes及 `end_start=-1` 保持现有配置。新开关不自动修改末端权重范围，也不增加等级间单调性或平滑约束。最终仍通过正常重构报告几何误差，不能用新阶段loss替代回放验收。
+
+新模式仅支持圆弧 `circ`，且需要至少一个有限正半径。结果和导出包记录各区域 `calibration_objective`；旧包缺字段时按 `geometry` 处理，加载新包时继承开关，显式 `--end5cm_point_calib False` 可重新优化原模式对照。recon/demo不因这个开关改变重构公式；它们使用已导出的参数。当前开关不优化全局相位，首点方向的绝对准确性与交界相位仍需回放核验。
+
 ### 固定上游相位与跨界 slope 对比测试
 
 `--use_full_transported_phase` 默认 `False`。开启后，按照 full → end15cm → end5cm 顺序优化：

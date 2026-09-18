@@ -9,6 +9,17 @@ from copy import deepcopy
 import numpy as np
 
 
+def validate_weight_group_ids(groups, point_count):
+    """Validate explicit group indices for real support points; None is legacy layout."""
+    if groups is None:
+        return None
+    values = np.asarray(groups)
+    if (values.shape != (point_count,) or values.dtype.kind not in 'iu'
+            or np.any(values < 0) or sorted(set(values.tolist())) != list(range(int(values.max())+1))):
+        raise ValueError('weight_group_ids必须对应每个真实点，使用从0开始连续的整数分组')
+    return values.astype(int).tolist()
+
+
 def validate_end_weight_config(enabled, start, point_count):
     """校验区域末端权重开关与负索引；索引只包含真实support点。"""
     if not isinstance(enabled, (bool, np.bool_)):
@@ -121,7 +132,7 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
 
 
 def validate_calibration_parameters(weights, slopes, thresholds, segmentation,
-                                    directions, *, end_weights=False, s_shape=False):
+                                    directions, *, end_weights=False, s_shape=False, weight_group_ids=None):
     """预载参数必须匹配所选区域，防止旧 5 cm 数组被误用于新全长定标。
 
     None 表示让现有初始化器生成初值；此处不猜测或重采样已定标参数。
@@ -129,8 +140,10 @@ def validate_calibration_parameters(weights, slopes, thresholds, segmentation,
     同时不修改 CLI/配置字典中的原始列表。
 """
     levels = len(thresholds) + 1
+    groups = validate_weight_group_ids(weight_group_ids, sum(segmentation))
+    group_count = max(groups)+1 if groups is not None else (2 if end_weights else 1)
     expected = {
-        'weights': (levels * (2 if end_weights else 1),),
+        'weights': (levels * group_count,),
         'slopes': (levels, len(segmentation) * (2 if s_shape else 1)),
     }
     normalized = []

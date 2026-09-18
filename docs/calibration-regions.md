@@ -114,6 +114,82 @@ weights/slopes 默认 None，按当前区域初始化。旧 5 cm 数值保留在
 
 直接为每个点优化独立 weight/slope 会增加自由度，目前 5 cm 只有四点，不宜先走这条路径。反过来，单独拟合后仅拼接数组又无法处理局部相位参考及交界间隔。两阶段策略可以先建立可解释的初值，再解决全局部署误差。
 
+## 可选 end5cm 真实点定标目标
+
+### 19–20、21、22三组weights执行流程
+
+新增 `--end5cm_independent_weights True`，默认False以兼容旧参数。它只对end5cm生效，与 `--end5cm_point_calib True` 配合使用。真实点分组 `weight_group_ids=[0,0,1,2]`；10个等级时，weights依次为19–20组10个、21组10个、22组10个，共30个；slopes仍10×2。此布局按分组选择weights，不再由end_start选择覆盖点。区域end_weights须True，虚拟点仍复制22点补偿曲率。旧20参数不会被自动复制成30参数。
+
+1. 从项目目录运行以下单区域定标，不加载旧包，以便重新初始化三组weights；分别把direct设为0、120、240，保存每次打印的结果目录。
+
+```bash
+python main.py --task optim --multi_region_calib False --optimization_region end5cm --end5cm_point_calib True --end5cm_independent_weights True --weights None --slopes None --direct 0
+```
+
+2. 核对每个 `results.json`：区域完成、calibration_objective为real_points、weight_group_ids为[0,0,1,2]、weights长度30、slopes10×2。检查阶段状态、触边情况及30/20/15mm的21、22点曲率。不能把no_improvement直接视为通过。
+3. 单区域recon传入新weights、slopes和保存的global_phases_set；也必须带 `--end5cm_independent_weights True`。其余参数与定标一致。下面PowerShell从direct0新结果读取参数，避免手抄；先把$r0替换为实际结果目录。
+
+```powershell
+$r0 = 'calibration_results/<新direct0目录>'
+$report = Get-Content "$r0/results.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$entry = $report.regions.end5cm
+$w = ConvertTo-Json -InputObject $entry.parameters.weights.'0' -Compress -Depth 10
+$s = ConvertTo-Json -InputObject $entry.parameters.slopes.'0' -Compress -Depth 10
+python main.py --task recon --multi_region_calib False --optimization_region end5cm --direct 0 --end5cm_independent_weights True --weights "{0: $w}" --slopes "{0: $s}" --global_phases_set $entry.parameters.global_phases_set
+```
+
+4. 三个方向都完成后，复用原完整结果的full/end15cm，仅替换end5cm。导出工具新增 `--base_results`：三个基础结果必须包含完整三区域；三个新results必须只含end5cm，方向和sensor_id必须一致。以下使用旧包的三个原始结果路径作为基础；$r120、$r240填新目录，输出采用新文件名。
+
+```powershell
+$r120 = 'calibration_results/<新direct120目录>'
+$r240 = 'calibration_results/<新direct240目录>'
+$old = Get-Content 'params/06B6_NeTi_v2_ftube_nophase_ang0_lastweight_angwindow.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+$base = @($old.provenance.source_results)
+python tools/sensor_parameter_package.py --base_results $base --results $r0 $r120 $r240 --output params/06B6_NeTi_v2_ftube_nophase_pointcalib_3weightgroups.json --comparison docs/calibration-pointcalib-3weightgroups-comparison.md
+```
+
+5. 完整定标回放与动态拼接对比使用新包；包自动继承两项新开关。先检查大半径曲线、30/20/15mm末端幅值、15cm/5cm交界、末端位置和姿态，再动态观察累计弯曲与扭转。没有自动重跑优化或自动覆盖旧包。
+
+```bash
+python main.py --task recon --multi_region_calib True --sensor_params params/06B6_NeTi_v2_ftube_nophase_pointcalib_3weightgroups.json --direct 0
+python main.py --task demo --multi_region_calib True --sensor_params params/06B6_NeTi_v2_ftube_nophase_pointcalib_3weightgroups.json --direction_reference_direct 0
+```
+
+全长recon默认回放full数据；单区域end5cm回放用于小半径。跨区域全长小半径指标仍使用calibration_validation.py的定标回放，不以full目录的大半径图替代。
+
+### 单方向、单区域回放
+
+仅优化end5cm/direct0时，可将该区域 `results.json` 的20个weights、10×2 slopes与 `global_phases_set` 传给单区域recon：
+
+```bash
+python main.py --task recon --multi_region_calib False --optimization_region end5cm --direct 0 --weights "{0: <weights列表>}" --slopes "{0: <slopes二维列表>}" --global_phases_set <保存的相位>
+```
+
+单区域recon默认将实验方向范围限制为当前 `direct`，不要求其他两个方向参数；显式 `--exp_directs "[0]"` 也可使用。显式指定多个实验方向时，参数校验仍要求该列表内每个方向都有参数，且列表必须包含当前direct。优化任务和多区域recon保留原方向范围。回放需与优化时的区域thresholds、分段、end_weights/end_start及插值设置一致；这只重构局部5cm，不代替完整传感器参数包。
+
+默认 `--end5cm_point_calib False` 保留所有区域原有优化。设置为 `True` 时，仅 end5cm 使用真实点目标，full和end15cm不受影响；批量调度会分别解析每个区域的有效模式。
+
+```bash
+python main.py --task optim --multi_region_calib True --end5cm_point_calib True --weights None --slopes None --direct 0
+```
+
+再分别运行 direct 120、240。也可关闭批量模式并指定 `--optimization_region end5cm` 单独定标。若需当前parser的区域配置，省略旧 `--sensor_params`；加载旧包仍会继承其区域配置，显式开启新优化开关并不会自动改动旧weights布局。
+
+两阶段目标为：
+
+1. **方向阶段**：保持初始化或上游固定参考确定的 `global_phases_set`；每个非零圆弧样本以首个真实点为方向参考，计算真实点的 `mean(1-cos(angle_i-angle_first))`，再按半径样本等权平均。当前相位累计算法中，首点不受候选slope影响，因此参考不会随优化器改变。方向比较在滤波/插值之前执行，数值零曲率点不比较方向；首点无有效曲率时明确报错。
+2. **幅值阶段**：固定slope，使用 `folder_path` 中的实际应变，按真实半径 `radii` 得到目标 `kappa=1000/radius_mm`，计算各真实点 `mean((measured_kappa/kappa-1)^2)`，再按半径样本等权平均。补偿曲率仍由生产评分、普通/末端weights及应变转换产生。
+
+只支持 `circ` 数据；半径0直线状态不进入新拟合，仍保留在最终几何回放。半径须有限、非负且至少有一个正值。虚拟点不作独立测量，不参与新loss；运行时仍复制补偿后的末点并执行原有插值、标架和滤波流程。
+
+两阶段loss均无量纲，含义不同，不可相互比较，也不能与旧几何loss直接比较。现有停止阈值、权重界限、slope界限、冻结配置和按曲率混合规则继续适用；本改动没有自动扩大界限或增加等级间约束。最终正常几何误差仍另行保存，comparison表格继续使用完整传感器长度百分比，参数明细标注优化目标和阶段loss定义。
+
+`results.json` 的context/parameters保存 `calibration_objective=real_points` 或 `geometry`，optimization记录阶段loss定义。导出要求同一区域三个方向的模式一致；参数包按end5cm的实际模式回填parser开关，旧包缺字段时关闭。开关只控制优化，不会通过运行时切换重新计算已保存的参数。
+
+本模式减少局部方向扭转作为几何拟合自由度，但不重新对齐首点绝对方向、不保证全长交界连续，也不证明幅值拟合后几何已准确；应继续使用定标回放核验。
+
+2026-09-18适配验证：相关测试130项通过。实际end5cm CSV初始化读取14个非零半径；weights为20、slopes为10×2，末端mask为 `[False,False,False,True]`。初始方向loss为0.305526，初始曲率平方相对误差为0.215829，均有限；仅初始化与计算loss，未运行优化。全量测试209项通过、3项既有失败（UDP锚点两项、向量窗口parser默认值与测试预期不一致一项）。
+
 ## 本次验证
 
 使用三个实际目录，运行真实 Optimiser 初始化、CSV 读取、中心补偿、空间裁剪与正常模式重构，没有连接硬件、打开 GUI 或执行参数优化。

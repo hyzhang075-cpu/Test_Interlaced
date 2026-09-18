@@ -95,7 +95,9 @@ def run(package_path, output):
             weights = np.asarray(region['weights'][str(direct)])
             levels = masses.shape[0]
             weight_vectors = np.broadcast_to(weights[:levels, None], masses.shape).copy()
-            if region.get('end_weights', False):
+            if region.get('weight_group_ids') is not None:
+                weight_vectors = weights.reshape(-1,levels)[np.asarray(region['weight_group_ids'])].T
+            elif region.get('end_weights', False):
                 weight_vectors[:, region['end_start']:] = weights[levels:, None]
             gain = np.sum(masses*weight_vectors, axis=0)
             raw_base = curvature_microstrain(raw[indices, 1:], shared['R'])

@@ -65,6 +65,17 @@ def bare_reconstructor(config=None):
     return obj, calls
 
 
+def test_runtime_assembly_supports_multiple_real_point_weight_groups():
+    config = package()
+    block = config['regions']['end5cm']
+    block['weight_group_ids'] = [0,1]
+    for direct in (0,120,240):
+        block['weights'][str(direct)] = [2.]*4+[3.]*4
+    obj, _ = bare_reconstructor(config)
+    _, _, weight, _, _ = obj._assemble_multiregion_parameters(np.ones((3,6)),0)
+    np.testing.assert_allclose(weight[-2:],[2.,3.])
+
+
 def test_each_region_uses_its_own_threshold_count_weights_and_slopes():
     obj, calls = bare_reconstructor()
     strain = np.vstack((np.arange(6, dtype=float), np.zeros((2, 6))))

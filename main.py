@@ -31,6 +31,13 @@ def configure_calibration_args(args):
 数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
 返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
 """
+    if args.task == 'recon' and not args.multi_region_calib:
+        # A single-region replay reconstructs only args.direct. Keep an explicit
+        # experiment scope, but do not require unused parameter directions by default.
+        if 'exp_directs' not in getattr(args, '_explicit_cli_parameters', ()):
+            args.exp_directs = [args.direct]
+        if args.direct not in args.exp_directs:
+            raise ValueError('recon的direct必须包含在exp_directs中')
     if args.task in ('recon', 'demo') and args.multi_region_calib:
         if getattr(args, '_sensor_package', None) is None:
             raise ValueError('multi_region_calib=True 的全长 recon/demo 需要 --sensor_params 参数包')
@@ -120,6 +127,25 @@ def configure_calibration_args(args):
                   samp_dist_preset=preset, full_segmentation=full_segments,
                   profiles=profiles, multi_region_calib=args.multi_region_calib)
     context = resolve_calibration_region(optimization_region=args.optimization_region, **common)
+    point_calib = (getattr(args, 'end5cm_point_calib', False)
+                   and args.optimization_region == 'end5cm')
+    context['calibration_objective'] = 'real_points' if point_calib else 'geometry'
+    independent = (getattr(args, 'end5cm_independent_weights', False)
+                   and args.optimization_region == 'end5cm')
+    context['weight_group_ids'] = None
+    if independent:
+        if context['global_point_ids'] != [19,20,21,22] or args.reverse:
+            raise ValueError('end5cm三组weights目前要求正向真实点19–22')
+        if not args.end_weights:
+            raise ValueError('end5cm三组weights需要该区域end_weights=True')
+        context['weight_group_ids'] = [0,0,1,2]
+    args._resolved_weight_group_ids = context['weight_group_ids']
+    if point_calib:
+        if set(context['radii']) != {'circ'}:
+            raise ValueError('end5cm真实点定标目前仅支持circ圆弧数据')
+        radii = np.asarray(context['radii']['circ'], dtype=float)
+        if not np.all(np.isfinite(radii)) or np.any(radii < 0) or not np.any(radii > 0):
+            raise ValueError('end5cm真实点定标需要有限正半径；0仅表示直线状态')
     if args.multi_region_calib:
         # 开启区域模式时，所有已配置长度都必须与同一全长分段相容。
         for region in profiles:
@@ -143,6 +169,7 @@ def configure_calibration_args(args):
     args.weights, args.slopes = validate_calibration_parameters(
         args.weights, args.slopes, args.thresholds, args.segmentation, args.exp_directs,
         end_weights=args.end_weights, s_shape='S' in args.radii,
+        weight_group_ids=context['weight_group_ids'],
     )
     print(f'定标区域: {args.optimization_region}; ideal_len={args.ideal_len:.6f} m; '
           f'全局真实点={context["global_point_ids"]}; segmentation={args.segmentation}')
@@ -274,6 +301,10 @@ def build_argument_parser():
                         help='有序传感器参数包 JSON；显式 CLI 参数优先')
     parser.add_argument('--use_full_transported_phase', type=_str2bool, default=False,
                         help='局部优化使用非零弯曲状态的固定上游相位；区域跨界固定使用full第0档slope')
+    parser.add_argument('--end5cm_point_calib', type=_str2bool, default=False,
+                        help='仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化')
+    parser.add_argument('--end5cm_independent_weights', type=_str2bool, default=False,
+                        help='仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
                         help='True时optim/score遍历optimization_regions；False时仅全长')
     parser.add_argument('--optimization_region', type=str, default='full',
@@ -345,7 +376,8 @@ def build_argument_parser():
     # parser.add_argument('--folder_path', type=str, default="./0908-06B6/末端测试/15cm", help='数据存储路径')
     parser.add_argument('--folder_path', type=str, default=None, help='覆盖所选区域的数据目录；默认由 calibration_regions 提供')
     parser.add_argument('--rot_dir', type=list, default={0:-1,120:-1,240:-1}, help='各个标定实验按逆(1)还是顺(-1)顺时针调整的方向')
-    parser.add_argument('--exp_directs', type=list, default=[0, 120, 240], help='实验使用的方向')
+    parser.add_argument('--exp_directs', type=ast.literal_eval, default=[0, 120, 240],
+                        help='实验使用的字面方向角列表，如[0]或[0,120,240]；单区域recon默认只使用direct')
     # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
     # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]}, help='标定圆弧形状半径')
     parser.add_argument('--radii', type=ast.literal_eval, default=None, help='覆盖所选区域半径字典(mm)')
