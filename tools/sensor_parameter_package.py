@@ -474,15 +474,29 @@ def package_parser_defaults(package):
 
 
 def render_calibration_comparison(reports):
-    """Render a human-readable comparison without changing source reports."""
+    """以完整传感器长度百分比比较各区域误差，不修改原始结果。"""
     reports = sorted(reports, key=lambda item: item['direct'])
+    full_lengths = {}
+    for report in reports:
+        value = report['regions']['full']['context'].get('ideal_len')
+        try:
+            length = float(value)
+        except (TypeError, ValueError):
+            raise ValueError('comparison 的 full context ideal_len 必须为有限正数 (m)') from None
+        if not np.isfinite(length) or length <= 0:
+            raise ValueError('comparison 的 full context ideal_len 必须为有限正数 (m)')
+        full_lengths[report['direct']] = length
     lines = [
         '# Multi-region calibration result comparison', '',
-        '| direct | region | weighted loss (mm) | point error (mm) | end error (mm) | slopes | weights |',
+        'Error (%) = error (m) / full sensor length (m) × 100. '
+        'All regions use the full sensor length, including end15cm and end5cm. '
+        'Weighted loss is scaled by the same full length.', '',
+        '| direct | region | weighted loss (% full length) | point error (% full length) | end error (% full length) | slopes | weights |',
         '|---:|---|---:|---:|---:|---|---|',
     ]
     for report in reports:
         direct = report['direct']
+        percent_scale = 100.0 / full_lengths[direct]
         for region in REGION_ORDER:
             entry = report['regions'][region]
             errors = entry['errors']
@@ -492,28 +506,32 @@ def render_calibration_comparison(reports):
             slope_status = 'diverged' if slope_status == 'diverge' else slope_status
             weight_status = 'diverged' if weight_status == 'diverge' else weight_status
             lines.append(
-                f'| {direct} | {region} | {1000 * errors["normal_weighted_loss"]:.3f} | '
-                f'{1000 * errors["avg_point_err"]["calib"]:.3f} | '
-                f'{1000 * errors["avg_end_err"]["calib"]:.3f} | '
+                f'| {direct} | {region} | {percent_scale * errors["normal_weighted_loss"]:.3f} | '
+                f'{percent_scale * errors["avg_point_err"]["calib"]:.3f} | '
+                f'{percent_scale * errors["avg_end_err"]["calib"]:.3f} | '
                 f'{slope_status} | {weight_status} |'
             )
     lines.extend(['', '## Parameters and per-radius errors', ''])
     for report in reports:
         direct = report['direct']
-        lines.extend([f'### Direction {direct}', ''])
+        percent_scale = 100.0 / full_lengths[direct]
+        lines.extend([f'### Direction {direct}', '',
+                      f'- full sensor length: `{full_lengths[direct]:.6f} m`', ''])
         for region in REGION_ORDER:
             entry = report['regions'][region]
             params = entry['parameters']
             key = str(direct)
             point = entry['errors'].get('point_errors_by_sample', {}).get('circ', {})
             end = entry['errors'].get('end_errors_by_sample', {}).get('circ', {})
+            point_percent = {radius: percent_scale * value for radius, value in point.items()}
+            end_percent = {radius: percent_scale * value for radius, value in end.items()}
             radius_lines = []
             for radius, point_error in point.items():
                 end_error = end.get(str(radius), end.get(radius))
                 if end_error is not None:
                     radius_lines.append(
-                        f'- radius {radius}: point={1000 * point_error:.3f} mm, '
-                        f'end={1000 * end_error:.3f} mm'
+                        f'- radius {radius}: point={percent_scale * point_error:.3f}% full length, '
+                        f'end={percent_scale * end_error:.3f}% full length'
                     )
             lines.extend([
                 f'#### {region}', '',
@@ -522,8 +540,8 @@ def render_calibration_comparison(reports):
                 f'- local rot_ang: `{params.get("rot_ang")}`',
                 f'- weights: `{json.dumps(params["weights"][key])}`',
                 f'- slopes: `{json.dumps(params["slopes"][key])}`',
-                f'- point errors: `{json.dumps(point, ensure_ascii=False)}`',
-                f'- end errors: `{json.dumps(end, ensure_ascii=False)}`',
+                f'- point errors (% full length): `{json.dumps(point_percent, ensure_ascii=False)}`',
+                f'- end errors (% full length): `{json.dumps(end_percent, ensure_ascii=False)}`',
                 *radius_lines,
                 '',
             ])

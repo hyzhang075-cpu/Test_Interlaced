@@ -299,8 +299,22 @@ def test_comparison_report_exposes_parameters_errors_and_failed_stages():
     assert '| 240 | full |' in markdown
     assert 'diverged' in markdown
     assert 'weights: `[241.0, 242.0' in markdown
-    assert 'point=5.000 mm' in markdown
+    assert 'point=1.250% full length' in markdown
+    assert 'end=2.500% full length' in markdown
+    assert 'point error (% full length)' in markdown
+    assert '| 0 | end5cm | 2.500 | 1.250 | 2.500 |' in markdown
+    assert 'point errors (% full length): `{"200": 1.25}`' in markdown
+    assert 'end errors (% full length): `{"200": 2.5}`' in markdown
     assert 'local global phase' in markdown
+    assert reports[0]['regions']['end5cm']['errors']['avg_point_err']['calib'] == .005
+
+
+@pytest.mark.parametrize('length', [None, 0, -1, float('nan'), float('inf')])
+def test_comparison_rejects_invalid_full_length(length):
+    report = _report(0)
+    report['regions']['full']['context']['ideal_len'] = length
+    with pytest.raises(ValueError, match='full.*ideal_len'):
+        render_calibration_comparison([report])
 
 
 def _package_path(tmp_path, **shared_overrides):

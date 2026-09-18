@@ -63,6 +63,8 @@ python tools/sensor_parameter_package.py --results `
 
 JSON 顶层以 `sensor_id` 开始。`shared_parameters` 按 parser 顺序分成硬件、定标实验、优化超参数、动态展示、重构、初始化、角度优化和运行控制组。每个 parser 参数只有一个权威位置；显式 CLI 值覆盖包内默认值，`--task` 始终必须显式给出。
 
+`--comparison` 输出的汇总表、逐半径 point/end error 字典及明细统一使用完整传感器长度百分比：`error (m) / full.context.ideal_len (m) × 100`。end15cm/end5cm 也使用 full 长度作分母，weighted loss 按相同基准换算；文档记录各方向使用的完整长度。原始 results.json 和参数包中的误差、优化损失仍保留原值。
+
 单区域与合并重构命令：
 
 ```powershell
