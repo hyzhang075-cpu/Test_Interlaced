@@ -18,6 +18,10 @@ class Reconstructor(Initialiser):
                  curvature_interp='hermite', nonnegative_curvature=False,
                  *args, move_filter_for_vector=False, multi_region_parameters=None, **kwargs):
         weight_group_ids = kwargs.pop('weight_group_ids', None)
+        end5cm_independent_weight_score = kwargs.pop('end5cm_independent_weight_score', None)
+        legacy_groupwise = kwargs.pop('end5cm_groupwise_weight_score', False)
+        if end5cm_independent_weight_score is None:
+            end5cm_independent_weight_score = legacy_groupwise
         super().__init__(*args, **kwargs)
 
         self.rot_seg_fit(verbose=True, update_phase=False) # 打印初始信息，但不更新全局相位
@@ -29,6 +33,9 @@ class Reconstructor(Initialiser):
         self.thresholds = thresholds # 曲率分级阈值
         self.min_consecutive = min_consecutive
         self.sharpness = sharpness
+        self.end5cm_independent_weight_score = bool(end5cm_independent_weight_score)
+        # Runtime compatibility for older callers; production code reads the canonical name.
+        self.end5cm_groupwise_weight_score = self.end5cm_independent_weight_score
 
         self.num_levels = len(self.thresholds) + 1 
         self.base_segments = self._calculate_segments(total_points=self.total_points)
@@ -575,8 +582,9 @@ class Reconstructor(Initialiser):
 
         # ---------- 进行曲率分级和分级参数计算 ----------
         score_magnitude = magnitude * magnitude_ratio
+        groups = getattr(self, 'weight_group_ids', None)
         if not self.soft:
-            scores = None
+            slope_scores = None
             hard_level_idx = np.zeros(self.total_points, dtype=int)
             hard_regions = [None] * self.num_levels
             min_consecutive = max(1, int(self.min_consecutive))
@@ -605,27 +613,35 @@ class Reconstructor(Initialiser):
                     hard_level_idx[region_indices] = level
                     hard_regions[level] = region_indices
 
-            masses = np.zeros((self.num_levels, self.total_points))
-            masses[hard_level_idx, np.arange(self.total_points)] = 1.0
+            slope_masses = np.zeros((self.num_levels, self.total_points))
+            slope_masses[hard_level_idx, np.arange(self.total_points)] = 1.0
+            weight_scores = slope_scores
+            weight_masses = slope_masses
         else:
-            scores = self._get_scores(magnitude=score_magnitude)
-            masses = self._alloc_mass(scores=scores)
+            slope_scores = self._get_scores(magnitude=score_magnitude)
+            slope_masses = self._alloc_mass(scores=slope_scores)
+            weight_scores = slope_scores
+            weight_masses = slope_masses
+            if getattr(self, 'end5cm_independent_weight_score', False) and groups is not None:
+                weight_scores, _ = self._get_groupwise_weight_scores(
+                    score_magnitude, groups,
+                )
+                weight_masses = self._alloc_mass(weight_scores)
         if verbose:
-            if scores is not None:
-                print(f"scores: {scores}")
+            if slope_scores is not None:
+                print(f"slope scores: {slope_scores}")
             else:
                 print(f"hard level index: {hard_level_idx}")
                 print(f"hard regions: {hard_regions}")
             for i in range(self.num_levels-1):
-                print(f"Probability mass for curvature class {i+1}: {masses[i]}")
+                print(f"Probability mass for curvature class {i+1}: {slope_masses[i]}")
 
         # ---------- 计算加权后的应变 ----------
-        groups = getattr(self, 'weight_group_ids', None)
         if groups is not None:
             weight_vecs = np.asarray(weight).reshape(-1, self.num_levels)[np.asarray(groups)].T
         else:
             weight_vecs = np.array([np.where(self.end_mask, weight[i+self.num_levels] if self.end_weights else weight[i], weight[i]) for i in range(self.num_levels)])
-        final_weight = np.sum(masses * weight_vecs, axis=0)
+        final_weight = np.sum(weight_masses * weight_vecs, axis=0)
         weighted_strain = strain_data * final_weight
         if verbose:
             print(f"final weight: {final_weight}")
@@ -647,7 +663,7 @@ class Reconstructor(Initialiser):
                 for j, (start, end) in enumerate(self.base_segments):
                         slope_vecs[i, start:end] = slope[i, j]
                     
-        slope_map = np.sum(masses * slope_vecs, axis=0)
+        slope_map = np.sum(slope_masses * slope_vecs, axis=0)
         final_segments, final_slope = self._generate_dynamic_segments(slope_map=slope_map)
         if verbose:
             print(f"final segments: {final_segments}")
@@ -840,6 +856,11 @@ class Reconstructor(Initialiser):
             block['sharpness'] = float(block.get('sharpness', self.sharpness))
             block['score_window'] = max(1, int(block.get('score_window', self.min_consecutive)))
             block['score_boundary_mode'] = block.get('score_boundary_mode', 'constant')
+            block['weight_score_mode'] = block.get('weight_score_mode', 'spatial_window')
+            if block['weight_score_mode'] not in ('spatial_window', 'group_mean'):
+                raise ValueError(f'{name} weight_score_mode 不合法: {block["weight_score_mode"]!r}')
+            if block['weight_score_mode'] == 'group_mean' and groups is None:
+                raise ValueError(f'{name} weight_score_mode=group_mean 需要 weight_group_ids')
             owned_all.extend(owned)
         if sorted(owned_all) != sorted(sensor_points) or len(owned_all) != len(set(owned_all)):
             raise ValueError(
@@ -853,6 +874,29 @@ class Reconstructor(Initialiser):
     def _local_segment_labels(segmentation):
         """把局部分段长度展开成逐点的局部分段编号。"""
         return np.repeat(np.arange(len(segmentation)), segmentation.astype(int))
+
+    def _get_groupwise_weight_scores(self, magnitude, group_ids, *, thresholds=None, sharpness=None):
+        """Score each independent weight group from its own base-magnitude mean."""
+        magnitude = np.asarray(magnitude, dtype=float)
+        groups = np.asarray(group_ids, dtype=int)
+        if magnitude.ndim != 1 or groups.shape != magnitude.shape:
+            raise ValueError('groupwise weight scoring requires one group id per magnitude point')
+        if groups.size == 0:
+            raise ValueError('groupwise weight scoring requires at least one point')
+        thresholds = self.thresholds if thresholds is None else thresholds
+        sharpness = self.sharpness if sharpness is None else sharpness
+        scores = np.empty((len(thresholds), magnitude.size), dtype=float)
+        group_base_magnitude = {}
+        for group in sorted(set(groups.tolist())):
+            members = groups == group
+            mean_magnitude = float(np.mean(magnitude[members]))
+            group_base_magnitude[str(int(group))] = mean_magnitude
+            group_score = self._get_scores(
+                np.asarray([mean_magnitude]), thresholds=thresholds,
+                sharpness=sharpness, min_consecutive=1,
+            )[:, 0]
+            scores[:, members] = group_score[:, None]
+        return scores, group_base_magnitude
 
     def _assemble_multiregion_parameters(self, strain_data, direct, magnitude_ratio=1.0):
         """使用各区域自己的曲率阈值和 sigmoid 配置装配逐点参数。
@@ -916,36 +960,55 @@ class Reconstructor(Initialiser):
             }
             owned_local = np.asarray([support_lookup[p] for p in block['owned_point_ids']], dtype=int)
             support_score = score_magnitude[support_indices]
-            scores = self._get_scores(
+            slope_scores = self._get_scores(
                 support_score,
                 thresholds=block['thresholds'],
                 sharpness=block['sharpness'],
                 min_consecutive=block['score_window'],
                 boundary_mode=block['score_boundary_mode'],
             )
-            masses = self._alloc_mass(scores)
+            slope_masses = self._alloc_mass(slope_scores)
+            if block['weight_score_mode'] == 'group_mean':
+                weight_scores, group_base_magnitude = self._get_groupwise_weight_scores(
+                    support_score,
+                    block['weight_group_ids'],
+                    thresholds=block['thresholds'],
+                    sharpness=block['sharpness'],
+                )
+                weight_masses = self._alloc_mass(weight_scores)
+            else:
+                weight_scores = slope_scores
+                weight_masses = slope_masses
+                group_base_magnitude = None
             weights = block['weights'][direct]
-            levels = masses.shape[0]
-            weight_vectors = np.broadcast_to(weights[:levels, None], masses.shape).copy()
+            levels = weight_masses.shape[0]
+            weight_vectors = np.broadcast_to(weights[:levels, None], weight_masses.shape).copy()
             if block['weight_group_ids'] is not None:
                 weight_vectors = weights.reshape(-1, levels)[np.asarray(block['weight_group_ids'])].T
             elif block['end_weights']:
                 # 负索引相对于区域support真实点，虚拟点随后复制补偿后的末点。
                 weight_vectors[:, block['end_start']:] = weights[levels:, None]
-            support_weights = np.sum(masses * weight_vectors, axis=0)
+            support_weights = np.sum(weight_masses * weight_vectors, axis=0)
             labels = self._local_segment_labels(block['local_segmentation'])
             slopes = block['slopes'][direct]
             slope_vectors = slopes[:, labels]
-            support_slopes = np.sum(masses * slope_vectors, axis=0)
+            support_slopes = np.sum(slope_masses * slope_vectors, axis=0)
             final_weight[owned_indices] = support_weights[owned_local]
             slope_map[owned_indices] = support_slopes[owned_local]
             diagnostics[name] = {
                 'support_point_ids': list(block['support_point_ids']),
                 'owned_point_ids': list(block['owned_point_ids']),
                 'thresholds': block['thresholds'].tolist(),
-                'scores': scores.tolist(),
-                'masses': masses.tolist(),
-                'mass_shape': list(masses.shape),
+                'score_mode': block['weight_score_mode'],
+                'weight_score_mode': block['weight_score_mode'],
+                'group_base_magnitude': group_base_magnitude,
+                'scores': slope_scores.tolist(),
+                'masses': slope_masses.tolist(),
+                'slope_scores': slope_scores.tolist(),
+                'slope_masses': slope_masses.tolist(),
+                'weight_scores': weight_scores.tolist(),
+                'weight_masses': weight_masses.tolist(),
+                'mass_shape': list(weight_masses.shape),
                 'end_weights': block['end_weights'],
                 'end_start': block['end_start'],
                 'weight_group_ids': block['weight_group_ids'],

@@ -93,14 +93,23 @@ def configure_calibration_args(args):
         folder = Path(profile['folder_path'])
         if not folder.is_absolute():
             profile['folder_path'] = str(root / folder)
-    for key in ('folder_path', 'radii', 'thresholds', 'segmentation'):
+    for key in ('radii', 'thresholds', 'segmentation'):
         value = getattr(args, key)
         if value is not None:
             selected[key] = value
+    if args.folder_path is not None:
+        folder = Path(args.folder_path)
+        selected['folder_path'] = str(folder if folder.is_absolute() else root / folder)
     # 显式 --weights None/--slopes None 表示重新初始化，覆盖区域保存的初值。
     for key in ('weights', 'slopes'):
         if getattr(args, key) is None and key not in getattr(args, '_explicit_seed_parameters', []):
             setattr(args, key, deepcopy(selected.get(key)))
+    if getattr(args, 'optim_weights_only', False):
+        explicit_seeds = set(getattr(args, '_explicit_seed_parameters', ()))
+        has_package_source = getattr(args, '_sensor_package', None) is not None
+        has_explicit_source = 'slopes' in explicit_seeds
+        if args.slopes is None or not (has_package_source or has_explicit_source):
+            raise ValueError('optim_weights_only=True 必须通过 --sensor_params 或显式 --slopes 提供slopes')
     if args.global_phases_set is None and selected.get('global_phases_set') is not None:
         args.global_phases_set = selected['global_phases_set']
 
@@ -129,9 +138,16 @@ def configure_calibration_args(args):
     context = resolve_calibration_region(optimization_region=args.optimization_region, **common)
     point_calib = (getattr(args, 'end5cm_point_calib', False)
                    and args.optimization_region == 'end5cm')
+    if getattr(args, 'optim_weights_only', False) and not point_calib:
+        raise ValueError('optim_weights_only=True 需要 end5cm_point_calib=True')
     context['calibration_objective'] = 'real_points' if point_calib else 'geometry'
     independent = (getattr(args, 'end5cm_independent_weights', False)
                    and args.optimization_region == 'end5cm')
+    groupwise = bool(getattr(args, 'end5cm_independent_weight_score', False))
+    if groupwise and args.optimization_region != 'end5cm' and args.task not in ('recon', 'demo'):
+        raise ValueError('end5cm_independent_weight_score 仅允许 optimization_region=end5cm')
+    if groupwise and not independent and args.task not in ('recon', 'demo'):
+        raise ValueError('end5cm_independent_weight_score 需要 end5cm_independent_weights=True')
     context['weight_group_ids'] = None
     if independent:
         if context['global_point_ids'] != [19,20,21,22] or args.reverse:
@@ -139,6 +155,16 @@ def configure_calibration_args(args):
         if not args.end_weights:
             raise ValueError('end5cm三组weights需要该区域end_weights=True')
         context['weight_group_ids'] = [0,0,1,2]
+    configured_mode = selected.get('weight_score_mode')
+    if 'end5cm_independent_weight_score' in explicit_cli:
+        configured_mode = 'group_mean' if groupwise and independent else 'spatial_window'
+    elif configured_mode is None:
+        configured_mode = 'group_mean' if groupwise and independent else 'spatial_window'
+    if configured_mode not in ('spatial_window', 'group_mean'):
+        raise ValueError(f'weight_score_mode 不合法: {configured_mode!r}')
+    if configured_mode == 'group_mean' and context['weight_group_ids'] is None:
+        raise ValueError('weight_score_mode=group_mean 需要 end5cm_independent_weights=True')
+    context['weight_score_mode'] = configured_mode
     args._resolved_weight_group_ids = context['weight_group_ids']
     if point_calib:
         if set(context['radii']) != {'circ'}:
@@ -305,6 +331,11 @@ def build_argument_parser():
                         help='仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化')
     parser.add_argument('--end5cm_independent_weights', type=_str2bool, default=False,
                         help='仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变')
+    parser.add_argument('--end5cm_independent_weight_score', '--end5cm_groupwise_weight_score',
+                        dest='end5cm_independent_weight_score', type=_str2bool, default=False,
+                        help='仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名')
+    parser.add_argument('--optim_weights_only', type=_str2bool, default=False,
+                        help='只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
                         help='True时optim/score遍历optimization_regions；False时仅全长')
     parser.add_argument('--optimization_region', type=str, default='full',
@@ -642,6 +673,14 @@ def parse_main_args(argv=None):
     args = parser.parse_args(argv)
     args._explicit_cli_parameters = sorted(explicit)
     args._sensor_package = package
+    if (package is not None and not args.multi_region_calib
+            and args.optimization_region != 'full'
+            and 'global_phases_set' not in explicit):
+        local_phases = package.get('provenance', {}).get('local_global_phases_set', {})
+        region_phases = local_phases.get(args.optimization_region, {})
+        local_phase = region_phases.get(str(args.direct), region_phases.get(args.direct))
+        if local_phase is not None:
+            args.global_phases_set = local_phase
     return args
 
 

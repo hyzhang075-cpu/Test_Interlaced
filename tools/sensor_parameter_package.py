@@ -57,6 +57,7 @@ PARSER_GROUPS = {
         'use_full_transported_phase',
         'end5cm_point_calib',
         'end5cm_independent_weights',
+        'end5cm_independent_weight_score',
         'multi_region_calib', 'optimization_region', 'optimization_regions',
         'full_segmentation', 'calibration_data_root', 'calibration_output_dir',
         'folder_path', 'radii', 'direct', 'thresholds', 'straight_trim',
@@ -65,6 +66,7 @@ PARSER_GROUPS = {
 }
 
 SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set', 'rot_ang')
+TRANSIENT_DESTINATIONS = ('optim_weights_only',)
 
 def _project_relative_path(value):
     """将项目内路径写成以 ``./`` 开头的 POSIX 相对路径，便于跨电脑迁移。"""
@@ -125,7 +127,7 @@ def _parser_defaults(parser):
 def _validate_parser_groups(defaults):
     """确保每个 parser 参数恰好属于一个共享参数组或特殊顶层字段。"""
     grouped = [name for names in PARSER_GROUPS.values() for name in names]
-    represented = grouped + list(SPECIAL_DESTINATIONS)
+    represented = grouped + list(SPECIAL_DESTINATIONS) + list(TRANSIENT_DESTINATIONS)
     missing = [name for name in defaults if name not in represented]
     duplicate = sorted({name for name in represented if represented.count(name) > 1})
     extra = [name for name in represented if name not in defaults]
@@ -186,6 +188,11 @@ def _region_context(entry, region):
     objective = context.get('calibration_objective', 'geometry')
     if objective not in ('geometry', 'real_points') or (objective == 'real_points' and region != 'end5cm'):
         raise ValueError(f'{region} calibration_objective 不合法')
+    score_mode = context.get('weight_score_mode', 'spatial_window')
+    if score_mode not in ('spatial_window', 'group_mean'):
+        raise ValueError(f'{region} weight_score_mode 不合法')
+    if score_mode == 'group_mean' and context.get('weight_group_ids') is None:
+        raise ValueError(f'{region} weight_score_mode=group_mean 需要 weight_group_ids')
     return context
 
 
@@ -201,7 +208,9 @@ def _same_context(left, right):
             and left.get('end_weights', False) == right.get('end_weights', False)
             and left.get('end_start', -5) == right.get('end_start', -5)
             and left.get('calibration_objective', 'geometry') == right.get('calibration_objective', 'geometry')
-            and left.get('weight_group_ids') == right.get('weight_group_ids'))
+            and left.get('weight_group_ids') == right.get('weight_group_ids')
+            and left.get('weight_score_mode', 'spatial_window') == right.get(
+                'weight_score_mode', 'spatial_window'))
 
 
 def _stage_failures(report):
@@ -325,6 +334,9 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
                 raise ValueError(f'{direct}/{region} 参数与context的权重分组不一致')
             if params.get('calibration_objective', context.get('calibration_objective', 'geometry')) != context.get('calibration_objective', 'geometry'):
                 raise ValueError(f'{direct}/{region} 参数与context的定标目标不一致')
+            if params.get('weight_score_mode', context.get('weight_score_mode', 'spatial_window')) != context.get(
+                    'weight_score_mode', 'spatial_window'):
+                raise ValueError(f'{direct}/{region} 参数与context的评分模式不一致')
             if (params.get('end_weights', end_weights) != end_weights
                     or params.get('end_start', end_start) != end_start):
                 raise ValueError(f'{direct}/{region} 参数与context的末端权重配置不一致')
@@ -347,6 +359,7 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         region_blocks[region] = {
             'calibration_objective': context.get('calibration_objective', 'geometry'),
             'weight_group_ids': groups,
+            'weight_score_mode': context.get('weight_score_mode', 'spatial_window'),
             'length_m': context.get('length_m'),
             'folder_path': _calibration_relative_path(
                 context.get('folder_path'), defaults['calibration_data_root'],
@@ -416,6 +429,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         region_blocks['end5cm']['calibration_objective'] == 'real_points')
     shared['runtime_control_parameters']['end5cm_independent_weights'] = (
         region_blocks['end5cm']['weight_group_ids'] is not None)
+    shared['runtime_control_parameters']['end5cm_independent_weight_score'] = (
+        region_blocks['end5cm']['weight_score_mode'] == 'group_mean')
 
     package = {
         'sensor_id': sensor_id,
@@ -452,12 +467,139 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
     return _native(package)
 
 
+def build_single_direction_demo_package(
+    base_package, override_result, *, direction=0, base_source=None,
+    override_source=None,
+):
+    """Create an auditable one-direction demo package.
+
+    The base package remains authoritative for ``full`` and ``end15cm``.  The
+    supplied result must contain only a complete ``end5cm`` report for the
+    selected direction.  The package schema still carries all three direction
+    slots because the existing multi-region assembler validates that topology;
+    runtime ``exp_directs`` and demo direction selection are restricted to the
+    selected direction, while unavailable end5cm slots are schema-only copies
+    of the selected group-mean parameters.
+    """
+    if direction not in REQUIRED_DIRECTIONS:
+        raise ValueError(f'单方向demo direction必须属于 {REQUIRED_DIRECTIONS}: {direction}')
+    package = deepcopy(base_package)
+    if package.get('format_version') != FORMAT_VERSION:
+        raise ValueError('base package format_version 不受支持')
+    if override_result.get('sensor_id') != package.get('sensor_id'):
+        raise ValueError('override result 与 base package 的 sensor_id 不一致')
+    if override_result.get('direct') != direction:
+        raise ValueError(f'override result 必须是 direct={direction}')
+    if set(override_result.get('regions', {})) != {'end5cm'}:
+        raise ValueError('override result must contain only end5cm')
+    entry = override_result['regions']['end5cm']
+    if entry.get('status') != 'complete':
+        raise ValueError('override result 的 end5cm 必须 status=complete')
+
+    block = package.get('regions', {}).get('end5cm')
+    if block is None:
+        raise ValueError('base package 缺少 end5cm')
+    context = entry.get('context', {})
+    parameters = entry.get('parameters', {})
+    if context.get('weight_score_mode', 'spatial_window') != 'group_mean':
+        raise ValueError('override result 必须使用 weight_score_mode=group_mean')
+    groups = context.get('weight_group_ids', block.get('weight_group_ids'))
+    if groups != block.get('weight_group_ids'):
+        raise ValueError('override result 的 weight_group_ids 与 base package 不一致')
+    if groups is None:
+        raise ValueError('single-direction end5 demo 需要 weight_group_ids')
+
+    levels = len(block.get('thresholds', ())) + 1
+    expected_weight_count = levels * (max(groups) + 1)
+    segmentation = block.get('local_segmentation', ())
+    expected_slope_shape = (levels, len(segmentation))
+    direct_key = str(direction)
+    weights = parameters.get('weights', {}).get(direct_key, parameters.get('weights', {}).get(direction))
+    slopes = parameters.get('slopes', {}).get(direct_key, parameters.get('slopes', {}).get(direction))
+    weight_array = np.asarray(weights, dtype=float) if weights is not None else np.asarray([])
+    slope_array = np.asarray(slopes, dtype=float) if slopes is not None else np.asarray([])
+    if weight_array.shape != (expected_weight_count,) or not np.all(np.isfinite(weight_array)):
+        raise ValueError(
+            f'override end5cm weights shape 应为 {(expected_weight_count,)}，收到 {weight_array.shape}'
+        )
+    if slope_array.shape != expected_slope_shape or not np.all(np.isfinite(slope_array)):
+        raise ValueError(
+            f'override end5cm slopes shape 应为 {expected_slope_shape}，收到 {slope_array.shape}'
+        )
+    phase = parameters.get('global_phases_set')
+    if phase is None or not np.isfinite(float(phase)):
+        raise ValueError('override end5cm 缺少有限 global_phases_set')
+
+    end5 = package['regions']['end5cm']
+    end5['weight_group_ids'] = list(groups)
+    end5['weight_score_mode'] = 'group_mean'
+    for direct in REQUIRED_DIRECTIONS:
+        key = str(direct)
+        end5['weights'][key] = weight_array.tolist()
+        end5['slopes'][key] = slope_array.tolist()
+    end5['optimization'][direct_key] = deepcopy(entry.get('optimization', {}))
+    end5['errors'][direct_key] = deepcopy(entry.get('errors', {}))
+    end5['phase_reference'][direct_key] = deepcopy(parameters.get('phase_reference'))
+
+    runtime = package['shared_parameters']['runtime_control_parameters']
+    runtime['multi_region_calib'] = True
+    runtime['optimization_region'] = 'full'
+    package['shared_parameters']['calibration_experiment_parameters']['exp_directs'] = [direction]
+    display = package['shared_parameters']['dynamic_display_parameters']
+    display['direction_blend_enabled'] = False
+    display['direction_reference_direct'] = direction
+
+    local_phases = package.setdefault('provenance', {}).setdefault(
+        'local_global_phases_set', {}
+    )
+    local_phases.setdefault('full', {})
+    local_phases.setdefault('end15cm', {})
+    local_phases.setdefault('end5cm', {})
+    local_phases['end5cm'] = {
+        str(direct): (float(phase) if direct == direction else None)
+        for direct in REQUIRED_DIRECTIONS
+    }
+    single_demo = {
+        'mode': 'single_direction_dynamic_demo',
+        'runtime_directions': [direction],
+        'direction_reference_direct': direction,
+        'unavailable_directions': [d for d in REQUIRED_DIRECTIONS if d != direction],
+        'schema_only_end5_directions': [d for d in REQUIRED_DIRECTIONS if d != direction],
+        'note': '仅用于0度动态实验；120/240度未取得同配置end5cm结果，不得用于部署或方向混合。',
+        'base_package': _project_relative_path(base_source) if base_source else None,
+        'override_result': _project_relative_path(override_source) if override_source else None,
+    }
+    package['provenance']['single_direction_demo'] = single_demo
+    if override_source:
+        package['provenance'].setdefault('source_results', []).append(
+            _project_relative_path(override_source)
+        )
+
+    multi = package['multi_region']
+    multi['deployment_ready'] = False
+    multi['available_deployment_directions'] = []
+    multi.setdefault('shared_quality_gates', {})['score_thresholds_verified'] = False
+    for direct in REQUIRED_DIRECTIONS:
+        state = multi.setdefault('direction_deployment', {}).setdefault(str(direct), {
+            'deployment_ready': False, 'quality_gates': {}, 'failures': [],
+        })
+        state['deployment_ready'] = False
+        state.setdefault('quality_gates', {})['optimization_usable'] = False
+        state.setdefault('quality_gates', {})['end15cm_phase_verified'] = False
+        state.setdefault('quality_gates', {})['full_geometry_verified'] = False
+        message = 'single-direction demo package 仅允许 direction=0 实验'
+        if message not in state.setdefault('failures', []):
+            state['failures'].append(message)
+    return _native(package)
+
+
 def package_parameter_destinations(package):
     """按参数包分组顺序返回所有可回填 argparse 的参数名。"""
     names = []
     for values in package['shared_parameters'].values():
         names.extend(values)
     names.extend(SPECIAL_DESTINATIONS)
+    names.extend(TRANSIENT_DESTINATIONS)
     return names
 
 
@@ -484,7 +626,13 @@ def package_parser_defaults(package):
     """
     defaults = {}
     for group in package['shared_parameters'].values():
-        defaults.update(deepcopy(group))
+        group = deepcopy(group)
+        # Old packages used the pre-canonical runtime key.  Normalize it before
+        # argparse sees defaults; the old key is added back below only for callers
+        # that inspect compatibility defaults directly.
+        if 'end5cm_groupwise_weight_score' in group and 'end5cm_independent_weight_score' not in group:
+            group['end5cm_independent_weight_score'] = group.pop('end5cm_groupwise_weight_score')
+        defaults.update(group)
     defaults['sensor_id'] = package['sensor_id']
     defaults['global_phases_set'] = package['multi_region']['global_phases_set']
     defaults['rot_ang'] = package['multi_region']['rot_ang']
@@ -492,6 +640,12 @@ def package_parser_defaults(package):
     defaults['end5cm_point_calib'] = package['regions'].get('end5cm', {}).get(
         'calibration_objective', 'geometry') == 'real_points'
     defaults['end5cm_independent_weights'] = package['regions'].get('end5cm', {}).get('weight_group_ids') is not None
+    defaults['end5cm_independent_weight_score'] = package['regions'].get('end5cm', {}).get(
+        'weight_score_mode', 'spatial_window') == 'group_mean'
+    # Compatibility readback for code that used the old flattened key.
+    defaults['end5cm_groupwise_weight_score'] = defaults['end5cm_independent_weight_score']
+    # This is a per-run optimization control, never inherited from a package.
+    defaults['optim_weights_only'] = False
     defaults['rot_dir'] = _direction_keyed(defaults.get('rot_dir'))
     defaults['sensing_ranges'] = _direction_keyed(defaults.get('sensing_ranges'))
 
@@ -500,6 +654,7 @@ def package_parser_defaults(package):
         profiles[region] = {
             'calibration_objective': block.get('calibration_objective', 'geometry'),
             'weight_group_ids': deepcopy(block.get('weight_group_ids')),
+            'weight_score_mode': deepcopy(block.get('weight_score_mode', 'spatial_window')),
             'length_m': deepcopy(block.get('length_m')),
             'folder_path': deepcopy(block.get('folder_path')),
             'radii': deepcopy(block.get('radii')),
@@ -538,8 +693,8 @@ def render_calibration_comparison(reports):
         'Error (%) = error (m) / full sensor length (m) × 100. '
         'All regions use the full sensor length, including end15cm and end5cm. '
         'Weighted loss is scaled by the same full length.', '',
-        '| direct | region | weighted loss (% full length) | point error (% full length) | end error (% full length) | slopes | weights |',
-        '|---:|---|---:|---:|---:|---|---|',
+        '| direct | region | weighted loss (% full length) | point error (% full length) | end error (% full length) | weight score mode | slopes | weights |',
+        '|---:|---|---:|---:|---:|---|---|---|',
     ]
     for report in reports:
         direct = report['direct']
@@ -552,11 +707,12 @@ def render_calibration_comparison(reports):
             weight_status = stages.get('weights', {}).get('status', 'missing')
             slope_status = 'diverged' if slope_status == 'diverge' else slope_status
             weight_status = 'diverged' if weight_status == 'diverge' else weight_status
+            score_mode = entry.get('context', {}).get('weight_score_mode', 'spatial_window')
             lines.append(
                 f'| {direct} | {region} | {percent_scale * errors["normal_weighted_loss"]:.3f} | '
                 f'{percent_scale * errors["avg_point_err"]["calib"]:.3f} | '
                 f'{percent_scale * errors["avg_end_err"]["calib"]:.3f} | '
-                f'{slope_status} | {weight_status} |'
+                f'{score_mode} | {slope_status} | {weight_status} |'
             )
     lines.extend(['', '## Parameters and per-radius errors', ''])
     for report in reports:

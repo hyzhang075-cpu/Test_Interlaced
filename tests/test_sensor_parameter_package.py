@@ -76,6 +76,42 @@ def test_weight_groups_export_import_and_direction_consistency():
         build_sensor_package(_parser(), reports)
 
 
+def test_groupwise_weight_score_mode_round_trips_and_legacy_defaults_to_spatial_window(tmp_path):
+    reports = [_report(d) for d in (0, 120, 240)]
+    for report in reports:
+        entry = report['regions']['end5cm']
+        levels = len(REGIONS['end5cm']['thresholds']) + 1
+        entry['context']['weight_group_ids'] = [0, 1]
+        entry['context']['weight_score_mode'] = 'group_mean'
+        entry['parameters']['weights'][str(report['direct'])] = [
+            float(report['direct'] + level + 1)
+            for _group in range(2) for level in range(levels)
+        ]
+
+    package = build_sensor_package(_parser(), reports)
+    assert package['regions']['end5cm']['weight_score_mode'] == 'group_mean'
+    defaults = package_parser_defaults(package)
+    assert defaults['end5cm_groupwise_weight_score'] is True
+    assert defaults['calibration_regions']['end5cm']['weight_score_mode'] == 'group_mean'
+    path = tmp_path / 'groupwise.json'
+    write_sensor_package(package, path)
+    assert load_sensor_package(path)['regions']['end5cm']['weight_score_mode'] == 'group_mean'
+
+    legacy = deepcopy(package)
+    legacy['regions']['end5cm'].pop('weight_score_mode')
+    assert package_parser_defaults(legacy)['end5cm_groupwise_weight_score'] is False
+    assert package_parser_defaults(legacy)['calibration_regions']['end5cm']['weight_score_mode'] == 'spatial_window'
+
+
+def test_comparison_records_weight_score_mode():
+    reports = [_report(d) for d in (0, 120, 240)]
+    for report in reports:
+        report['regions']['end5cm']['context']['weight_score_mode'] = 'group_mean'
+    comparison = render_calibration_comparison(reports)
+    assert 'weight score mode' in comparison
+    assert 'group_mean' in comparison
+
+
 def test_partial_end5_results_merge_keeps_upstream_and_source_history():
     from tools.sensor_parameter_package import merge_end5_results
     base = [_report(d) for d in (0,120,240)]

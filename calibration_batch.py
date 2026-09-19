@@ -10,10 +10,14 @@ from uuid import uuid4
 
 import numpy as np
 
+from tools.end5_weight_coverage import compute_groupwise_weight_coverage
+
 
 # 这些参数控制任务/界面/输出，不属于 Optimiser/Sensor 的构造参数。
 CONTROL_KEYS = {
-    'end5cm_independent_weights', '_resolved_weight_group_ids',
+    'end5cm_independent_weights', 'end5cm_groupwise_weight_score',
+    'end5cm_independent_weight_score', 'optim_weights_only',
+    '_resolved_weight_group_ids',
     'use_full_transported_phase', '_phase_source_jobs',
     'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
     'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
@@ -34,6 +38,11 @@ def optimizer_parameters(args):
     parameters = {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
     parameters['end5cm_point_calib'] = bool(
         getattr(args, 'end5cm_point_calib', False) and args.optimization_region == 'end5cm')
+    parameters['end5cm_independent_weight_score'] = bool(
+        getattr(args, 'end5cm_independent_weight_score', False)
+        and args.optimization_region == 'end5cm')
+    parameters['optim_weights_only'] = bool(getattr(args, 'optim_weights_only', False))
+    parameters['source_sensor_params'] = getattr(args, 'sensor_params', None)
     parameters['weight_group_ids'] = deepcopy(getattr(args, '_resolved_weight_group_ids', None))
     return parameters
 
@@ -106,6 +115,22 @@ def _save_report(path, report):
     temporary.replace(path)
 
 
+def _report_relative_folder(value, calibration_data_root):
+    """Store a calibration folder relative to the configured data root."""
+    if value is None:
+        return None
+    path = Path(value)
+    root = Path(calibration_data_root)
+    if not root.is_absolute():
+        root = Path(__file__).resolve().parent / root
+    if not path.is_absolute():
+        return path.as_posix().removeprefix('./')
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def collect_calibration_result(optim, stages):
     """收集当前方向最优参数与最终正常模式误差，不将 slope 阶段 loss 当作验收误差。"""
     normal_loss = (optim.k_point * optim.avg_point_err['calib']
@@ -121,6 +146,7 @@ def collect_calibration_result(optim, stages):
         weight_bounds=weight_bounds,
         slope_upper_bound=optim.slope_upper_bound,
     )
+    calibration_context = getattr(optim, 'calibration_context', None) or {}
     return _native({
         'parameters': {
             'weights': {optim.direct: optim.weights[optim.direct]},
@@ -133,6 +159,12 @@ def collect_calibration_result(optim, stages):
             'calibration_objective': ('real_points' if getattr(optim, 'end5cm_point_calib', False)
                                       else 'geometry'),
             'weight_group_ids': getattr(optim, 'weight_group_ids', None),
+            'weight_score_mode': calibration_context.get(
+                'weight_score_mode',
+                'group_mean' if getattr(optim, 'end5cm_independent_weight_score', False)
+                else 'spatial_window',
+            ),
+            'source_sensor_params': getattr(optim, 'source_sensor_params', None),
         },
         'optimized_directions': [optim.direct],
         'errors': {
@@ -185,6 +217,14 @@ def diagnose_score_distribution(optim):
         'sample_semantics': 'per-calibration-state mean strain, not independent raw frames',
         'thresholds': list(optim.thresholds), 'sharpness': optim.sharpness,
         'score_window': optim.min_consecutive, 'boundary_mode': 'constant',
+        'score_mode': (
+            'group_mean' if getattr(optim, 'end5cm_independent_weight_score', False)
+            and getattr(optim, 'weight_group_ids', None) is not None else 'spatial_window'
+        ),
+        'weight_score_mode': (
+            'group_mean' if getattr(optim, 'end5cm_independent_weight_score', False)
+            and getattr(optim, 'weight_group_ids', None) is not None else 'spatial_window'
+        ),
         'sigmoid_10_90_width_m_inv': float(2*np.log(9)/optim.sharpness) if optim.sharpness > 0 else None,
         'samples': [],
     }
@@ -212,21 +252,41 @@ def diagnose_score_distribution(optim):
             magnitude = np.asarray(magnitude, dtype=float)
             if not np.all(np.isfinite(magnitude)):
                 raise ValueError(f'{shape}/{path} 基础评分曲率包含非有限值')
-            scores = optim._get_scores(magnitude)
-            masses = optim._alloc_mass(scores)
+            slope_scores = optim._get_scores(magnitude)
+            slope_masses = optim._alloc_mass(slope_scores)
+            if report['weight_score_mode'] == 'group_mean':
+                weight_scores, group_base_magnitude = optim._get_groupwise_weight_scores(
+                    magnitude, optim.weight_group_ids,
+                )
+                weight_masses = optim._alloc_mass(weight_scores)
+            else:
+                weight_scores, weight_masses = slope_scores, slope_masses
+                group_base_magnitude = None
             theoretical = (0.0 if path[0] == 0 else 1000.0/path[0]) if shape in ('circ', 'S') else None
             report['samples'].append({
                 'shape': shape, 'keys': list(path), 'direct': optim.direct,
                 'theoretical_curvature_m_inv': theoretical,
                 'global_point_ids': optim.global_point_ids.tolist(),
-                'score_magnitude': magnitude.tolist(), 'scores': scores.tolist(),
-                'masses': masses.tolist(),
+                'score_magnitude': magnitude.tolist(),
+                'scores': slope_scores.tolist(), 'masses': slope_masses.tolist(),
+                'slope_scores': slope_scores.tolist(), 'slope_masses': slope_masses.tolist(),
+                'weight_scores': weight_scores.tolist(), 'weight_masses': weight_masses.tolist(),
+                'group_base_magnitude': group_base_magnitude,
                 'quantiles': dict(zip(('min', 'p10', 'median', 'p90', 'max'), np.quantile(magnitude, [0,.1,.5,.9,1]).tolist())),
-                'mean_level_mass': masses.mean(axis=1).tolist(),
-                'tip_level_mass': masses[:, -1].tolist(),
+                'mean_level_mass': weight_masses.mean(axis=1).tolist(),
+                'tip_level_mass': weight_masses[:, -1].tolist(),
             })
     if not report['samples']:
         raise ValueError('没有可用于评分诊断的定标样本')
+    if report['weight_score_mode'] == 'group_mean':
+        bounds = optim.weight_bounds[0] if (
+            isinstance(optim.weight_bounds, list) and len(optim.weight_bounds) == 1
+        ) else optim.weight_bounds
+        report['weight_coverage'] = compute_groupwise_weight_coverage(
+            report['samples'], thresholds=optim.thresholds,
+            weights=optim.weights[optim.direct], weight_bounds=bounds,
+            group_ids=optim.weight_group_ids, mass_threshold=0.05,
+        )
     return report
 
 
@@ -240,7 +300,7 @@ def summarize_score_runs(reports):
     summary = {'directions': directions, 'regions': {}}
     metadata_fields = (
         'basis', 'thresholds', 'sharpness', 'score_window',
-        'boundary_mode', 'sigmoid_10_90_width_m_inv',
+        'boundary_mode', 'weight_score_mode', 'sigmoid_10_90_width_m_inv',
     )
     for region in region_names:
         distributions = []
@@ -337,8 +397,16 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
     for index, (args, context) in enumerate(jobs):
         region = args.optimization_region
         entry = report['regions'][region]
-        entry.update(configuration=_native({key:value for key,value in vars(args).items()
-                                            if key != '_phase_source_jobs'}), context=context, status='running')
+        configuration = {key: value for key, value in vars(args).items()
+                         if key != '_phase_source_jobs'}
+        configuration['folder_path'] = _report_relative_folder(
+            configuration.get('folder_path'), args.calibration_data_root,
+        )
+        stored_context = deepcopy(context)
+        stored_context['folder_path'] = _report_relative_folder(
+            stored_context.get('folder_path'), args.calibration_data_root,
+        )
+        entry.update(configuration=_native(configuration), context=_native(stored_context), status='running')
         _save_report(output / 'results.json', report)
         try:
             print(f'========== {index+1}/{len(jobs)} 区域: {region}; 方向: {args.direct} ==========')
@@ -373,6 +441,10 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
             optim = optimizer_factory(**optimizer_parameters(args))
             optim.phase_reference = reference
             optim.calibration_context = context
+            if args.task in ('optim', 'score'):
+                validator = getattr(optim, 'validate_calibration_data_radii', None)
+                if validator is not None:
+                    validator()
             if args.task == 'score':
                 entry['score_distribution'] = diagnose_score_distribution(optim)
                 _plot_scores(entry['score_distribution'], output / f'score-{index+1}.png')

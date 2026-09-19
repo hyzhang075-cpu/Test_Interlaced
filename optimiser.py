@@ -10,6 +10,8 @@ from tools.utils import dict_recur_operate, dict_recur_extract, dict_recur_value
 
 class Optimiser(Reconstructor):
     def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, end5cm_point_calib=False, **kwargs):
+        self.optim_weights_only = bool(kwargs.pop('optim_weights_only', False))
+        self.source_sensor_params = kwargs.pop('source_sensor_params', None)
         super().__init__(*args, **kwargs)
         self.direct = direct
         self.end5cm_point_calib = end5cm_point_calib
@@ -31,6 +33,53 @@ class Optimiser(Reconstructor):
 
         self.freeze = freeze
         self._get_freeze_idx()
+
+    @staticmethod
+    def _normalise_radius_key(value):
+        """Use stable numeric keys when comparing configured and loaded radii."""
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if np.isfinite(numeric) and numeric.is_integer():
+            return int(numeric)
+        return numeric
+
+    def validate_calibration_data_radii(self):
+        """Reject configured/data radius drift before scoring or optimization."""
+        problems = []
+        directs = [getattr(self, 'direct', 0)]
+        for direct in directs:
+            configured_shapes = self.radii.get(direct, {})
+            loaded_shapes = self.processed_Data.get('circ', {}) if isinstance(
+                self.processed_Data, dict) else {}
+            loaded_direct = loaded_shapes.get(direct, {}) if isinstance(loaded_shapes, dict) else {}
+            for shape, configured in configured_shapes.items():
+                if not isinstance(configured, (list, tuple, np.ndarray)):
+                    continue
+                configured_keys = [self._normalise_radius_key(value) for value in configured]
+                loaded = loaded_direct if shape == 'circ' else (
+                    self.processed_Data.get(shape, {}).get(direct, {})
+                    if isinstance(self.processed_Data, dict) else {}
+                )
+                if not isinstance(loaded, dict):
+                    actual_keys = []
+                else:
+                    actual_keys = [self._normalise_radius_key(value) for value in loaded]
+                configured_set = set(configured_keys)
+                actual_set = set(actual_keys)
+                missing = [value for value in configured_keys if value not in actual_set]
+                unexpected = [value for value in actual_keys if value not in configured_set]
+                if missing or unexpected:
+                    problems.append(
+                        f'direct={direct}, shape={shape}: '
+                        f'missing configured radii={missing}; '
+                        f'unexpected data radii={unexpected}'
+                    )
+        if problems:
+            raise ValueError(
+                '定标数据半径与配置不一致；请显式设置 --radii。' + ' | '.join(problems)
+            )
 
     def _get_freeze_idx(self):
         if self.freeze is None:
@@ -94,6 +143,7 @@ class Optimiser(Reconstructor):
         - 两个阶段的 loss 定义不同，因为第一阶段强制使用理论 magnitude；
         - 最终误差始终使用正常重构，即 force_ideal_magnitude=False。
         """
+        self.validate_calibration_data_radii()
         if self.method == 'Powell':
             max_evals, xtol, ftol = self.hyper_params
             options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose),}
@@ -103,14 +153,27 @@ class Optimiser(Reconstructor):
         start = time.time()
         if self.end5cm_point_calib:
             # Validate data before entering a potentially expensive optimization.
-            self._real_point_loss(direction_only=True)
-            print('end5cm真实点模式：slopes(首个真实点方向参考) -> weights(真实半径曲率)；最终仍报告几何误差')
-        stage_order = ('slopes(真实点方向) -> weights(真实点曲率幅值)' if self.end5cm_point_calib
-                       else 'slopes(强制理想曲率) -> weights(正常曲率)')
+            fixed_slope_loss = self._real_point_loss(direction_only=True)
+            if self.optim_weights_only:
+                print('end5cm weights-only：固定继承slopes，仅优化weights(真实半径曲率)')
+            else:
+                print('end5cm真实点模式：slopes(首个真实点方向参考) -> weights(真实半径曲率)；最终仍报告几何误差')
+        else:
+            fixed_slope_loss = None
+        if self.optim_weights_only:
+            stage_order = 'fixed slopes, optimize weights only'
+        else:
+            stage_order = ('slopes(真实点方向) -> weights(真实点曲率幅值)' if self.end5cm_point_calib
+                           else 'slopes(强制理想曲率) -> weights(正常曲率)')
         print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: {stage_order} --------------------")
 
         # ---------- 第一阶段：优化 slopes，强制使用理想 magnitude ----------
-        slopes_loss, slopes_status, slopes_start_loss = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
+        if self.optim_weights_only:
+            slopes_loss = fixed_slope_loss
+            slopes_start_loss = fixed_slope_loss
+            slopes_status = 'fixed'
+        else:
+            slopes_loss, slopes_status, slopes_start_loss = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
 
         print(f"slopes 阶段结束: status={slopes_status}, start_loss={slopes_start_loss}, final_loss={slopes_loss}")
         print()
@@ -127,7 +190,8 @@ class Optimiser(Reconstructor):
 
         end = time.time()
         print(f"优化耗时: {end - start}")
-        print(f"-------------------- 两阶段优化结束, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
+        end_label = 'weights-only优化结束' if self.optim_weights_only else '两阶段优化结束'
+        print(f"-------------------- {end_label}, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
         print()
 
         # ---------- 最终误差：必须使用正常重构，不强制 magnitude ----------
@@ -143,13 +207,21 @@ class Optimiser(Reconstructor):
         print(f"最小误差: {current_loss}")
         self._print_errors()
         # 两阶段 loss 的曲率来源不同，分别保存；最终验收误差由正常重构统计获得。
+        slope_loss_definition = (
+            'fixed source slopes; not optimized' if self.optim_weights_only else
+            ('mean circular direction error to first real point (1-cos)'
+             if self.end5cm_point_calib else 'ideal-magnitude geometry')
+        )
+        weight_loss_definition = (
+            'mean squared relative real-point curvature error'
+            if self.end5cm_point_calib else 'measured-magnitude geometry'
+        )
         return {'objective': ('real_points' if self.end5cm_point_calib else 'geometry'),
-                'loss_definitions': ({'slopes': 'mean circular direction error to first real point (1-cos)',
-                                      'weights': 'mean squared relative real-point curvature error'}
-                                     if self.end5cm_point_calib else {'slopes': 'ideal-magnitude geometry',
-                                                                    'weights': 'measured-magnitude geometry'}),
+                'loss_definitions': {'slopes': slope_loss_definition,
+                                      'weights': weight_loss_definition},
                 'stages': {
-            'slopes': {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss},
+            'slopes': {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss,
+                       'source_sensor_params': self.source_sensor_params},
             'weights': {'status': weights_status, 'start_loss': weights_start_loss, 'final_loss': weights_loss},
         }}
 

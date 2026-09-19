@@ -179,3 +179,102 @@ def test_strain_to_curvature_uses_assembler_when_multiregion_is_configured():
 
     assert magnitude.shape == angle.shape == (6,)
     assert obj.last_parameter_assembly['direct'] == 240
+
+
+def _groupwise_package():
+    config = package()
+    config['regions']['end15cm']['owned_point_ids'] = [3, 4]
+    end5 = config['regions']['end5cm']
+    end5['thresholds'] = [1.0, 2.0, 3.0]
+    end5['sharpness'] = 1.0
+    end5.update(
+        local_segmentation=[1, 1, 1, 1],
+        global_segment_ids=[1, 2, 3, 4],
+        support_point_ids=[3, 4, 5, 6],
+        owned_point_ids=[5, 6],
+        weight_group_ids=[0, 0, 1, 2],
+        weight_score_mode='group_mean',
+    )
+    levels = len(end5['thresholds']) + 1
+    for direct in (0, 120, 240):
+        end5['weights'][str(direct)] = [1. + level for level in range(levels)] * 3
+        end5['slopes'][str(direct)] = [
+            [100. + level + segment for segment in range(4)]
+            for level in range(levels)
+        ]
+    return config
+
+
+def _groupwise_run(values, mode='group_mean'):
+    config = _groupwise_package()
+    config['regions']['end5cm']['weight_score_mode'] = mode
+    obj, _ = bare_reconstructor(config)
+    strain = np.vstack((np.asarray(values, dtype=float), np.zeros((2, 6))))
+    return obj._assemble_multiregion_parameters(strain, 0)[-1]
+
+
+def test_groupwise_weight_scores_share_19_20_and_keep_21_22_independent():
+    diagnostics = _groupwise_run([0., 0., .5, 1., 2., 3.])['end5cm']
+    weight_scores = np.asarray(diagnostics['weight_scores'])
+    weight_masses = np.asarray(diagnostics['weight_masses'])
+
+    assert diagnostics['weight_score_mode'] == 'group_mean'
+    assert diagnostics['group_base_magnitude'] == pytest.approx({'0': .75, '1': 2., '2': 3.})
+    assert weight_scores[:, 0] == pytest.approx(weight_scores[:, 1])
+    assert weight_masses[:, 0] == pytest.approx(weight_masses[:, 1])
+    assert not np.allclose(weight_masses[:, 1], weight_masses[:, 2])
+    assert not np.allclose(weight_masses[:, 2], weight_masses[:, 3])
+
+
+def test_groupwise_weight_score_does_not_cross_contaminate_groups():
+    base = _groupwise_run([0., 0., .5, 1., 2., 3.])
+    changed_20 = _groupwise_run([0., 0., .5, 100., 2., 3.])
+    changed_21 = _groupwise_run([0., 0., .5, 1., 100., 3.])
+    base_scores = np.asarray(base['end5cm']['weight_scores'])
+    changed_20_scores = np.asarray(changed_20['end5cm']['weight_scores'])
+    changed_21_scores = np.asarray(changed_21['end5cm']['weight_scores'])
+
+    np.testing.assert_allclose(base_scores[:, 2], changed_20_scores[:, 2])
+    np.testing.assert_allclose(base_scores[:, 3], changed_20_scores[:, 3])
+    np.testing.assert_allclose(base_scores[:, 3], changed_21_scores[:, 3])
+    assert not np.allclose(base_scores[:, 0], changed_20_scores[:, 0])
+    assert not np.allclose(base_scores[:, 2], changed_21_scores[:, 2])
+
+
+def test_groupwise_mode_only_changes_weight_scores_not_slope_scores_or_map():
+    values = [0., 0., .5, 1., 2., 3.]
+    old = _groupwise_run(values, mode='spatial_window')
+    new = _groupwise_run(values, mode='group_mean')
+
+    np.testing.assert_allclose(old['end5cm']['slope_scores'], new['end5cm']['slope_scores'])
+    np.testing.assert_allclose(old['end5cm']['slope_masses'], new['end5cm']['slope_masses'])
+    np.testing.assert_allclose(old['slope_map'], new['slope_map'])
+    assert old['end5cm']['scores'] == old['end5cm']['slope_scores']
+    assert old['end5cm']['masses'] == old['end5cm']['slope_masses']
+
+
+def test_groupwise_score_flag_requires_end5cm_independent_weights():
+    import main
+
+    args = main.parse_main_args([
+        '--task', 'optim', '--optimization_region', 'end5cm',
+        '--end5cm_groupwise_weight_score', 'True',
+    ])
+    with pytest.raises(ValueError, match='end5cm_independent_weights'):
+        main.configure_calibration_args(args)
+
+    args = main.parse_main_args([
+        '--task', 'optim', '--optimization_region', 'full',
+        '--end5cm_groupwise_weight_score', 'True',
+        '--end5cm_independent_weights', 'True',
+    ])
+    with pytest.raises(ValueError, match='optimization_region=end5cm'):
+        main.configure_calibration_args(args)
+
+    args = main.parse_main_args([
+        '--task', 'optim', '--optimization_region', 'end5cm',
+        '--end5cm_groupwise_weight_score', 'True',
+        '--end5cm_independent_weights', 'True',
+    ])
+    context = main.configure_calibration_args(args)
+    assert context['weight_score_mode'] == 'group_mean'
