@@ -283,7 +283,7 @@ def build_argument_parser():
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
                         default=[2, 5, 8, 2, 2, 3],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')
-    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试"),
+    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0918-08B4+镍钛管"),
                         help='定标数据根目录；相对路径以main.py所在目录为基准')
     parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
         'full': {
@@ -318,9 +318,9 @@ def build_argument_parser():
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="08B5", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=22.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=6.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--sensor_id', type=str, default="08B4", help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=15.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=5.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=None, help='FBG总长自动计算(m)；显式传值必须与几何一致')
@@ -356,8 +356,8 @@ def build_argument_parser():
     parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
 
     parser.add_argument('--max_iter', type=int, default=20, help='优化的最大轮次')
-    parser.add_argument('--k_point', type=float, default=0.3, help='优化目标中末端误差的权重')
-    parser.add_argument('--k_end', type=float, default=1.0, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_end', type=float, default=0.5, help='优化目标中末端误差的权重')
     parser.add_argument('--k_pitch', type=float, default=1.0, help='优化目标中螺距误差的权重')
     parser.add_argument('--k_radius', type=float, default=1.0, help='优化目标中半径误差的权重')
     parser.add_argument('--method', type=str, default="Powell", help='优化算法, 用于输入scipy.optimize.minimimze')
