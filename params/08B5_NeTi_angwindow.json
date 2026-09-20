@@ -226,7 +226,7 @@
         2,
         3
       ],
-      "calibration_data_root": "D:\\OneDrive - Hong Kong Institute of Science & Innovation, Chinese Academy of Sciences Limited\\post_doc\\shape_sensing\\形状感知公共文件\\支气管镜\\传感器测试数据\\0917-08B5+镍钛管全身打孔固定全段加末段测试",
+      "calibration_data_root": "../../形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试",
       "calibration_output_dir": "calibration_results",
       "folder_path": null,
       "radii": null,

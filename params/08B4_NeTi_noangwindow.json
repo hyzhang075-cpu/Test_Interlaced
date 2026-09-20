@@ -226,8 +226,8 @@
         2,
         3
       ],
-      "calibration_data_root": "D:\\OneDrive - Hong Kong Institute of Science & Innovation, Chinese Academy of Sciences\\post_doc\\shape_sensing\\形状感知公共文件\\支气管镜\\传感器测试数据\\0918-08B4+镍钛管",
-      "calibration_output_dir": "calibration_results",
+      "calibration_data_root": "../../形状感知公共文件/支气管镜/传感器测试数据/0918-08B4+镍钛管",
+      "calibration_output_dir": "./calibration_results",
       "folder_path": null,
       "radii": null,
       "direct": 0,
@@ -1811,8 +1811,8 @@
     }
   },
   "provenance": {
-    "source_commit": "4936bffac999a7067062fa90771f9f90682b1516",
-    "generated_at": "2026-09-20T02:06:19.290563+00:00",
+    "source_commit": "b91cf3e0cf5866c7685498d830d805a255cca8cd",
+    "generated_at": "2026-09-20T03:42:53.407034+00:00",
     "parser_destination_order": [
       "sensor_params",
       "use_full_transported_phase",

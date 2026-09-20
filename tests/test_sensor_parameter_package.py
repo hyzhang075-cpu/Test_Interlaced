@@ -191,6 +191,48 @@ def test_parser_and_exported_package_use_project_relative_paths():
     assert not any(':' in path for path in package['provenance']['source_results'])
 
 
+def test_export_converts_project_external_data_root_to_relative_path():
+    parser = _parser()
+    external_root = ROOT.parent / 'portable-calibration-data'
+    parser.set_defaults(calibration_data_root=str(external_root))
+
+    package = build_sensor_package(
+        parser, [_report(0), _report(120), _report(240)]
+    )
+
+    runtime = package['shared_parameters']['runtime_control_parameters']
+    assert runtime['calibration_data_root'] == '../portable-calibration-data'
+    assert not Path(runtime['calibration_data_root']).is_absolute()
+
+
+def test_export_converts_folder_override_relative_to_calibration_data_root():
+    parser = _parser()
+    data_root = ROOT / 'portable-calibration-data'
+    parser.set_defaults(
+        calibration_data_root=str(data_root),
+        folder_path=str(data_root / 'full'),
+    )
+
+    package = build_sensor_package(
+        parser, [_report(0), _report(120), _report(240)]
+    )
+
+    runtime = package['shared_parameters']['runtime_control_parameters']
+    assert runtime['folder_path'] == 'full'
+
+
+def test_export_rejects_region_folder_outside_calibration_data_root():
+    parser = _parser()
+    data_root = ROOT / 'portable-calibration-data'
+    parser.set_defaults(calibration_data_root=str(data_root))
+    reports = [_report(0), _report(120), _report(240)]
+    for report in reports:
+        report['regions']['full']['context']['folder_path'] = str(ROOT / 'elsewhere')
+
+    with pytest.raises(ValueError, match='calibration_data_root'):
+        build_sensor_package(parser, reports)
+
+
 def test_every_parser_destination_has_one_authoritative_package_location():
     parser = _parser()
     expected = [action.dest for action in parser._actions if action.dest != 'help']
@@ -299,7 +341,11 @@ def test_comparison_report_exposes_parameters_errors_and_failed_stages():
     assert '| 240 | full |' in markdown
     assert 'diverged' in markdown
     assert 'weights: `[241.0, 242.0' in markdown
-    assert 'point=5.000 mm' in markdown
+    assert '| direct | region | weighted loss (%) | point error (%) | end error (%) |' in markdown
+    assert '| 0 | full | 1.000 | 0.500 | 1.000 |' in markdown
+    assert 'point=0.500%, end=1.000%' in markdown
+    assert 'error (mm)' not in markdown
+    assert ' mm' not in markdown
     assert 'local global phase' in markdown
 
 

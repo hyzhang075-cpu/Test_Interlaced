@@ -208,7 +208,7 @@ def add_vector_filter_arguments(parser):
     parser.add_argument(
         '--move_filter_for_vector',
         type=_str2bool,
-        default=False,
+        default=True,
         help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',
     )
     return parser
@@ -281,9 +281,9 @@ def build_argument_parser():
     parser.add_argument('--optimization_regions', type=ast.literal_eval, default=['full', 'end15cm', 'end5cm'],
                         help='区域模式下optim/score依次处理的区域列表')
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
-                        default=[2, 5, 8, 2, 2, 3],
+                        default=[2, 5, 8, 3, 2, 2],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')
-    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0918-08B4+镍钛管"),
+    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试"),
                         help='定标数据根目录；相对路径以main.py所在目录为基准')
     parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
         'full': {
@@ -300,7 +300,7 @@ def build_argument_parser():
             'radii': {'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 75, 50, 30]},
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20],
             'end_weights': False, 'end_start': -5,
-            'segmentation': [2, 2, 3],
+            'segmentation': [3, 2, 2],
             'weights': None, 'slopes': None,
         },
         'end5cm': {
@@ -311,23 +311,24 @@ def build_argument_parser():
             # 45 m^-1 用于下一轮重新优化，不得与旧 9 组参数混用。
             'thresholds': [0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20, 35, 45],
             'end_weights': True, 'end_start': -1,
-            'segmentation': [2, 3],
+            'segmentation': [2, 2],
             'weights': None, 'slopes': None,
         },
     }, help='各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布')
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="08B4", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=15.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=5.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--sensor_id', type=str, default='08B5', help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=22.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=6.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=None, help='FBG总长自动计算(m)；显式传值必须与几何一致')
     # parser.add_argument('--ideal_len', type=float, default=1.35, help='传感器长度, 单位为m') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], help='FBG传感点位置(A组及中心), 单位为mm') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 520, 530, 540, 550, 580, 610, 640, 670, 720, 770, 850, 930, 1010, 1110, 1230], help='FBG传感点位置, 单位为mm')# 16点支气管镜
-    parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
+    # parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
+    parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 533, 543, 577, 611, 645, 696, 746, 797, 847, 899, 950, 1001, 1053, 1104, 1155, 1207, 1257, 1308, 1359, 1410], help='FBG传感点位置, 单位为mm')# 22点支气管镜位置错误版本
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 521, 532, 543, 554, 579, 604, 629, 654, 696, 738, 780, 822, 864, 906, 948, 990, 1032, 1074, 1116, 1158, 1200], help='FBG传感点位置, 单位为mm')# 22点支气管镜，69cm
     parser.add_argument('--samp_dist_preset_sub', type=ast.literal_eval, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')

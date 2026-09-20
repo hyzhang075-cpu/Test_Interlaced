@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -63,19 +64,25 @@ PARSER_GROUPS = {
 }
 
 SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set', 'rot_ang')
+PATH_PARAMETER_DESTINATIONS = (
+    'sensor_params', 'zero_reference_path', 'calibration_data_root',
+    'calibration_output_dir',
+)
 
-def _project_relative_path(value):
+def _project_relative_path(value, *, require_relative=False):
     """将项目内路径写成以 ``./`` 开头的 POSIX 相对路径，便于跨电脑迁移。"""
     if value is None:
         return None
     path = Path(value)
     if path.is_absolute():
         try:
-            path = path.resolve().relative_to(PROJECT_ROOT)
-        except ValueError:
+            path = Path(os.path.relpath(path.resolve(), PROJECT_ROOT))
+        except ValueError as exc:
+            if require_relative:
+                raise ValueError(f'路径无法转换为项目相对路径: {path}') from exc
             return path.as_posix()
     relative = path.as_posix()
-    return relative if relative.startswith('./') else f'./{relative}'
+    return relative if relative.startswith(('./', '../')) else f'./{relative}'
 
 
 def _calibration_relative_path(value, calibration_data_root):
@@ -83,15 +90,17 @@ def _calibration_relative_path(value, calibration_data_root):
     if value is None:
         return None
     path = Path(value)
-    if not path.is_absolute():
-        return path.as_posix().removeprefix('./')
     root = Path(calibration_data_root)
     if not root.is_absolute():
         root = PROJECT_ROOT / root
+    root = root.resolve()
+    candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
     try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+        return candidate.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f'folder_path 必须位于 calibration_data_root 内: {path}'
+        ) from exc
 
 
 def _native(value):
@@ -248,6 +257,11 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
     """
     defaults = _parser_defaults(parser)
     _validate_parser_groups(defaults)
+    for name in PATH_PARAMETER_DESTINATIONS:
+        defaults[name] = _project_relative_path(defaults[name], require_relative=True)
+    defaults['folder_path'] = _calibration_relative_path(
+        defaults['folder_path'], defaults['calibration_data_root'],
+    )
     reports = sorted(list(reports), key=lambda item: item.get('direct', -1))
     directions = [report.get('direct') for report in reports]
     if directions != list(REQUIRED_DIRECTIONS):
@@ -402,7 +416,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'generated_at': generated_at,
             'parser_destination_order': list(defaults),
             'source_results': [
-                _project_relative_path(report.get('_source_path')) for report in reports
+                _project_relative_path(report.get('_source_path'), require_relative=True)
+                for report in reports
             ],
             'local_global_phases_set': local_phases,
             'local_rot_ang': local_rot_angles,
@@ -478,7 +493,7 @@ def render_calibration_comparison(reports):
     reports = sorted(reports, key=lambda item: item['direct'])
     lines = [
         '# Multi-region calibration result comparison', '',
-        '| direct | region | weighted loss (mm) | point error (mm) | end error (mm) | slopes | weights |',
+        '| direct | region | weighted loss (%) | point error (%) | end error (%) | slopes | weights |',
         '|---:|---|---:|---:|---:|---|---|',
     ]
     for report in reports:
@@ -492,9 +507,9 @@ def render_calibration_comparison(reports):
             slope_status = 'diverged' if slope_status == 'diverge' else slope_status
             weight_status = 'diverged' if weight_status == 'diverge' else weight_status
             lines.append(
-                f'| {direct} | {region} | {1000 * errors["normal_weighted_loss"]:.3f} | '
-                f'{1000 * errors["avg_point_err"]["calib"]:.3f} | '
-                f'{1000 * errors["avg_end_err"]["calib"]:.3f} | '
+                f'| {direct} | {region} | {100 * errors["normal_weighted_loss"]:.3f} | '
+                f'{100 * errors["avg_point_err"]["calib"]:.3f} | '
+                f'{100 * errors["avg_end_err"]["calib"]:.3f} | '
                 f'{slope_status} | {weight_status} |'
             )
     lines.extend(['', '## Parameters and per-radius errors', ''])
@@ -512,8 +527,8 @@ def render_calibration_comparison(reports):
                 end_error = end.get(str(radius), end.get(radius))
                 if end_error is not None:
                     radius_lines.append(
-                        f'- radius {radius}: point={1000 * point_error:.3f} mm, '
-                        f'end={1000 * end_error:.3f} mm'
+                        f'- radius {radius}: point={100 * point_error:.3f}%, '
+                        f'end={100 * end_error:.3f}%'
                     )
             lines.extend([
                 f'#### {region}', '',
@@ -565,7 +580,9 @@ def apply_validation_results(package, validation):
     validation = deepcopy(validation)
     score_evidence = validation.get('score_evidence', {})
     if score_evidence.get('source_path') is not None:
-        score_evidence['source_path'] = _project_relative_path(score_evidence['source_path'])
+        score_evidence['source_path'] = _project_relative_path(
+            score_evidence['source_path'], require_relative=True,
+        )
     multi = package['multi_region']
     validation_directions = validation.get('directions', {})
     missing = [str(d) for d in multi['directions'] if str(d) not in validation_directions]
