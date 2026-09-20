@@ -58,6 +58,10 @@ PARSER_GROUPS = {
         'end5cm_point_calib',
         'end5cm_independent_weights',
         'end5cm_independent_weight_score',
+        'end5cm_coverage_aware_weights',
+        'end5cm_min_weight_effective_samples',
+        'end5cm_min_weight_max_mass',
+        'end5cm_uncovered_weight_policy',
         'multi_region_calib', 'optimization_region', 'optimization_regions',
         'full_segmentation', 'calibration_data_root', 'calibration_output_dir',
         'folder_path', 'radii', 'direct', 'thresholds', 'straight_trim',
@@ -319,6 +323,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         errors = {}
         statuses = {}
         references = {}
+        coverage_config = None
+        coverage_diagnostics = {}
         local_phases[region] = {}
         local_rot_angles[region] = {}
         for report in reports:
@@ -330,6 +336,21 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             if not _same_context(context, other_context):
                 raise ValueError(f'{region} 跨方向 context 不一致')
             params = entry.get('parameters', {})
+            raw_coverage = params.get('coverage_aware_weights', {})
+            if not isinstance(raw_coverage, dict):
+                raw_coverage = {}
+            candidate_coverage = {
+                'enabled': bool(raw_coverage.get('enabled', False)),
+                'min_effective_samples': float(raw_coverage.get('min_effective_samples', 1.0)),
+                'min_max_mass': float(raw_coverage.get('min_max_mass', 0.05)),
+                'policy': raw_coverage.get('policy', 'interpolate_neutral_edges'),
+            }
+            if coverage_config is None:
+                coverage_config = candidate_coverage
+            elif coverage_config != candidate_coverage:
+                raise ValueError(f'{region} 跨方向 coverage-aware weight 配置不一致')
+            if candidate_coverage['enabled']:
+                coverage_diagnostics[str(direct)] = deepcopy(raw_coverage)
             if params.get('weight_group_ids', groups) != groups:
                 raise ValueError(f'{direct}/{region} 参数与context的权重分组不一致')
             if params.get('calibration_objective', context.get('calibration_objective', 'geometry')) != context.get('calibration_objective', 'geometry'):
@@ -382,6 +403,10 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'optimization': statuses,
             'phase_reference': references,
         }
+        if coverage_config and coverage_config['enabled']:
+            coverage_block = deepcopy(coverage_config)
+            coverage_block['directions'] = coverage_diagnostics
+            region_blocks[region]['coverage_aware_weights'] = coverage_block
 
     reference_directions = []
     for direct in REQUIRED_DIRECTIONS:
@@ -431,6 +456,15 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         region_blocks['end5cm']['weight_group_ids'] is not None)
     shared['runtime_control_parameters']['end5cm_independent_weight_score'] = (
         region_blocks['end5cm']['weight_score_mode'] == 'group_mean')
+    end5_coverage = region_blocks['end5cm'].get('coverage_aware_weights', {})
+    shared['runtime_control_parameters']['end5cm_coverage_aware_weights'] = bool(
+        end5_coverage.get('enabled', False))
+    shared['runtime_control_parameters']['end5cm_min_weight_effective_samples'] = float(
+        end5_coverage.get('min_effective_samples', 1.0))
+    shared['runtime_control_parameters']['end5cm_min_weight_max_mass'] = float(
+        end5_coverage.get('min_max_mass', 0.05))
+    shared['runtime_control_parameters']['end5cm_uncovered_weight_policy'] = end5_coverage.get(
+        'policy', 'interpolate_neutral_edges')
 
     package = {
         'sensor_id': sensor_id,
@@ -533,6 +567,9 @@ def build_single_direction_demo_package(
     end5 = package['regions']['end5cm']
     end5['weight_group_ids'] = list(groups)
     end5['weight_score_mode'] = 'group_mean'
+    coverage = parameters.get('coverage_aware_weights')
+    if isinstance(coverage, dict) and coverage.get('enabled', False):
+        end5['coverage_aware_weights'] = deepcopy(coverage)
     for direct in REQUIRED_DIRECTIONS:
         key = str(direct)
         end5['weights'][key] = weight_array.tolist()
@@ -544,6 +581,14 @@ def build_single_direction_demo_package(
     runtime = package['shared_parameters']['runtime_control_parameters']
     runtime['multi_region_calib'] = True
     runtime['optimization_region'] = 'full'
+    runtime['end5cm_coverage_aware_weights'] = bool(
+        end5.get('coverage_aware_weights', {}).get('enabled', False))
+    runtime['end5cm_min_weight_effective_samples'] = float(
+        end5.get('coverage_aware_weights', {}).get('min_effective_samples', 1.0))
+    runtime['end5cm_min_weight_max_mass'] = float(
+        end5.get('coverage_aware_weights', {}).get('min_max_mass', 0.05))
+    runtime['end5cm_uncovered_weight_policy'] = end5.get(
+        'coverage_aware_weights', {}).get('policy', 'interpolate_neutral_edges')
     package['shared_parameters']['calibration_experiment_parameters']['exp_directs'] = [direction]
     display = package['shared_parameters']['dynamic_display_parameters']
     display['direction_blend_enabled'] = False
@@ -642,6 +687,14 @@ def package_parser_defaults(package):
     defaults['end5cm_independent_weights'] = package['regions'].get('end5cm', {}).get('weight_group_ids') is not None
     defaults['end5cm_independent_weight_score'] = package['regions'].get('end5cm', {}).get(
         'weight_score_mode', 'spatial_window') == 'group_mean'
+    coverage = package['regions'].get('end5cm', {}).get('coverage_aware_weights', {})
+    defaults['end5cm_coverage_aware_weights'] = bool(coverage.get('enabled', False))
+    defaults['end5cm_min_weight_effective_samples'] = float(
+        coverage.get('min_effective_samples', 1.0))
+    defaults['end5cm_min_weight_max_mass'] = float(
+        coverage.get('min_max_mass', 0.05))
+    defaults['end5cm_uncovered_weight_policy'] = coverage.get(
+        'policy', 'interpolate_neutral_edges')
     # Compatibility readback for code that used the old flattened key.
     defaults['end5cm_groupwise_weight_score'] = defaults['end5cm_independent_weight_score']
     # This is a per-run optimization control, never inherited from a package.
@@ -670,6 +723,12 @@ def package_parser_defaults(package):
             'global_point_ids': deepcopy(block.get('support_point_ids')),
             'global_segment_ids': deepcopy(block.get('global_segment_ids')),
             'owned_point_ids': deepcopy(block.get('owned_point_ids')),
+            'coverage_aware_weights': deepcopy(block.get('coverage_aware_weights', {
+                'enabled': False,
+                'min_effective_samples': 1.0,
+                'min_max_mass': 0.05,
+                'policy': 'interpolate_neutral_edges',
+            })),
         }
     defaults['calibration_regions'] = profiles
     return defaults

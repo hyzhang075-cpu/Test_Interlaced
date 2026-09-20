@@ -11,6 +11,13 @@ from tools.utils import dict_recur_operate, dict_recur_extract, dict_recur_value
 class Optimiser(Reconstructor):
     def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, end5cm_point_calib=False, **kwargs):
         self.optim_weights_only = bool(kwargs.pop('optim_weights_only', False))
+        self.end5cm_coverage_aware_weights = bool(kwargs.pop('end5cm_coverage_aware_weights', False))
+        self.end5cm_min_weight_effective_samples = float(
+            kwargs.pop('end5cm_min_weight_effective_samples', 1.0))
+        self.end5cm_min_weight_max_mass = float(
+            kwargs.pop('end5cm_min_weight_max_mass', 0.05))
+        self.end5cm_uncovered_weight_policy = kwargs.pop(
+            'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
         self.source_sensor_params = kwargs.pop('source_sensor_params', None)
         super().__init__(*args, **kwargs)
         self.direct = direct
@@ -32,6 +39,7 @@ class Optimiser(Reconstructor):
         self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
 
         self.freeze = freeze
+        self._coverage_support_map = None
         self._get_freeze_idx()
 
     @staticmethod
@@ -102,6 +110,10 @@ class Optimiser(Reconstructor):
         return freeze_idx
     
     def _get_weight_freeze_mask(self):
+        if getattr(self, 'end5cm_coverage_aware_weights', False):
+            mask = np.ones(len(self.weights[self.direct]), dtype=bool)
+            mask[self._get_weight_optim_indices()] = False
+            return mask
         mask = np.zeros(len(self.weights[self.direct]), dtype=bool)
         freeze_idx = self._get_freeze_idx()
         mask[freeze_idx] = True
@@ -113,6 +125,55 @@ class Optimiser(Reconstructor):
             mask[freeze_idx + int(len(self.weights[self.direct]) / 2)] = True
 
         return mask
+
+    def _ensure_coverage_support_map(self):
+        """Build one fixed support map from the production score inputs."""
+        if not getattr(self, 'end5cm_coverage_aware_weights', False):
+            return None
+        if self._coverage_support_map is None:
+            from calibration_batch import diagnose_score_distribution
+            from tools.end5_weight_coverage import build_groupwise_support_map
+
+            report = diagnose_score_distribution(self)
+            self._coverage_support_map = build_groupwise_support_map(
+                report['samples'], thresholds=self.thresholds,
+                group_ids=self.weight_group_ids,
+                min_effective_samples=self.end5cm_min_weight_effective_samples,
+                min_max_mass=self.end5cm_min_weight_max_mass,
+            )
+            self._coverage_support_map['policy'] = self.end5cm_uncovered_weight_policy
+        return self._coverage_support_map
+
+    def _get_weight_optim_indices(self):
+        """Return flat weight indices exposed to scipy in stable group/level order."""
+        if not getattr(self, 'end5cm_coverage_aware_weights', False):
+            return np.flatnonzero(~self._get_weight_freeze_mask())
+        support = self._ensure_coverage_support_map()
+        indices = []
+        for group_name in sorted(support['groups'], key=int):
+            group_index = int(group_name)
+            indices.extend(
+                group_index * self.num_levels + int(level)
+                for level in support['groups'][group_name].get('free_levels', ())
+            )
+        return np.asarray(indices, dtype=int)
+
+    def _expand_coverage_weight_candidate(self, free_values):
+        from tools.end5_weight_coverage import expand_groupwise_weights
+
+        support = self._ensure_coverage_support_map()
+        values = np.asarray(free_values, dtype=float).reshape(-1)
+        free_weights = {}
+        cursor = 0
+        for group_name in sorted(support['groups'], key=int):
+            levels = [int(level) for level in support['groups'][group_name].get('free_levels', ())]
+            free_weights[group_name] = {
+                level: values[cursor + offset] for offset, level in enumerate(levels)
+            }
+            cursor += len(levels)
+        if cursor != values.size:
+            raise ValueError(f'coverage-aware free weight count mismatch: expected {cursor}, got {values.size}')
+        return expand_groupwise_weights(free_weights, support).reshape(-1)
 
     def _get_slope_freeze_mask(self):
         mask = np.zeros(self.slopes_shape, dtype=bool)
@@ -144,6 +205,7 @@ class Optimiser(Reconstructor):
         - 最终误差始终使用正常重构，即 force_ideal_magnitude=False。
         """
         self.validate_calibration_data_radii()
+        self._ensure_coverage_support_map()
         if self.method == 'Powell':
             max_evals, xtol, ftol = self.hyper_params
             options = {"maxiter": int(max_evals), "xtol": float(xtol), "ftol": float(ftol), "disp": bool(verbose),}
@@ -364,15 +426,22 @@ class Optimiser(Reconstructor):
                 return self._loss_fn(self.rot_ang, base_weights, slopes_full.reshape(-1), slope_upper_bound, force_ideal_magnitude=force_ideal_magnitude)
 
         elif coeff == "weights":
-            freeze_mask = self._get_weight_freeze_mask()
-            optimise_mask = ~freeze_mask
-
-            x0 = base_weights[optimise_mask]
+            if getattr(self, 'end5cm_coverage_aware_weights', False):
+                optimise_indices = self._get_weight_optim_indices()
+                x0 = base_weights[optimise_indices]
+            else:
+                freeze_mask = self._get_weight_freeze_mask()
+                optimise_indices = None
+                optimise_mask = ~freeze_mask
+                x0 = base_weights[optimise_mask]
             coeff_bounds = self.weight_bounds * len(x0)
 
             def loss_fn(x):
-                weights_full = base_weights.copy()
-                weights_full[optimise_mask] = x
+                if getattr(self, 'end5cm_coverage_aware_weights', False):
+                    weights_full = self._expand_coverage_weight_candidate(x)
+                else:
+                    weights_full = base_weights.copy()
+                    weights_full[optimise_mask] = x
                 return self._loss_fn(self.rot_ang, weights_full, base_slopes_normalised.reshape(-1), slope_upper_bound, force_ideal_magnitude=force_ideal_magnitude)
 
         else:
@@ -387,6 +456,8 @@ class Optimiser(Reconstructor):
             init_loss = float(init_loss)
 
         if len(x0) == 0:
+            if coeff == "weights" and getattr(self, 'end5cm_coverage_aware_weights', False):
+                self.weights[self.direct] = self._expand_coverage_weight_candidate(x0)
             current_loss = init_loss
             best_param = self.slopes[self.direct] if coeff == "slopes" else self.weights[self.direct]
 
@@ -411,8 +482,11 @@ class Optimiser(Reconstructor):
             best_param = self.slopes[self.direct]
 
         elif coeff == "weights":
-            weights_best = base_weights.copy()
-            weights_best[optimise_mask] = res.x
+            if getattr(self, 'end5cm_coverage_aware_weights', False):
+                weights_best = self._expand_coverage_weight_candidate(res.x)
+            else:
+                weights_best = base_weights.copy()
+                weights_best[optimise_mask] = res.x
             self.weights[self.direct] = weights_best
             best_param = self.weights[self.direct]
 

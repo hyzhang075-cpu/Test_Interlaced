@@ -17,6 +17,8 @@ from tools.end5_weight_coverage import compute_groupwise_weight_coverage
 CONTROL_KEYS = {
     'end5cm_independent_weights', 'end5cm_groupwise_weight_score',
     'end5cm_independent_weight_score', 'optim_weights_only',
+    'end5cm_coverage_aware_weights', 'end5cm_min_weight_effective_samples',
+    'end5cm_min_weight_max_mass', 'end5cm_uncovered_weight_policy',
     '_resolved_weight_group_ids',
     'use_full_transported_phase', '_phase_source_jobs',
     'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
@@ -42,6 +44,14 @@ def optimizer_parameters(args):
         getattr(args, 'end5cm_independent_weight_score', False)
         and args.optimization_region == 'end5cm')
     parameters['optim_weights_only'] = bool(getattr(args, 'optim_weights_only', False))
+    parameters['end5cm_coverage_aware_weights'] = bool(
+        getattr(args, 'end5cm_coverage_aware_weights', False))
+    parameters['end5cm_min_weight_effective_samples'] = float(
+        getattr(args, 'end5cm_min_weight_effective_samples', 1.0))
+    parameters['end5cm_min_weight_max_mass'] = float(
+        getattr(args, 'end5cm_min_weight_max_mass', 0.05))
+    parameters['end5cm_uncovered_weight_policy'] = getattr(
+        args, 'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
     parameters['source_sensor_params'] = getattr(args, 'sensor_params', None)
     parameters['weight_group_ids'] = deepcopy(getattr(args, '_resolved_weight_group_ids', None))
     return parameters
@@ -140,12 +150,40 @@ def collect_calibration_result(optim, stages):
         isinstance(optim.weight_bounds, list) and len(optim.weight_bounds) == 1
     ) else optim.weight_bounds
     optimization = deepcopy(stages)
+    coverage_enabled = bool(getattr(optim, 'end5cm_coverage_aware_weights', False))
+    free_indices = None
+    derived_indices = None
+    coverage_info = None
+    if coverage_enabled:
+        ensure_support = getattr(optim, '_ensure_coverage_support_map', None)
+        support_map = deepcopy(
+            ensure_support() if ensure_support is not None
+            else getattr(optim, '_coverage_support_map', None)
+        )
+        if support_map is None:
+            raise ValueError('coverage-aware weights 已启用但缺少 support map')
+        free_indices = np.asarray(optim._get_weight_optim_indices(), dtype=int)
+        all_indices = np.arange(np.asarray(optim.weights[optim.direct]).size, dtype=int)
+        derived_indices = np.setdiff1d(all_indices, free_indices)
+        coverage_info = {
+            'enabled': True,
+            'min_effective_samples': float(optim.end5cm_min_weight_effective_samples),
+            'min_max_mass': float(optim.end5cm_min_weight_max_mass),
+            'policy': getattr(optim, 'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges'),
+            'free_parameter_count': int(free_indices.size),
+            'derived_parameter_count': int(derived_indices.size),
+            'support_map': support_map,
+        }
     optimization['parameter_bounds'] = diagnose_parameter_bounds(
         weights=optim.weights[optim.direct],
         slopes=optim.slopes[optim.direct],
         weight_bounds=weight_bounds,
         slope_upper_bound=optim.slope_upper_bound,
+        free_weight_indices=free_indices,
+        derived_weight_indices=derived_indices,
     )
+    if coverage_info is not None:
+        optimization['coverage_aware_weights'] = coverage_info
     calibration_context = getattr(optim, 'calibration_context', None) or {}
     return _native({
         'parameters': {
@@ -165,6 +203,7 @@ def collect_calibration_result(optim, stages):
                 else 'spatial_window',
             ),
             'source_sensor_params': getattr(optim, 'source_sensor_params', None),
+            'coverage_aware_weights': coverage_info or {'enabled': False},
         },
         'optimized_directions': [optim.direct],
         'errors': {
@@ -178,15 +217,21 @@ def collect_calibration_result(optim, stages):
     })
 
 
-def diagnose_parameter_bounds(weights, slopes, weight_bounds, slope_upper_bound, *, atol=1e-4):
+def diagnose_parameter_bounds(weights, slopes, weight_bounds, slope_upper_bound, *,
+                              free_weight_indices=None, derived_weight_indices=None,
+                              free_indices=None, derived_indices=None, atol=1e-4):
     """记录最终参数的边界命中；边界命中与优化阶段状态分别报告。"""
+    if free_weight_indices is None:
+        free_weight_indices = free_indices
+    if derived_weight_indices is None:
+        derived_weight_indices = derived_indices
     weights = np.asarray(weights, dtype=float).reshape(-1)
     slopes = np.asarray(slopes, dtype=float).reshape(-1)
     lower, upper = (float(value) for value in weight_bounds)
     configured_slope_bound = float(slope_upper_bound)
     max_abs_slope = float(np.max(np.abs(slopes))) if slopes.size else 0.0
     effective_slope_bound = max(configured_slope_bound, max_abs_slope)
-    return _native({
+    result = {
         'weights': {
             'configured_bounds': [lower, upper],
             'lower_bound_hits': int(np.isclose(weights, lower, rtol=0, atol=atol).sum()),
@@ -200,7 +245,37 @@ def diagnose_parameter_bounds(weights, slopes, weight_bounds, slope_upper_bound,
             'effective_bound_hits': int(np.isclose(np.abs(slopes), effective_slope_bound, rtol=0, atol=atol).sum()),
             'total': int(slopes.size),
         },
-    })
+    }
+    if free_weight_indices is not None or derived_weight_indices is not None:
+        free = np.asarray(free_weight_indices if free_weight_indices is not None else [], dtype=int)
+        derived = np.asarray(derived_weight_indices if derived_weight_indices is not None else [], dtype=int)
+        if (np.any(free < 0) or np.any(free >= weights.size)
+                or np.any(derived < 0) or np.any(derived >= weights.size)):
+            raise ValueError('coverage-aware weight diagnostics indices are out of range')
+        free_values = weights[free]
+        derived_values = weights[derived]
+        free_lower = int(np.isclose(free_values, lower, rtol=0, atol=atol).sum())
+        free_upper = int(np.isclose(free_values, upper, rtol=0, atol=atol).sum())
+        derived_lower = int(np.isclose(derived_values, lower, rtol=0, atol=atol).sum())
+        derived_upper = int(np.isclose(derived_values, upper, rtol=0, atol=atol).sum())
+        result['weights'].update({
+            'free_parameter_count': int(free.size),
+            'derived_parameter_count': int(derived.size),
+            'derived_lower_bound_hits': derived_lower,
+            'derived_upper_bound_hits': derived_upper,
+        })
+        result['weights']['lower_bound_hits'] = free_lower
+        result['weights']['upper_bound_hits'] = free_upper
+        result['weights']['total'] = int(free.size)
+        result['weights']['free'] = {
+            'lower_bound_hits': free_lower, 'upper_bound_hits': free_upper,
+            'total': int(free.size), 'indices': free.tolist(),
+        }
+        result['weights']['derived'] = {
+            'lower_bound_hits': derived_lower, 'upper_bound_hits': derived_upper,
+            'total': int(derived.size), 'indices': derived.tolist(),
+        }
+    return _native(result)
 
 
 def diagnose_score_distribution(optim):

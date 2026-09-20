@@ -148,6 +148,27 @@ def configure_calibration_args(args):
         raise ValueError('end5cm_independent_weight_score 仅允许 optimization_region=end5cm')
     if groupwise and not independent and args.task not in ('recon', 'demo'):
         raise ValueError('end5cm_independent_weight_score 需要 end5cm_independent_weights=True')
+    coverage_aware = bool(getattr(args, 'end5cm_coverage_aware_weights', False))
+    if coverage_aware:
+        if args.optimization_region != 'end5cm':
+            raise ValueError('end5cm_coverage_aware_weights 仅允许 optimization_region=end5cm')
+        if not point_calib:
+            raise ValueError('end5cm_coverage_aware_weights 需要 end5cm_point_calib=True')
+        if not independent:
+            raise ValueError('end5cm_coverage_aware_weights 需要 end5cm_independent_weights=True')
+        if not groupwise:
+            raise ValueError('end5cm_coverage_aware_weights 需要 end5cm_independent_weight_score=True')
+        if not args.soft:
+            raise ValueError('end5cm_coverage_aware_weights 需要 soft=True')
+        if args.end5cm_uncovered_weight_policy != 'interpolate_neutral_edges':
+            raise ValueError(f'不支持的 end5cm_uncovered_weight_policy: {args.end5cm_uncovered_weight_policy!r}')
+    context['end5cm_coverage_aware_weights'] = coverage_aware
+    context['end5cm_min_weight_effective_samples'] = float(
+        getattr(args, 'end5cm_min_weight_effective_samples', 1.0))
+    context['end5cm_min_weight_max_mass'] = float(
+        getattr(args, 'end5cm_min_weight_max_mass', 0.05))
+    context['end5cm_uncovered_weight_policy'] = getattr(
+        args, 'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
     context['weight_group_ids'] = None
     if independent:
         if context['global_point_ids'] != [19,20,21,22] or args.reverse:
@@ -334,6 +355,15 @@ def build_argument_parser():
     parser.add_argument('--end5cm_independent_weight_score', '--end5cm_groupwise_weight_score',
                         dest='end5cm_independent_weight_score', type=_str2bool, default=False,
                         help='仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名')
+    parser.add_argument('--end5cm_coverage_aware_weights', type=_str2bool, default=False,
+                        help='仅end5cm真实点+独立组均值评分：只优化有实测覆盖的weight档位，其他档位由相邻自由档位对数插值')
+    parser.add_argument('--end5cm_min_weight_effective_samples', type=_finite_nonnegative_float, default=1.0,
+                        help='coverage-aware weight档位的最小有效样本数')
+    parser.add_argument('--end5cm_min_weight_max_mass', type=_finite_nonnegative_float, default=0.05,
+                        help='coverage-aware weight档位的最小最大组质量')
+    parser.add_argument('--end5cm_uncovered_weight_policy', type=str,
+                        choices=['interpolate_neutral_edges'], default='interpolate_neutral_edges',
+                        help='coverage-aware weight未覆盖档位的派生策略')
     parser.add_argument('--optim_weights_only', type=_str2bool, default=False,
                         help='只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
