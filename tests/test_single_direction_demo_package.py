@@ -107,3 +107,28 @@ def test_demo_package_parses_as_single_direction_and_multiregion_assembles(tmp_p
     normalized = recon._normalise_multiregion_parameters(loaded)
     assert normalized['directions'] == [0, 120, 240]
     assert normalized['regions']['end5cm']['weight_score_mode'] == 'group_mean'
+
+
+def test_demo_accepts_coverage_aware_end5_weights_with_full_runtime_region(tmp_path):
+    import main
+    from tools.sensor_parameter_package import (
+        build_single_direction_demo_package, write_sensor_package,
+    )
+
+    base, result = _inputs()
+    result['regions']['end5cm']['parameters']['coverage_aware_weights'] = {
+        'enabled': True,
+        'min_effective_samples': 1.0,
+        'min_max_mass': 0.05,
+        'policy': 'interpolate_neutral_edges',
+    }
+    package = build_single_direction_demo_package(base, result)
+    path = tmp_path / 'coverage-aware-single-direction-demo.json'
+    write_sensor_package(package, path)
+
+    args = main.parse_main_args(['--task', 'demo', '--sensor_params', str(path)])
+    context = main.configure_calibration_args(args)
+
+    assert args.optimization_region == 'full'
+    assert args.end5cm_coverage_aware_weights is True
+    assert context['end5cm_coverage_aware_weights'] is True

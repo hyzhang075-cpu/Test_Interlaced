@@ -149,7 +149,10 @@ def configure_calibration_args(args):
     if groupwise and not independent and args.task not in ('recon', 'demo'):
         raise ValueError('end5cm_independent_weight_score 需要 end5cm_independent_weights=True')
     coverage_aware = bool(getattr(args, 'end5cm_coverage_aware_weights', False))
-    if coverage_aware:
+    # Coverage-aware support selection controls which end5cm weights are free
+    # during optimisation. Recon/demo consume the already-expanded 30-weight
+    # package and therefore must not be constrained by the active runtime region.
+    if coverage_aware and args.task not in ('recon', 'demo'):
         if args.optimization_region != 'end5cm':
             raise ValueError('end5cm_coverage_aware_weights 仅允许 optimization_region=end5cm')
         if not point_calib:
