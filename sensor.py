@@ -219,7 +219,10 @@ class Sensor:
 
         # straight_trim 裁剪 samp_dist
         self.straight_trim = straight_trim
-        self.raw_trim_idx = 0
+        # 负坐标点位于固定件内部，不参与应变定标或曲线重构。该索引稍后也用于
+        # 裁切 Data，确保采样坐标与数据矩阵始终逐行对应。
+        zero_start_idx = int(np.searchsorted(raw_samp_dist, -1e-12, side="left"))
+        self.raw_trim_idx = zero_start_idx
         if type(self.straight_trim) == float:
             self.trim_len = straight_trim if straight_trim >= 0 else self.ideal_len + straight_trim
 
@@ -233,10 +236,11 @@ class Sensor:
                     f"straight_trim={straight_trim} 对应的 trim_len={self.trim_len} 已超出采样范围，"
                     f"最大采样距离为 {raw_samp_dist[-1]}"
                 )
-            self.raw_trim_idx = raw_trim_idx
+            self.raw_trim_idx = max(zero_start_idx, int(raw_trim_idx))
         else:
             if self.straight_trim != 0:
-                self.raw_trim_idx = -np.abs(self.straight_trim)
+                point_trim_idx = max(0, len(raw_samp_dist) - int(np.abs(self.straight_trim)))
+                self.raw_trim_idx = max(zero_start_idx, point_trim_idx)
 
         # 1-based 全局真实数据行号，不包含重构用虚拟点，也不冒充硬件 FBG 标签。
         self.global_point_ids = np.arange(1, len(raw_samp_dist) + 1)[self.raw_trim_idx:]
@@ -260,7 +264,7 @@ class Sensor:
         
         if np.abs(self.samp_dist[0]) < 1e-8:    # 处理浮点数精度问题，避免出现 -1e-16 之类的值
             self.samp_dist[0] = 0.0
-        self.zero_init = self.samp_dist[0] != 0.0
+        self.zero_init = bool(self.samp_dist[0] != 0.0)
 
         # reverse=False 时，在最后一个真实传感点之后补一个虚拟末端点
         # end_value 单位是 mm，这里转成 m
@@ -1441,18 +1445,20 @@ class Sensor:
                 except: 
                     continue
                 
-                # 检查是否在白名单中
-                if phy_ch in self.active_channels and 0 <= idx < self.total_points:
+                # 静态数据与几何都使用 raw_trim_idx 裁掉了固定件内部/区域外点；
+                # 动态包仍携带原始点号，因此必须应用相同偏移。
+                effective_idx = idx - self.raw_trim_idx
+                if phy_ch in self.active_channels and 0 <= effective_idx < self.total_points:
                     # 找到对应的列
                     col = self.active_channels[phy_ch]
                     
                     # 更新快照
-                    self.current_snapshot[idx, col] = wavelength
+                    self.current_snapshot[effective_idx, col] = wavelength
                     
                     # 4. 归零基准设置 (首次收到有效数据时)
                     if not self.is_zero_set[phy_ch]:
-                        if self.zero_points[phy_ch][idx] is None:
-                            self.zero_points[phy_ch][idx] = wavelength
+                        if self.zero_points[phy_ch][effective_idx] is None:
+                            self.zero_points[phy_ch][effective_idx] = wavelength
                         
                         # 检查是否该通道已满
                         if all(v is not None for v in self.zero_points[phy_ch]):

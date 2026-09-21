@@ -31,8 +31,8 @@ def test_parser_contains_sensor_region_configuration_and_accepts_none():
     assert args.multi_region_calib is False
     assert args.optimization_regions == ['full', 'end15cm', 'end5cm']
     assert args.calibration_regions['end5cm']['length_m'] == .05
-    assert args.full_segmentation == [2, 3, 5, 2, 3, 3, 2, 2]
-    assert args.calibration_data_root == '0908-06B6'
+    assert args.full_segmentation == [3, 4, 8, 3, 2, 2]
+    assert '0917-08B5' in args.calibration_data_root
 
 
 def test_parser_parses_numeric_optimizer_bounds_from_cli():
@@ -56,9 +56,10 @@ def test_region_defaults_enable_tail_weights_only_for_end5():
 def test_full_segmentation_cli_override_does_not_conflict_with_parser_default():
     import main
     args = parser_args('--task', 'init', '--segmentation', '[2,3,5,2,3,7]')
-    context = main.configure_calibration_args(args)
-    assert args.segmentation == [2,3,5,2,3,7]
-    assert context['segmentation'] == [2,3,5,2,3,7]
+    with pytest.warns(RuntimeWarning, match='重新分段'):
+        context = main.configure_calibration_args(args)
+    assert args.segmentation == [1,3,5,2,3,7]
+    assert context['segmentation'] == [1,3,5,2,3,7]
 
 
 def test_two_explicit_full_segment_options_must_agree():
@@ -74,7 +75,7 @@ def test_all_regions_prepared_independently_without_mutating_parser_defaults():
     args = parser_args('--multi_region_calib', 'True')
     jobs = runner().prepare_calibration_jobs(args, main.configure_calibration_args)
     assert [j.optimization_region for j, _ in jobs] == ['full', 'end15cm', 'end5cm']
-    assert [j.segmentation for j, _ in jobs] == [[2,3,5,2,3,3,2,2], [3,2,2], [2,2]]
+    assert [j.segmentation for j, _ in jobs] == [[2,4,8,3,2,2], [3,2,2], [2,2]]
     assert [j.radii['circ'][-1] for j, _ in jobs] == [200, 30, 15]
     assert args.folder_path is None and args.straight_trim is None
     assert args.calibration_regions['end5cm']['segmentation'] == [2, 2]

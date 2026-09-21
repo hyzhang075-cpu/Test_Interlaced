@@ -5,6 +5,7 @@
 """
 
 from copy import deepcopy
+import warnings
 
 import numpy as np
 
@@ -31,10 +32,12 @@ def compute_fbg_geometry(start_value, end_value, samp_dist_preset):
     if (preset.ndim != 1 or preset.size < 2 or not np.all(np.isfinite(preset))
             or not np.all(np.diff(preset) > 0)):
         raise ValueError('samp_dist_preset 必须包含至少两个有限、严格递增的 mm 位置')
-    if not np.all(np.isfinite(gaps)) or np.any(gaps < 0):
-        raise ValueError('start_value/end_value 必须是有限非负 mm 数值')
+    if not np.all(np.isfinite(gaps)) or end_value < 0:
+        raise ValueError('start_value 必须是有限 mm 数值，end_value 必须是有限非负 mm 数值')
     ideal_len = float((gaps.sum() + preset[-1] - preset[0]) / 1000.0)
     positions = (gaps[0] + np.r_[0.0, np.cumsum(np.diff(preset)[::-1])]) / 1000.0
+    if ideal_len <= 0 or not np.any(positions >= 0):
+        raise ValueError('传感器有效长度必须为正，且至少有一个传感点位于零点或其后')
     return ideal_len, positions
 
 
@@ -48,6 +51,25 @@ def _validate_partition(segmentation, point_count, label):
     return values.astype(int).tolist()
 
 
+def _trim_partition_prefix(segmentation, removed_points):
+    """从分段头部移除真实点，并保留剩余点所属的原始分段编号。"""
+    remaining = int(removed_points)
+    trimmed = []
+    segment_ids = []
+    for segment_id, count in enumerate(segmentation):
+        kept = int(count)
+        if remaining:
+            consumed = min(remaining, kept)
+            kept -= consumed
+            remaining -= consumed
+        if kept:
+            trimmed.append(kept)
+            segment_ids.append(segment_id)
+    if remaining:
+        raise ValueError('裁切点数超出全长分段定义')
+    return trimmed, segment_ids
+
+
 def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
                                full_segmentation, profiles,
                                optimization_region, multi_region_calib):
@@ -57,10 +79,34 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
     True 允许批量选择嵌套定标长度；一次仍优化一个数据集，并不代表已联合优化。
 每个局部区域必须由若干完整的全长空间段组成；不自动拆段或合并段。
 """
-    ideal_len, positions = compute_fbg_geometry(start_value, end_value, samp_dist_preset)
-    full_segments = _validate_partition(full_segmentation, len(positions), '全长')
+    ideal_len, raw_positions = compute_fbg_geometry(start_value, end_value, samp_dist_preset)
+    raw_point_count = len(raw_positions)
+    raw_full_segments = _validate_partition(full_segmentation, raw_point_count, '全长')
+    # 固定件内部的传感点不参与定标/重构。保留原始点号，并同步裁切首段计数。
+    zero_start_index = int(np.searchsorted(raw_positions, -1e-12, side='left'))
+    positions = raw_positions[zero_start_index:]
+    full_segments, full_segment_ids = _trim_partition_prefix(
+        raw_full_segments, zero_start_index,
+    )
     if optimization_region not in profiles:
         raise ValueError(f'未知 optimization_region={optimization_region!r}；可选 {list(profiles)}')
+    if (optimization_region == 'full' and zero_start_index > 0
+            and full_segments and full_segments[0] < 2):
+        suggested = list(full_segments)
+        if len(suggested) > 1 and suggested[1] > 2:
+            suggested[0] += 1
+            suggested[1] -= 1
+        elif len(suggested) > 1:
+            suggested = [suggested[0] + suggested[1], *suggested[2:]]
+        warnings.warn(
+            f'start_value={start_value} mm 裁掉 {zero_start_index} 个零点前传感点后，'
+            f'全段 segmentation 从 {raw_full_segments} 变为 {full_segments}；'
+            f'首段仅剩 {full_segments[0]} 个点，无法可靠进行分段拟合。'
+            f'请重新分段并重新标定；可参考裁切后分段 {suggested}，'
+            '不要直接沿用现有 slopes。',
+            RuntimeWarning,
+            stacklevel=2,
+        )
     profile = deepcopy(profiles[optimization_region])
     length = profile['length_m']
     if optimization_region == 'full':
@@ -86,8 +132,15 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
         )
     first_segment = int(matches[0])
     expected_segments = full_segments[first_segment:]
-    local_segments = _validate_partition(profile['segmentation'], len(positions) - start_index,
-                                         optimization_region)
+    if optimization_region == 'full':
+        raw_local_segments = _validate_partition(
+            profile['segmentation'], raw_point_count, optimization_region,
+        )
+        local_segments, _ = _trim_partition_prefix(raw_local_segments, zero_start_index)
+    else:
+        local_segments = _validate_partition(
+            profile['segmentation'], len(positions) - start_index, optimization_region,
+        )
     if local_segments != expected_segments:
         raise ValueError(
             f'{optimization_region} 分段 {local_segments} 与全长对应分段 {expected_segments} 不一致；'
@@ -110,8 +163,8 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
         segmentation=local_segments,
         thresholds=thresholds.tolist(),
         optimization_region=optimization_region,
-        global_point_ids=list(range(start_index + 1, len(positions) + 1)),
-        global_segment_ids=list(range(first_segment, len(full_segments))),
+        global_point_ids=list(range(zero_start_index + start_index + 1, raw_point_count + 1)),
+        global_segment_ids=full_segment_ids[first_segment:],
         global_sample_dist_m=positions[start_index:].tolist(),
         sample_dist_m=samples.tolist(),
         crop_origin_m=crop_start,
