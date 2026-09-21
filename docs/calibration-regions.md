@@ -157,6 +157,200 @@ python main.py --task demo --multi_region_calib True --sensor_params params/06B6
 
 全长recon默认回放full数据；单区域end5cm回放用于小半径。跨区域全长小半径指标仍使用calibration_validation.py的定标回放，不以full目录的大半径图替代。
 
+### end5cm覆盖感知weights优化与direct0单方向demo拼接
+
+本节记录当前 `06B6_NeTi_v2_ftube` 的实际实施流程：保留
+`params/06B6_NeTi_v2_ftube_nophase_endpointcalib_endslopenew.json` 中已经优化的
+full、end15cm和end5cm slope，只使用安装到导管后的5cm定标数据重新优化
+end5cm weights；随后把新的direct0结果拼接成仅供direct0动态实验使用的完整参数包。
+所有路径均相对于项目目录，旧参数包和旧优化结果不覆盖。
+
+#### 1. 参数布局和空档处理规则
+
+同时开启以下四个开关：
+
+- `--end5cm_point_calib True`：weight目标使用真实点曲率相对于
+  `1000/radius_mm` 的平方相对误差；
+- `--end5cm_independent_weights True`：真实点按19–20、21、22分成三组，
+  每组保留10档，最终仍输出30个weights；
+- `--end5cm_independent_weight_score True`：19–20使用本组基础曲率评分，
+  点21和点22分别使用各自的基础曲率评分；
+- `--end5cm_coverage_aware_weights True`：只把有足够实测评分支持的档位交给
+  优化器，未覆盖档不再作为自由参数。
+
+覆盖判定排除半径0的直线状态。某组某档同时满足以下条件时才是自由档：
+
+```text
+effective_sample_count = 该组所有非零半径样本在该档的score mass之和
+effective_sample_count >= end5cm_min_weight_effective_samples
+max_mass >= end5cm_min_weight_max_mass
+```
+
+当前默认分别为 `1.0` 和 `0.05`。这样微小的sigmoid尾部不会被误认为一条完整
+有效样本。没有满足覆盖条件的档位按
+`--end5cm_uncovered_weight_policy interpolate_neutral_edges` 派生：
+
+- 两侧都有可靠档时，按照实际threshold坐标对 `log(weight)` 插值；
+- 位于第一个可靠档之前或最后一个可靠档之后时，固定为中性值 `1.0`；
+- 派生档不进入SciPy自由变量，也不计作自由参数触边；
+- 保存时仍展开为完整30个weights，recon/demo不需要在运行时重新插值。
+
+这里的“合并空档”表示空档不再拥有独立优化自由度，由相邻可靠档共同决定；
+它不会修改参数包的10档结构，也不会改变slopes的 `10×2` 形状。weight bounds
+仍只约束自由档，默认保持 `(0.6, 5.0)`，不会根据覆盖情况自动扩大。
+
+#### 2. 只优化安装后数据的end5cm weights
+
+从项目目录运行。基础包用于提供既有slope、相位和其余区域参数；安装后定标
+数据位于 `0909-06B6末端固定前端滑轨定标重测/5cm`。该目录目前只有direct0，
+因此本次命令只运行 `--direct 0`：
+
+```powershell
+python main.py `
+  --task optim `
+  --sensor_params params/06B6_NeTi_v2_ftube_nophase_endpointcalib_endslopenew.json `
+  --multi_region_calib False `
+  --optimization_region end5cm `
+  --end5cm_point_calib True `
+  --end5cm_independent_weights True `
+  --end5cm_independent_weight_score True `
+  --end5cm_coverage_aware_weights True `
+  --end5cm_min_weight_effective_samples 1.0 `
+  --end5cm_min_weight_max_mass 0.05 `
+  --end5cm_uncovered_weight_policy interpolate_neutral_edges `
+  --optim_weights_only True `
+  --calibration_data_root "0909-06B6末端固定前端滑轨定标重测" `
+  --folder_path 5cm `
+  --radii "{'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 150, 100, 50, 30, 20, 15]}" `
+  --weights None `
+  --direct 0
+```
+
+不要添加 `--slopes None`。`--optim_weights_only True` 要求从 `--sensor_params`
+继承同方向的既有slope；显式传入 `--slopes None` 会清除该来源。若PowerShell中的
+`python` 被Microsoft Store别名接管，应先激活正确conda环境，或把命令开头替换为
+该环境的 `python.exe`，其余参数不变。
+
+本次实际输出目录为：
+
+```text
+calibration_results/06B6_NeTi_v2_ftube-20260920T162538+0800-direct0-f82abf
+```
+
+#### 3. 核验results.json
+
+优化结束后至少检查以下字段：
+
+```powershell
+$r0 = 'calibration_results/06B6_NeTi_v2_ftube-20260920T162538+0800-direct0-f82abf'
+$report = Get-Content "$r0/results.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$entry = $report.regions.end5cm
+
+$report.direct
+$entry.status
+$entry.context.calibration_objective
+$entry.context.weight_group_ids
+$entry.context.weight_score_mode
+$entry.parameters.weights.'0'.Count
+$entry.parameters.slopes.'0'.Count
+$entry.parameters.coverage_aware_weights.free_parameter_count
+$entry.parameters.coverage_aware_weights.derived_parameter_count
+$entry.parameters.coverage_aware_weights.support_map.groups | ConvertTo-Json -Depth 10
+$entry.optimization.stages
+$entry.optimization.parameter_bounds.weights
+```
+
+期望值为：direct为0，区域状态为 `complete`，目标为 `real_points`，
+`weight_group_ids=[0,0,1,2]`，评分模式为 `group_mean`，weights长度30，slopes外层
+长度10且每行长度2。当前结果识别出12个自由weight和18个派生weight：
+
+| 组 | 真实点 | 自由档 | 派生档 |
+|---|---|---|---|
+| 0 | 19–20 | 5、6、7、8 | 0–4、9 |
+| 1 | 21 | 5、6、9 | 0–4、7、8 |
+| 2 | 22 | 3、4、5、6、9 | 0–2、7、8 |
+
+档位0–9对应坐标 `[0, 0.8, 1.2, 2.0, 3.0, 4.0, 10.0, 20.0,
+35.0, 45.0] m^-1`；其中0表示低于第一个threshold的区间。上述自由档集合由本次
+数据和覆盖阈值产生，不应硬编码为其他传感器或其他数据集的默认答案。
+
+本次weight阶段从loss `38.929973` 收敛到 `12.776172`。12个自由参数中5个达到
+下限、1个达到上限；18个派生参数没有触边。`complete/converge` 只说明优化器完成，
+不代表动态过弯、回直残差或区域交界已经通过验收，仍需按第6步回放和动态检查。
+
+#### 4. 与基础包拼接为direct0动态demo包
+
+常规 `tools/sensor_parameter_package.py --base_results ... --results ...` 要求基础结果和
+新end5cm结果都具备0/120/240三个方向，不能用于只有direct0的新结果。此时使用专门的
+`tools/build_single_direction_demo_package.py`：
+
+```powershell
+python tools/build_single_direction_demo_package.py `
+  --base-package params/06B6_NeTi_v2_ftube_nophase_endpointcalib_endslopenew.json `
+  --override-result calibration_results/06B6_NeTi_v2_ftube-20260920T162538+0800-direct0-f82abf/results.json `
+  --output params/06B6_NeTi_v2_ftube_nophase_coverageaware_endweights_direct0_demo.json `
+  --direction 0
+```
+
+拼接行为是：
+
+- full和end15cm完整保留基础包内容；
+- end5cm/direct0替换为新结果中的30个weights、继承的 `10×2` slopes、局部相位、
+  优化状态和覆盖感知support map；
+- 参数结构内部的end5cm 120/240槽位复制direct0，仅用于满足现有多区域装配器的
+  三方向schema，不能当作120/240定标结果；
+- 运行范围固定为 `exp_directs=[0]`、`direction_reference_direct=0`，并关闭
+  `direction_blend_enabled`；
+- `deployment_ready=False` 保留，表示这是单方向实验包，不是三方向部署包；
+- provenance记录基础包和覆盖结果路径，便于追溯。
+
+#### 5. 核验拼接包
+
+下面命令只读取JSON，不连接解调仪：
+
+```powershell
+$p = Get-Content 'params/06B6_NeTi_v2_ftube_nophase_coverageaware_endweights_direct0_demo.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+$p.shared_parameters.calibration_experiment_parameters.exp_directs
+$p.shared_parameters.dynamic_display_parameters.direction_reference_direct
+$p.shared_parameters.dynamic_display_parameters.direction_blend_enabled
+$p.shared_parameters.runtime_control_parameters.end5cm_coverage_aware_weights
+$p.regions.end5cm.weights.'0'.Count
+$p.regions.end5cm.slopes.'0'.Count
+$p.regions.end5cm.coverage_aware_weights.free_parameter_count
+$p.multi_region.deployment_ready
+$p.provenance.single_direction_demo
+```
+
+期望得到：`exp_directs=[0]`、参考方向0、方向混合关闭、覆盖感知开启、30个weights、
+10行slopes、12个自由参数以及 `deployment_ready=False`。运行时不需要再次计算
+support map；完整30 weights已经写入参数包。
+
+#### 6. 运行动态demo并验收
+
+```powershell
+python main.py `
+  --task demo `
+  --multi_region_calib True `
+  --sensor_params params/06B6_NeTi_v2_ftube_nophase_coverageaware_endweights_direct0_demo.json `
+  --direction_reference_direct 0 `
+  --rot_ang -30 `
+  --use_stored_zero false
+```
+
+不要添加 `--direction_blend_enabled`，也不要把 `direction_reference_direct` 改成120或240。
+`deployment_ready=False` 的warning不会阻止demo，它用于提醒该包只能做direct0动态实验。
+覆盖感知开关控制优化阶段的自由参数选择；recon/demo直接使用已经展开的30 weights，
+不要求运行时的 `optimization_region=end5cm`。若旧电脑仍报
+`end5cm_coverage_aware_weights 仅允许 optimization_region=end5cm`，说明其 `main.py`
+尚未同步运行时校验修复；应同步当前分支代码。临时排查可在命令末尾加
+`--end5cm_coverage_aware_weights False`，这只关闭优化控制标记，不会改写参数包中已经
+展开的weights。
+
+验收至少包括：大半径下full区域精度，30/20/15mm时点21和点22的曲率，
+end15cm/end5cm交界处的位置与切向连续性，末端累计弯曲角，回直后的反向残余弯曲，
+以及不同方向弯曲时是否出现额外扭转。安装后数据只重新拟合了direct0 weights，不能据此
+判断120/240方向已完成同配置定标，也不能把材料迟滞、安装应变传递和算法误差混为同一结论。
+
 ### 单方向、单区域回放
 
 仅优化end5cm/direct0时，可将该区域 `results.json` 的20个weights、10×2 slopes与 `global_phases_set` 传给单区域recon：
