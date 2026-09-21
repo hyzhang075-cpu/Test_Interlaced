@@ -319,7 +319,7 @@ def build_argument_parser():
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
     parser.add_argument('--sensor_id', type=str, default='08B5', help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=22.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--start_value', type=float, default=-11.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
     parser.add_argument('--end_value', type=float, default=6.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
