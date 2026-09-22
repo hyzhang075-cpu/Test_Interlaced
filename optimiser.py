@@ -100,7 +100,7 @@ class Optimiser(Reconstructor):
         print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: slopes(强制理想曲率) -> weights(正常曲率) --------------------")
 
         # ---------- 第一阶段：优化 slopes，强制使用理想 magnitude ----------
-        slopes_loss, slopes_status, slopes_start_loss = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
+        slopes_loss, slopes_status, slopes_start_loss, slopes_recoveries = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
 
         print(f"slopes 阶段结束: status={slopes_status}, start_loss={slopes_start_loss}, final_loss={slopes_loss}")
         print()
@@ -108,7 +108,7 @@ class Optimiser(Reconstructor):
         # ---------- 第二阶段：优化 weights，恢复正常 magnitude ----------
         # 注意：这里必须 init_loss=None，不能沿用 slopes_loss。
         # 因为 slopes 阶段和 weights 阶段使用的是不同 loss 定义。
-        weights_loss, weights_status, weights_start_loss = self._optim_one_coeff_until_stop(coeff="weights", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=False,)
+        weights_loss, weights_status, weights_start_loss, weights_recoveries = self._optim_one_coeff_until_stop(coeff="weights", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=False,)
 
         print(f"weights 阶段结束: status={weights_status}, start_loss={weights_start_loss}, final_loss={weights_loss}")
         print()
@@ -133,10 +133,13 @@ class Optimiser(Reconstructor):
         print(f"最小误差: {current_loss}")
         self._print_errors()
         # 两阶段 loss 的曲率来源不同，分别保存；最终验收误差由正常重构统计获得。
-        return {'stages': {
-            'slopes': {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss},
-            'weights': {'status': weights_status, 'start_loss': weights_start_loss, 'final_loss': weights_loss},
-        }}
+        slope_stage = {'status': slopes_status, 'start_loss': slopes_start_loss, 'final_loss': slopes_loss}
+        weight_stage = {'status': weights_status, 'start_loss': weights_start_loss, 'final_loss': weights_loss}
+        if slopes_recoveries:
+            slope_stage['recoveries'] = slopes_recoveries
+        if weights_recoveries:
+            weight_stage['recoveries'] = weights_recoveries
+        return {'stages': {'slopes': slope_stage, 'weights': weight_stage}}
 
     def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True, force_ideal_magnitude=False):
         """
@@ -153,15 +156,19 @@ class Optimiser(Reconstructor):
         1. 保存每轮开始前的 weights 和 slopes，用于发散回滚；
         2. 将当前 slopes 按 slope_upper_bound 归一化；
         3. 调用 _optim_coeff_iter() 执行一轮优化；
-        4. 若本轮 loss 为非有限值，则认为数值发散并回滚；
-        5. 若本轮得到有限但更差的 loss，则标记无改善并回滚；
-        6. 若 loss 改善量处于 [0, min_loss_diff]，则认为收敛；
-        7. 否则继续下一轮，直到达到 max_iter。
+        4. 若出现 ``SystemError: unknown opcode``，先回滚并重试当前轮一次；
+        5. 重试仍失败且已有成功轮时，回退最近成功轮并结束当前阶段；
+        6. 若本轮 loss 为非有限值，则认为数值发散并回滚；
+        7. 若本轮得到有限但更差的 loss，则标记无改善并回滚；
+        8. 若 loss 改善量处于 [0, min_loss_diff]，则认为收敛；
+        9. 否则继续下一轮，直到达到 max_iter。
 
         输出：
         - current_loss: 阶段结束时的最佳 loss。
-        - status: 字符串，取值为 'diverge'、'no_improvement'、'converge' 或 'max_iter'。
+        - status: 字符串，取值为 'diverge'、'no_improvement'、'converge'、
+          'max_iter' 或 'runtime_error_fallback'。
         - first_loss: 本阶段第一次实际计算得到的初始 loss。
+        - recoveries: 可恢复 ``unknown opcode`` 事件列表；无事件时为空列表。
 
         说明：
         - 该函数负责阶段级别的循环、回滚和停止判定；
@@ -172,6 +179,8 @@ class Optimiser(Reconstructor):
         current_loss = init_loss
         best_loss = init_loss
         first_loss = init_loss
+        last_successful_iteration = None
+        recoveries = []
 
         print(f"-------------------- {coeff_name}连续优化开始 --------------------")
 
@@ -183,7 +192,51 @@ class Optimiser(Reconstructor):
             slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
             slopes_normalised = slopes_flattened / slope_upper_bound
 
-            new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options, force_ideal_magnitude=force_ideal_magnitude,)
+            first_unknown_opcode = None
+            for attempt in range(2):
+                try:
+                    new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options, force_ideal_magnitude=force_ideal_magnitude,)
+                except SystemError as exc:
+                    if 'unknown opcode' not in str(exc).lower():
+                        raise
+                    self.weights[self.direct] = copy.deepcopy(prev_weights)
+                    self.slopes[self.direct] = copy.deepcopy(prev_slopes)
+                    if first_unknown_opcode is None:
+                        first_unknown_opcode = exc
+                    if attempt == 0:
+                        print(f"{coeff_name}第{i}轮遇到 SystemError: unknown opcode，已回滚并重试本轮一次")
+                        continue
+                    if last_successful_iteration is None:
+                        print(f"{coeff_name}第{i}轮重试仍失败，且没有可回退的成功轮次")
+                        raise
+                    recovery = {
+                        'iteration': i,
+                        'exception_type': type(first_unknown_opcode).__name__,
+                        'message': str(first_unknown_opcode),
+                        'retry_count': 1,
+                        'occurrences': 2,
+                        'outcome': 'fallback_previous_iteration',
+                        'fallback_iteration': last_successful_iteration,
+                        'fallback_loss': float(best_loss),
+                    }
+                    recoveries.append(recovery)
+                    print(
+                        f"{coeff_name}第{i}轮重试仍遇到 unknown opcode；"
+                        f"已回退第{last_successful_iteration}轮结果并结束当前阶段"
+                    )
+                    return best_loss, "runtime_error_fallback", first_loss, recoveries
+                else:
+                    if first_unknown_opcode is not None:
+                        recoveries.append({
+                            'iteration': i,
+                            'exception_type': type(first_unknown_opcode).__name__,
+                            'message': str(first_unknown_opcode),
+                            'retry_count': 1,
+                            'occurrences': 1,
+                            'outcome': 'retry_succeeded',
+                        })
+                        print(f"{coeff_name}第{i}轮重试成功")
+                    break
 
             # 核心改动：第一次进入时，best_loss 可能还是 None
             if best_loss is None:
@@ -201,7 +254,7 @@ class Optimiser(Reconstructor):
                 current_loss = prev_loss
 
                 print(f"{coeff_name}优化出现非有限 loss，已回滚")
-                return current_loss, "diverge", first_loss
+                return current_loss, "diverge", first_loss, recoveries
 
             if new_loss > prev_loss:
                 self.weights[self.direct] = prev_weights
@@ -209,19 +262,20 @@ class Optimiser(Reconstructor):
                 current_loss = prev_loss
 
                 print(f"{coeff_name}优化未改善，已回滚")
-                return current_loss, "no_improvement", first_loss
+                return current_loss, "no_improvement", first_loss, recoveries
 
             current_loss = new_loss
             best_loss = new_loss
+            last_successful_iteration = i
 
             improvement = prev_loss - current_loss
 
             if 0 <= improvement <= self.min_loss_diff:
                 print(f"{coeff_name}优化已收敛")
-                return current_loss, "converge", first_loss
+                return current_loss, "converge", first_loss, recoveries
 
         print(f"{coeff_name}优化已达最大轮数")
-        return current_loss, "max_iter", first_loss   
+        return current_loss, "max_iter", first_loss, recoveries
     
     def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound,options, force_ideal_magnitude=False):
         """
