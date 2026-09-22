@@ -283,6 +283,10 @@ class DataRecorder:
                 'cur_kal': intermediates['cur_kal'].tolist(),
                 'ang_filter': intermediates['ang_filter'].tolist(),
                 'ang_interp': intermediates['ang_interp'].tolist(),
+                **({
+                    'cur_interp_raw': intermediates['cur_interp_raw'].tolist(),
+                    'ang_interp_raw': intermediates['ang_interp_raw'].tolist(),
+                } if 'cur_interp_raw' in intermediates else {}),
                 'insert_value':insert_value.copy() if hasattr(insert_value, 'copy') else insert_value
             }
             # 非阻塞放入，保证渲染实时性
@@ -367,7 +371,7 @@ class Demonstrator(QMainWindow):
         self.angle_unwrap_prev = None
 
         # 跨帧卡尔曼滤波（动态展示专用）：开启后替代 curve_history 滑动平均。
-        # 状态为曲线各点三维坐标，采用恒定位置模型；kalman_x/kalman_p 在首帧惰性初始化。
+        # 状态为每个插值点的局部曲率向量两分量，采用恒定位置模型。
         self.demo_kalman_enabled = bool(demo_kalman_enabled)
         self.demo_kalman_Rk = float(demo_kalman_Rk)
         self.demo_kalman_Bk = float(demo_kalman_Bk)
@@ -1178,28 +1182,26 @@ class Demonstrator(QMainWindow):
         masses = self._estimate_direction_masses(calib_Data=calib_Data)
         return self._blend_direction_parameters(direction_masses=masses)
 
-    def _apply_curve_kalman(self, r_frame):
-        """
-        对当前帧重构曲线做跨帧卡尔曼滤波（动态展示专用，逐点逐坐标独立）。
-
-        模型：恒定位置模型（状态即各点三维坐标，假设短时间内位置不变）。
-        - Rk 为观测噪声参数，越大越平滑、响应越慢；
-        - Bk 为状态转移误差参数，越大对新观测响应越快。
-        首帧或曲线点数变化时用观测值直接初始化状态。
-        """
-        z = np.asarray(r_frame, dtype=float)
+    def _apply_curvature_vector_kalman(self, cur_interp, ang_interp):
+        """Filter interpolated local curvature components across dynamic frames."""
+        cur_interp = np.asarray(cur_interp, dtype=float)
+        ang_interp = np.asarray(ang_interp, dtype=float)
+        if cur_interp.ndim != 1 or ang_interp.shape != cur_interp.shape:
+            raise ValueError("cur_interp and ang_interp must be equal-length one-dimensional arrays")
+        z = cur_interp[:, None] * np.column_stack((np.cos(ang_interp), np.sin(ang_interp)))
         if self.kalman_x is None or self.kalman_x.shape != z.shape:
             self.kalman_x = z.copy()
             self.kalman_p = np.full_like(z, self.demo_kalman_Bk)
-            return self.kalman_x.copy()
+            filtered = self.kalman_x.copy()
+        else:
+            # 预测：恒定曲率向量模型，状态不变，协方差累加过程噪声
+            p_pred = self.kalman_p + self.demo_kalman_Bk
+            K = p_pred / (p_pred + self.demo_kalman_Rk)
+            self.kalman_x = self.kalman_x + K * (z - self.kalman_x)
+            self.kalman_p = (1.0 - K) * p_pred
+            filtered = self.kalman_x.copy()
 
-        # 预测：恒定位置模型，状态不变，协方差累加过程噪声
-        p_pred = self.kalman_p + self.demo_kalman_Bk
-        # 更新
-        K = p_pred / (p_pred + self.demo_kalman_Rk)
-        self.kalman_x = self.kalman_x + K * (z - self.kalman_x)
-        self.kalman_p = (1.0 - K) * p_pred
-        return self.kalman_x.copy()
+        return np.hypot(filtered[:, 0], filtered[:, 1]), np.arctan2(filtered[:, 1], filtered[:, 0])
 
     def update_vtk(self):
         """
@@ -1214,10 +1216,11 @@ class Demonstrator(QMainWindow):
         6. 若启用方向软过渡，用指定参考方向完成第一遍方向估计，经过冻结和指数平滑后混合三方向参数；否则使用参考方向单套参数。
         7. 若启用 IMU，则从 IMU 队列中读取最新姿态矩阵，并据此构造初始切向量 init_T；否则使用默认 init_T。
         8. 使用当前帧混合参数调用 _reconstruct_frame() 完成最终重构，并保持 direct=0 的统一显示坐标系。
-        9. 提取末端姿态 End_pose。
-        10. 将最近若干帧重构结果存入 self.curve_history，并在达到窗口长度后做均值平滑。
-        11. 若启用 recorder，则将当前帧结果写入后台记录器。
-        12. 调用 _update_frame() 将最终曲线写入 VTK 显示。
+        9. 若启用动态 Kalman，对插值曲率向量两分量跨帧滤波，并从同一结果重构曲线与标架。
+        10. 提取末端姿态 End_pose。
+        11. 将最近若干帧重构结果存入 self.curve_history，并在达到窗口长度后做均值平滑。
+        12. 若启用 recorder，则将当前帧结果写入后台记录器。
+        13. 调用 _update_frame() 将最终曲线写入 VTK 显示。
 
         输入：
         - 无（使用实例中的实时队列、IMU 队列与重构器参数）
@@ -1298,9 +1301,27 @@ class Demonstrator(QMainWindow):
             if getattr(self.recon, 'multi_region_parameters', None) is not None
             else None
         )
-        self.angle_prev, self.angle_unwrap_prev, cur_interp, _, r, T, Y, Z, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False, direct=reconstruction_direct,
+        self.angle_prev, self.angle_unwrap_prev, cur_interp, interp_dist, r, T, Y, Z, intermediates = self.recon._reconstruct_frame(keys=None, calib_shape='circ', calib_Data=calib_Data, weight=weight, slope=slope, magnitude_ratio=1.0, init_T=init_T, verbose=False, direct=reconstruction_direct,
                                                                                             unwrap_threshold=self.unwrap_threshold, align_threshold=self.align_threshold, angle_prev=self.angle_prev, angle_unwrap_prev=self.angle_unwrap_prev)
+        cur_interp_raw = np.asarray(cur_interp, dtype=float).copy()
+        ang_interp_raw = np.asarray(intermediates['ang_interp'], dtype=float).copy()
         rot_matrix = self.recon._get_rot_x(direct=0)
+        if self.demo_kalman_enabled:
+            cur_interp, ang_interp = self._apply_curvature_vector_kalman(
+                cur_interp_raw, ang_interp_raw
+            )
+            r, T, Y, Z = self.recon._reconstruct_from_interpolated_curvature(
+                cur_interp=cur_interp,
+                ang_interp=ang_interp,
+                interp_dist=interp_dist,
+                init_T=init_T,
+            )
+            self.recon.cur_interp = np.asarray(cur_interp, dtype=float).copy()
+            intermediates = dict(intermediates)
+            intermediates['cur_interp_raw'] = cur_interp_raw
+            intermediates['ang_interp_raw'] = ang_interp_raw
+            intermediates['cur_interp'] = np.asarray(cur_interp, dtype=float).copy()
+            intermediates['ang_interp'] = np.asarray(ang_interp, dtype=float).copy()
         r_results_postrot = r @ rot_matrix.T
         T_rot = T @ rot_matrix.T
         Y_rot = Y @ rot_matrix.T
@@ -1317,10 +1338,7 @@ class Demonstrator(QMainWindow):
         )
         
         # --------------  平滑滤波 --------------
-        if self.demo_kalman_enabled:
-            # 跨帧卡尔曼滤波（替代滑动平均）
-            r_results_postrot = self._apply_curve_kalman(r_results_postrot)
-        else:
+        if not self.demo_kalman_enabled:
             self.curve_history.append(r_results_postrot.copy())
             if len(self.curve_history) == self.recon.move_filter:
                 r_results_postrot = np.mean(np.array(self.curve_history), axis=0)

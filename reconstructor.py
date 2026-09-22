@@ -342,7 +342,7 @@ class Reconstructor(Initialiser):
             torsion = (ang_diff - 2 * np.pi * np.floor((ang_diff + np.pi) / (2 * np.pi))) / interp_ss
             if verbose:
                 print(f"torsion: {torsion}")
-            r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)  
+            r, T, N, B = self._F_S_frame(kappa=cur_interp, tau=torsion, ss=interp_ss, init_T=init_T, init_N=init_N)
             return angle, angle_unwrap, cur_interp, interp_dist, r, T, N, B, intermediates
         elif self.frame_rule == 'TNN':
             # 平行标架重构
@@ -355,6 +355,54 @@ class Reconstructor(Initialiser):
                 return_principal_frame=True,
             )
             return angle, angle_unwrap, cur_interp, interp_dist, r, T, Y, Z, intermediates
+
+    def _reconstruct_from_interpolated_curvature(
+        self, cur_interp, ang_interp, interp_dist, init_T
+    ):
+        """Build the curve and local frame from the exact interpolated curvature used."""
+        cur_interp = np.asarray(cur_interp, dtype=float)
+        ang_interp = np.asarray(ang_interp, dtype=float)
+        interp_dist = np.asarray(interp_dist, dtype=float)
+        init_T = np.asarray(init_T, dtype=float)
+        if (
+            cur_interp.ndim != 1
+            or ang_interp.ndim != 1
+            or interp_dist.ndim != 1
+            or cur_interp.shape != ang_interp.shape
+            or cur_interp.size != interp_dist.size
+            or cur_interp.size < 2
+            or init_T.shape != (3,)
+            or not np.all(np.isfinite(cur_interp))
+            or not np.all(np.isfinite(ang_interp))
+            or not np.all(np.isfinite(interp_dist))
+            or not np.all(np.isfinite(init_T))
+            or not np.all(np.diff(interp_dist) > 0.0)
+        ):
+            raise ValueError("interpolated curvature inputs must be finite, ordered, and shape-compatible")
+
+        interp_ss = np.diff(interp_dist)
+        init_N = np.array([0.0, np.cos(ang_interp[0]), np.sin(ang_interp[0])])
+        if self.frame_rule == 'TNB':
+            ang_diff = np.diff(ang_interp)
+            torsion = (ang_diff - 2 * np.pi * np.floor((ang_diff + np.pi) / (2 * np.pi))) / interp_ss
+            return self._F_S_frame(
+                kappa=cur_interp,
+                tau=torsion,
+                ss=interp_ss,
+                init_T=init_T,
+                init_N=init_N,
+            )
+        if self.frame_rule == 'TNN':
+            r, T, Y, Z, _, _ = self._parallel_frame(
+                kappa=cur_interp,
+                angles=ang_interp,
+                ss=interp_ss,
+                init_T=init_T,
+                init_N=init_N,
+                return_principal_frame=True,
+            )
+            return r, T, Y, Z
+        raise ValueError(f"unsupported frame_rule: {self.frame_rule}")
 
     def _construct_ideal_magnitude_for_recon(self, keys, calib_shape, sample_dist):
         """

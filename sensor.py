@@ -21,6 +21,57 @@ from tools.zero_reference import load_zero_reference
 from calibration_regions import compute_fbg_geometry
 
 
+class WavelengthContinuityGuard:
+    """Reject isolated large FiberTecc wavelength jumps independently per FBG."""
+
+    def __init__(self, threshold_nm=0.3):
+        threshold_nm = float(threshold_nm)
+        if not np.isfinite(threshold_nm) or threshold_nm < 0.0:
+            raise ValueError("threshold_nm must be a finite nonnegative number")
+        self.threshold_nm = threshold_nm
+        self._last_valid = {}
+        self._candidate = {}
+
+    def filter(self, sensor_id, wavelength):
+        """Return a safe wavelength, or None until the first finite sample arrives."""
+        value = float(wavelength)
+        previous = self._last_valid.get(sensor_id)
+        if not np.isfinite(value):
+            return previous
+
+        if previous is None:
+            self._last_valid[sensor_id] = value
+            return value
+
+        candidate = self._candidate.get(sensor_id)
+        if candidate is None:
+            change = abs(value - previous)
+            if change <= self.threshold_nm:
+                self._last_valid[sensor_id] = value
+                return value
+            self._candidate[sensor_id] = value
+            print(
+                f"波长跳变提醒 sensor_id={sensor_id} "
+                f"旧值={previous:.6f} 新值={value:.6f} "
+                f"变化量={change:.6f} nm ({change * 1000.0:.3f} pm)"
+            )
+            return previous
+
+        near_previous = abs(value - previous) <= self.threshold_nm
+        near_candidate = abs(value - candidate) <= self.threshold_nm
+        if near_previous:
+            self._candidate.pop(sensor_id, None)
+            self._last_valid[sensor_id] = value
+            return value
+        if near_candidate:
+            self._candidate.pop(sensor_id, None)
+            self._last_valid[sensor_id] = value
+            return value
+
+        self._candidate[sensor_id] = value
+        return previous
+
+
 class Sensor:
     """
     传感器自身物理参数以及数据处理模块
@@ -31,7 +82,8 @@ class Sensor:
                 samp_dist_preset=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], active_angles=None, reverse=False, straight_trim=0.0,
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
-                use_stored_zero=False, zero_reference_path=None):
+                use_stored_zero=False, zero_reference_path=None,
+                wavelength_jump_threshold_pm=300.0):
         
         # 实验参数
         self.exp_directs = exp_directs
@@ -90,6 +142,10 @@ class Sensor:
         self._configure_zero_reference(use_stored_zero, zero_reference_path)
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
+        self.wavelength_jump_threshold_pm = float(wavelength_jump_threshold_pm)
+        self._wavelength_guard = WavelengthContinuityGuard(
+            threshold_nm=self.wavelength_jump_threshold_pm / 1000.0
+        )
 
         # 数据存储结构
         self.channel_change = channel_change
@@ -1446,13 +1502,19 @@ class Sensor:
                     # 找到对应的列
                     col = self.active_channels[phy_ch]
                     
-                    # 更新快照
-                    self.current_snapshot[idx, col] = wavelength
+                    # 逐 FBG 连续性检查必须发生在绝对波长写入快照之前。
+                    safe_wavelength = self._wavelength_guard.filter(
+                        sensor_id=sensor_id,
+                        wavelength=wavelength,
+                    )
+                    if safe_wavelength is None:
+                        continue
+                    self.current_snapshot[idx, col] = safe_wavelength
                     
                     # 4. 归零基准设置 (首次收到有效数据时)
                     if not self.is_zero_set[phy_ch]:
                         if self.zero_points[phy_ch][idx] is None:
-                            self.zero_points[phy_ch][idx] = wavelength
+                            self.zero_points[phy_ch][idx] = safe_wavelength
                         
                         # 检查是否该通道已满
                         if all(v is not None for v in self.zero_points[phy_ch]):
