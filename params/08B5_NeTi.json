@@ -226,7 +226,7 @@
         2,
         2
       ],
-      "calibration_data_root": "../../形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试",
+      "calibration_data_root": "./0917-08B5+镍钛管全身打孔固定全段加末段测试",
       "calibration_output_dir": "./calibration_results",
       "folder_path": null,
       "radii": null,
