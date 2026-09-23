@@ -378,7 +378,7 @@ def build_argument_parser():
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
                         default=[3, 4, 8, 3, 2, 2],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')
-    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试"),
+    parser.add_argument('--calibration_data_root', type=str, default="./0917-08B5+镍钛管全身打孔固定全段加末段测试",
                         help='定标数据根目录；相对路径以main.py所在目录为基准')
     parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
         'full': {
