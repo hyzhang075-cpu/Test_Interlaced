@@ -120,8 +120,8 @@ def save_zero_reference(reference, output_path):
     return path
 
 
-def load_zero_reference(path, sensor_id, active_channels, total_points):
-    """Load and strictly validate a unified zero reference for one Sensor."""
+def load_zero_reference(path, sensor_id, active_channels, total_points, raw_trim_idx=0):
+    """Load a zero reference in raw or already-trimmed point order."""
     reference_path = Path(path)
     if not reference_path.is_file():
         raise FileNotFoundError(f"零状态文件不存在: {reference_path}")
@@ -136,8 +136,18 @@ def load_zero_reference(path, sensor_id, active_channels, total_points):
     expected_channels = [int(channel) for channel in active_channels]
     if reference.get("active_channels") != expected_channels:
         raise ValueError(f"零状态 active_channels 不一致: 文件={reference.get('active_channels')!r}, 当前={expected_channels!r}")
-    if reference.get("point_count") != int(total_points):
-        raise ValueError(f"零状态栅点数量不一致: 文件={reference.get('point_count')!r}, 当前={int(total_points)}")
+    if (isinstance(raw_trim_idx, bool) or not isinstance(raw_trim_idx, (int, np.integer))
+            or raw_trim_idx < 0):
+        raise ValueError(f"raw_trim_idx 必须是非负整数: {raw_trim_idx!r}")
+    trim_idx = int(raw_trim_idx)
+    file_point_count = reference.get("point_count")
+    raw_point_count = int(total_points) + trim_idx
+    if file_point_count not in (int(total_points), raw_point_count):
+        raise ValueError(
+            f"零状态栅点数量不一致: 文件={file_point_count!r}, "
+            f"当前={int(total_points)}, 原始={raw_point_count}"
+        )
+    needs_trim = trim_idx > 0 and file_point_count == raw_point_count
     channel_payload = reference.get("channels")
     if not isinstance(channel_payload, dict):
         raise ValueError("零状态 channels 必须是通道字典")
@@ -150,9 +160,9 @@ def load_zero_reference(path, sensor_id, active_channels, total_points):
         if not isinstance(payload, dict) or "wavelengths_nm" not in payload:
             raise ValueError(f"零状态通道 {channel} 缺少 wavelengths_nm")
         values = np.asarray(payload["wavelengths_nm"], dtype=float)
-        if values.shape != (int(total_points),):
-            raise ValueError(f"零状态通道 {channel} 栅点数量不一致: 文件={values.shape}, 当前={int(total_points)}")
+        if values.shape != (file_point_count,):
+            raise ValueError(f"零状态通道 {channel} 栅点数量不一致: 文件={values.shape}, 声明={file_point_count}")
         if not np.isfinite(values).all():
             raise ValueError(f"零状态通道 {channel} 包含非有限波长")
-        loaded[channel] = values.copy()
+        loaded[channel] = values[trim_idx:].copy() if needs_trim else values.copy()
     return loaded

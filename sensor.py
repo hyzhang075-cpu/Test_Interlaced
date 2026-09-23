@@ -356,6 +356,7 @@ class Sensor:
             sensor_id=self.sensor_id,
             active_channels=list(self.active_channels),
             total_points=self.total_points,
+            raw_trim_idx=self.raw_trim_idx,
         )
         self.zero_points = {channel: loaded[channel].tolist() for channel in self.active_channels}
         self.is_zero_set = {channel: True for channel in self.active_channels}
