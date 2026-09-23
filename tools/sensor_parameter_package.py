@@ -12,7 +12,10 @@ if __package__ in (None, "") and str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from calibration_regions import validate_end_weight_config, validate_weight_group_ids
+from calibration_regions import (
+    resolve_calibration_region, validate_end_weight_config,
+    validate_weight_group_ids,
+)
 
 
 FORMAT_VERSION = 2
@@ -170,25 +173,36 @@ def load_calibration_results(paths):
                   if item.get('direct') in REQUIRED_DIRECTIONS else len(REQUIRED_DIRECTIONS))
 
 
-def merge_end5_results(base_reports, end5_reports):
-    """Reuse complete upstream calibration results and replace only end5cm."""
+def merge_region_results(base_reports, partial_reports):
+    """Replace one regional result in three complete direction reports."""
     base = {r['direct']: r for r in base_reports}
-    updates = {r['direct']: r for r in end5_reports}
+    updates = {r['direct']: r for r in partial_reports}
     if set(base) != set(REQUIRED_DIRECTIONS) or set(updates) != set(REQUIRED_DIRECTIONS):
         raise ValueError('base_results和results均需要0/120/240三个方向')
+    regions = [set(report.get('regions', {})) for report in updates.values()]
+    if len(set(map(frozenset, regions))) != 1 or regions[0] not in ({'end15cm'}, {'end5cm'}):
+        raise ValueError('results三个方向必须只包含同一区域end15cm或end5cm')
+    region = next(iter(regions[0]))
     merged = []
     for direct in REQUIRED_DIRECTIONS:
         old, new = base[direct], updates[direct]
         if old['sensor_id'] != new['sensor_id']:
             raise ValueError('base_results与results的sensor_id不一致')
-        if set(old['regions']) != set(REGION_ORDER) or set(new['regions']) != {'end5cm'}:
-            raise ValueError('base_results必须包含完整三区域，results必须只包含end5cm')
+        if set(old['regions']) != set(REGION_ORDER):
+            raise ValueError('base_results必须包含完整三区域')
         report = deepcopy(old)
-        report['regions']['end5cm'] = deepcopy(new['regions']['end5cm'])
+        report['regions'][region] = deepcopy(new['regions'][region])
         report['_base_source_path'] = old.get('_source_path')
         report['_source_path'] = new.get('_source_path')
         merged.append(report)
     return merged
+
+
+def merge_end5_results(base_reports, end5_reports):
+    """Backward-compatible helper for existing end5cm callers."""
+    if any(set(report.get('regions', {})) != {'end5cm'} for report in end5_reports):
+        raise ValueError('results必须只包含end5cm')
+    return merge_region_results(base_reports, end5_reports)
 
 
 def _region_context(entry, region):
@@ -196,7 +210,11 @@ def _region_context(entry, region):
     context = entry.get('context')
     if not isinstance(context, dict):
         raise ValueError(f'{region} 缺少 context')
-    required = ('thresholds', 'segmentation', 'global_point_ids', 'global_segment_ids')
+    required = (
+        'thresholds', 'segmentation', 'global_point_ids', 'global_segment_ids',
+        'optimization_region', 'sample_dist_m', 'crop_origin_m',
+        'reconstruction_length_m', 'ideal_len', 'straight_trim',
+    )
     if any(name not in context for name in required):
         raise ValueError(f'{region} context 不完整')
     objective = context.get('calibration_objective', 'geometry')
@@ -394,6 +412,12 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
 
         region_blocks[region] = {
             'calibration_objective': context.get('calibration_objective', 'geometry'),
+            'calibration_geometry': {
+                key: deepcopy(context.get(key)) for key in (
+                    'optimization_region', 'sample_dist_m', 'crop_origin_m',
+                    'reconstruction_length_m', 'ideal_len', 'straight_trim',
+                )
+            },
             'weight_group_ids': groups,
             'weight_score_mode': context.get('weight_score_mode', 'spatial_window'),
             'length_m': context.get('length_m'),
@@ -515,6 +539,177 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
             'local_rot_ang': local_rot_angles,
         },
     }
+    return _native(package)
+
+
+def _package_region_geometry(package, region):
+    """Read saved geometry, or reconstruct it for older packages."""
+    saved = package['regions'][region].get('calibration_geometry')
+    if saved is not None:
+        return saved
+    defaults = package_parser_defaults(package)
+    profiles = deepcopy(defaults['calibration_regions'])
+    profiles['full']['segmentation'] = list(defaults['full_segmentation'])
+    preset = defaults['samp_dist_preset']
+    if defaults['interlaced_grating']:
+        preset = sorted(list(preset) + list(defaults['samp_dist_preset_sub']))
+    resolved = resolve_calibration_region(
+        start_value=defaults['start_value'], end_value=defaults['end_value'],
+        samp_dist_preset=preset, full_segmentation=defaults['full_segmentation'],
+        profiles=profiles, multi_region_calib=False, optimization_region=region,
+    )
+    return {key: resolved[key] for key in (
+        'optimization_region', 'sample_dist_m', 'crop_origin_m',
+        'reconstruction_length_m', 'ideal_len', 'straight_trim',
+    )}
+
+
+def merge_region_into_package(base_package, partial_reports, *, base_source=None):
+    """Layer one three-direction regional calibration onto an existing package."""
+    package = deepcopy(base_package)
+    if package.get('format_version') != FORMAT_VERSION or set(package.get('regions', {})) != set(REGION_ORDER):
+        raise ValueError('base package缺少完整三区域或format_version不受支持')
+    reports = {report.get('direct'): report for report in partial_reports}
+    if len(partial_reports) != len(REQUIRED_DIRECTIONS) or set(reports) != set(REQUIRED_DIRECTIONS):
+        raise ValueError('results必须恰好包含0/120/240三个方向')
+    regions = [set(report.get('regions', {})) for report in reports.values()]
+    if len(set(map(frozenset, regions))) != 1 or regions[0] not in ({'end15cm'}, {'end5cm'}):
+        raise ValueError('results三个方向必须只包含同一区域end15cm或end5cm')
+    region = next(iter(regions[0]))
+    block = package['regions'][region]
+    expected_geometry = _package_region_geometry(package, region)
+    contexts = []
+    coverages = []
+    for direct in REQUIRED_DIRECTIONS:
+        report = reports[direct]
+        if report.get('sensor_id') != package.get('sensor_id'):
+            raise ValueError(f'{direct}/{region} sensor_id与base package不一致')
+        entry = report['regions'][region]
+        if entry.get('status') != 'complete':
+            raise ValueError(f'{direct}/{region} 未完成')
+        context = _region_context(entry, region)
+        contexts.append(context)
+        if (context.get('optimization_region') != region
+                or any(_native(context.get(key)) != _native(value)
+                       for key, value in expected_geometry.items())):
+            raise ValueError(f'{direct}/{region} context与base package几何配置不一致')
+        folder = _calibration_relative_path(
+            context.get('folder_path'), _shared_parameter(package, 'calibration_data_root'))
+        if folder != block.get('folder_path'):
+            raise ValueError(f'{direct}/{region} context与base package的数据目录不一致')
+        expected = {
+            'length_m': block.get('length_m'), 'radii': block.get('radii'),
+            'thresholds': block.get('thresholds'),
+            'segmentation': block.get('local_segmentation'),
+            'global_point_ids': block.get('support_point_ids'),
+            'global_segment_ids': block.get('global_segment_ids'),
+            'global_sample_dist_m': block.get('global_sample_dist_m'),
+            'owned_point_ids': block.get('owned_point_ids'),
+            'end_weights': block.get('end_weights', False),
+            'end_start': block.get('end_start', -5),
+            'weight_group_ids': block.get('weight_group_ids'),
+            'weight_score_mode': block.get('weight_score_mode', 'spatial_window'),
+            'sharpness': block.get('sharpness'),
+            'score_window': block.get('score_window'),
+            'score_boundary_mode': block.get('score_boundary_mode', 'constant'),
+        }
+        if any(_native(context.get(key, expected[key])) != _native(value)
+               for key, value in expected.items()):
+            raise ValueError(f'{direct}/{region} context与base package的点位/分段/权重配置不一致')
+        params = entry.get('parameters', {})
+        for key in ('end_weights', 'end_start', 'weight_group_ids', 'weight_score_mode', 'calibration_objective'):
+            if key in params and params[key] != context.get(key, expected.get(key, 'geometry')):
+                raise ValueError(f'{direct}/{region} 参数与context的{key}不一致')
+        levels = len(block['thresholds']) + 1
+        groups = validate_weight_group_ids(block.get('weight_group_ids'), len(block['support_point_ids']))
+        end_weights, _ = validate_end_weight_config(
+            block.get('end_weights', False), block.get('end_start', -5), len(block['support_point_ids']))
+        weight_count = levels * (max(groups) + 1 if groups is not None else (2 if end_weights else 1))
+        direct_key = str(direct)
+        weights = np.asarray(params.get('weights', {}).get(direct_key), dtype=float)
+        slopes = np.asarray(params.get('slopes', {}).get(direct_key), dtype=float)
+        if weights.shape != (weight_count,) or not np.all(np.isfinite(weights)):
+            raise ValueError(f'{direct}/{region} weights形状应为{(weight_count,)}')
+        expected_slopes = (levels, len(block['local_segmentation']))
+        if slopes.shape != expected_slopes or not np.all(np.isfinite(slopes)):
+            raise ValueError(f'{direct}/{region} slopes形状应为{expected_slopes}')
+        coverage = params.get('coverage_aware_weights', {})
+        coverages.append(coverage if isinstance(coverage, dict) else {})
+        block['weights'][direct_key] = weights.tolist()
+        block['slopes'][direct_key] = slopes.tolist()
+        block['errors'][direct_key] = deepcopy(entry.get('errors', {}))
+        block['optimization'][direct_key] = deepcopy(entry.get('optimization', {}))
+        block['phase_reference'][direct_key] = deepcopy(params.get('phase_reference'))
+        package['provenance']['local_global_phases_set'][region][direct_key] = params.get('global_phases_set')
+        package['provenance']['local_rot_ang'][region][direct_key] = params.get('rot_ang')
+    if any(not _same_context(contexts[0], context) for context in contexts[1:]):
+        raise ValueError(f'{region} 跨方向context不一致')
+    if region == 'end5cm':
+        configs = [{key: coverage.get(key, default) for key, default in (
+            ('enabled', False), ('min_effective_samples', 1.0),
+            ('min_max_mass', 0.05), ('policy', 'interpolate_neutral_edges'))}
+            for coverage in coverages]
+        if any(config != configs[0] for config in configs[1:]):
+            raise ValueError('end5cm跨方向coverage-aware配置不一致')
+        block.pop('coverage_aware_weights', None)
+        if configs[0]['enabled']:
+            block['coverage_aware_weights'] = dict(configs[0], directions={
+                str(direct): deepcopy(coverage)
+                for direct, coverage in zip(REQUIRED_DIRECTIONS, coverages)
+            })
+    block['calibration_objective'] = contexts[0].get('calibration_objective', 'geometry')
+    block['calibration_geometry'] = deepcopy(expected_geometry)
+    runtime = package['shared_parameters']['runtime_control_parameters']
+    runtime[f'{region}_point_calib'] = block['calibration_objective'] == 'real_points'
+    if region == 'end5cm':
+        coverage = block.get('coverage_aware_weights', {})
+        runtime['end5cm_coverage_aware_weights'] = bool(coverage.get('enabled', False))
+        runtime['end5cm_min_weight_effective_samples'] = float(coverage.get('min_effective_samples', 1.0))
+        runtime['end5cm_min_weight_max_mass'] = float(coverage.get('min_max_mass', 0.05))
+        runtime['end5cm_uncovered_weight_policy'] = coverage.get('policy', 'interpolate_neutral_edges')
+    references = []
+    for direct in REQUIRED_DIRECTIONS:
+        key = str(direct)
+        pair = [package['regions'][name]['phase_reference'][key] for name in ('end15cm', 'end5cm')]
+        if any(pair) and not all(pair):
+            raise ValueError(f'{direct} 局部固定相位模式不一致；end15cm/end5cm必须配套优化')
+        if all(pair):
+            references.append(direct)
+    multi = package['multi_region']
+    multi['phase_reference_directions'] = references
+    multi['use_full_transported_phase'] = bool(references)
+    runtime['use_full_transported_phase'] = bool(references)
+    provenance = package['provenance']
+    provenance.setdefault('source_results', []).extend(
+        _project_relative_path(reports[direct].get('_source_path'))
+        for direct in REQUIRED_DIRECTIONS if reports[direct].get('_source_path')
+    )
+    provenance.setdefault('region_merges', []).append({
+        'region': region,
+        'base_package': _project_relative_path(base_source) if base_source else None,
+        'results': [_project_relative_path(reports[direct].get('_source_path'))
+                    for direct in REQUIRED_DIRECTIONS],
+    })
+    provenance.pop('full_geometry_validation', None)
+    multi['deployment_ready'] = False
+    multi['available_deployment_directions'] = []
+    multi.setdefault('shared_quality_gates', {})['score_thresholds_verified'] = False
+    for direct in REQUIRED_DIRECTIONS:
+        key = str(direct)
+        stages = {name: {'optimization': block['optimization'][key]}
+                  for name, block in package['regions'].items()}
+        failures = _stage_failures({'direct': direct, 'regions': stages})
+        failures += [f'{direct}/end15cm transported phase is unverified',
+                     f'{direct}/full geometry reconstruction is unverified']
+        multi['direction_deployment'][key] = {
+            'deployment_ready': False,
+            'quality_gates': {
+                'optimization_usable': len(failures) == 2,
+                'end15cm_phase_verified': False,
+                'full_geometry_verified': False,
+            },
+            'failures': failures,
+        }
     return _native(package)
 
 
@@ -927,26 +1122,43 @@ def main(argv=None):
 
     cli = argparse.ArgumentParser(description='Merge 0/120/240 regional calibration results')
     cli.add_argument('--results', nargs=3, required=True, metavar=('DIRECT0', 'DIRECT120', 'DIRECT240'))
-    cli.add_argument('--base_results', nargs=3,
-                     help='可选旧完整0/120/240结果；results仅包含新end5cm，复用旧full/end15cm')
+    cli.add_argument('--base_results', nargs='+',
+                     help='一个已有参数包，或旧的完整0/120/240结果；results仅包含新end15cm或end5cm')
     cli.add_argument('--output', required=True)
     cli.add_argument('--comparison')
     args = cli.parse_args(argv)
     from main import build_argument_parser
 
     reports = load_calibration_results(args.results)
+    base_package = None
     if args.base_results:
-        reports = merge_end5_results(load_calibration_results(args.base_results), reports)
+        if len(args.base_results) == 1:
+            if Path(args.base_results[0]).resolve() == Path(args.output).resolve():
+                raise ValueError('output不能覆盖base_results参数包；请使用新文件名')
+            base_package = load_sensor_package(args.base_results[0])
+        elif len(args.base_results) == 3:
+            reports = merge_region_results(load_calibration_results(args.base_results), reports)
+        else:
+            cli.error('--base_results需要一个参数包或三个完整results.json')
     try:
         source_commit = subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'], text=True, encoding='utf-8',
         ).strip()
     except (OSError, subprocess.SubprocessError):
         source_commit = None
-    package = build_sensor_package(
-        build_argument_parser(), reports, source_commit=source_commit,
-        generated_at=datetime.now(timezone.utc).isoformat(),
-    )
+    if base_package is None:
+        package = build_sensor_package(
+            build_argument_parser(), reports, source_commit=source_commit,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+    else:
+        if args.comparison:
+            cli.error('参数包作base_results时不能生成comparison；请先完成新的重构验证')
+        package = merge_region_into_package(
+            base_package, reports, base_source=args.base_results[0],
+        )
+        package['provenance']['source_commit'] = source_commit
+        package['provenance']['generated_at'] = datetime.now(timezone.utc).isoformat()
     write_sensor_package(package, args.output)
     if args.comparison:
         Path(args.comparison).write_text(

@@ -134,6 +134,140 @@ def test_partial_end5_results_merge_keeps_upstream_and_source_history():
         merge_end5_results(base, partial)
 
 
+def test_package_base_can_replace_end5_then_end15_without_losing_other_regions():
+    from tools.sensor_parameter_package import merge_region_into_package
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    end5 = [_report(d) for d in (0, 120, 240)]
+    end15 = [_report(d) for d in (0, 120, 240)]
+    for report in end5:
+        report['regions'] = {'end5cm': report['regions']['end5cm']}
+        report['regions']['end5cm']['context']['calibration_objective'] = 'real_points'
+        report['regions']['end5cm']['parameters']['weights'][str(report['direct'])][0] = 9.0
+        report['_source_path'] = f'./end5-{report["direct"]}/results.json'
+    for report in end15:
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+        report['regions']['end15cm']['context']['calibration_objective'] = 'real_points'
+        report['regions']['end15cm']['parameters']['weights'][str(report['direct'])][0] = 8.0
+        report['_source_path'] = f'./end15-{report["direct"]}/results.json'
+
+    first = merge_region_into_package(base, end5, base_source='params/base.json')
+    merged = merge_region_into_package(first, end15, base_source='params/end5.json')
+
+    assert merged['regions']['full'] == base['regions']['full']
+    assert merged['regions']['end5cm'] == first['regions']['end5cm']
+    assert merged['regions']['end5cm']['weights']['0'][0] == 9.0
+    assert merged['regions']['end15cm']['weights']['0'][0] == 8.0
+    assert merged['regions']['end15cm']['calibration_objective'] == 'real_points'
+    assert merged['shared_parameters']['runtime_control_parameters']['end15cm_point_calib'] is True
+    assert merged['shared_parameters']['runtime_control_parameters']['end5cm_point_calib'] is True
+    assert base['regions']['end15cm']['calibration_objective'] == 'geometry'
+    assert len(merged['provenance']['source_results']) == 9
+    assert merged['multi_region']['deployment_ready'] is False
+
+
+def test_package_base_rejects_mixed_or_mismatched_partial_results():
+    from tools.sensor_parameter_package import merge_region_into_package
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    partial = [_report(d) for d in (0, 120, 240)]
+    for report in partial:
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+    partial[1]['regions'] = {'end5cm': _entry('end5cm', 120)}
+    with pytest.raises(ValueError, match='同一区域'):
+        merge_region_into_package(base, partial)
+
+    partial[1]['regions'] = {'end15cm': _entry('end15cm', 120)}
+    partial[1]['regions']['end15cm']['context']['global_point_ids'] = [1, 2]
+    with pytest.raises(ValueError, match='context|点位'):
+        merge_region_into_package(base, partial)
+
+
+def test_package_base_rejects_changed_scoring_configuration():
+    from tools.sensor_parameter_package import merge_region_into_package
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    partial = [_report(d) for d in (0, 120, 240)]
+    for report in partial:
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+        report['regions']['end15cm']['context']['sharpness'] = 999
+    with pytest.raises(ValueError, match='context|评分'):
+        merge_region_into_package(base, partial)
+
+
+@pytest.mark.parametrize('field,wrong', [
+    ('crop_origin_m', .123),
+    ('sample_dist_m', [.1, .2]),
+    ('reconstruction_length_m', .99),
+    ('ideal_len', .99),
+    ('straight_trim', -.99),
+    ('optimization_region', 'end5cm'),
+])
+def test_package_base_rejects_shared_geometry_mismatch(field, wrong):
+    from tools.sensor_parameter_package import merge_region_into_package
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    partial = [_report(d) for d in (0, 120, 240)]
+    for report in partial:
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+        report['regions']['end15cm']['context'][field] = wrong
+    with pytest.raises(ValueError, match='context|几何'):
+        merge_region_into_package(base, partial)
+
+
+def test_new_package_requires_complete_calibration_geometry():
+    reports = [_report(d) for d in (0, 120, 240)]
+    for report in reports:
+        report['regions']['end15cm']['context'].pop('crop_origin_m')
+    with pytest.raises(ValueError, match='context'):
+        build_sensor_package(_parser(), reports)
+
+
+def test_export_cli_accepts_one_package_as_base_results(tmp_path):
+    from tools.sensor_parameter_package import main as export_main
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    base_path = tmp_path / 'base.json'
+    write_sensor_package(base, base_path)
+    paths = []
+    for direct in (0, 120, 240):
+        report = _report(direct)
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+        report['regions']['end15cm']['context']['calibration_objective'] = 'real_points'
+        path = tmp_path / f'end15-{direct}.json'
+        path.write_text(json.dumps(report), encoding='utf-8')
+        paths.append(str(path))
+    output = tmp_path / 'combined.json'
+
+    export_main(['--base_results', str(base_path), '--results', *paths,
+                 '--output', str(output)])
+
+    merged = load_sensor_package(output)
+    assert merged['regions']['end15cm']['calibration_objective'] == 'real_points'
+    assert merged['regions']['end5cm'] == base['regions']['end5cm']
+
+
+def test_export_cli_does_not_overwrite_base_package(tmp_path):
+    from tools.sensor_parameter_package import main as export_main
+
+    base = build_sensor_package(_parser(), [_report(d) for d in (0, 120, 240)])
+    base_path = tmp_path / 'base.json'
+    write_sensor_package(base, base_path)
+    before = base_path.read_bytes()
+    paths = []
+    for direct in (0, 120, 240):
+        report = _report(direct)
+        report['regions'] = {'end15cm': report['regions']['end15cm']}
+        path = tmp_path / f'end15-{direct}.json'
+        path.write_text(json.dumps(report), encoding='utf-8')
+        paths.append(str(path))
+
+    with pytest.raises(ValueError, match='覆盖'):
+        export_main(['--base_results', str(base_path), '--results', *paths,
+                     '--output', str(base_path)])
+    assert base_path.read_bytes() == before
+
+
 def test_export_preserves_fixed_phase_references_and_direction_scope():
     reports = [_report(d) for d in (0, 120, 240)]
     for region in ('end15cm', 'end5cm'):

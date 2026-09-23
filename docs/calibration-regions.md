@@ -371,6 +371,20 @@ python main.py --task optim --sensor_params params/08B5_NeTi_end5NewOptim.json -
 
 已有参数包不会因打开开关而自动变更；需重新运行优化并导出新参数包，才会保存 end15cm 的 `calibration_objective=real_points`。
 
+已有参数包可以作为导出工具的 `--base_results`，再叠加三个方向的同一区域结果。下例以已包含新 end5cm 参数的 08B5 包为底包，仅替换 end15cm；full 和 end5cm 保持原样：
+
+```powershell
+python tools/sensor_parameter_package.py `
+  --base_results params/08B5_NeTi_end5NewOptim.json `
+  --results `
+    calibration_results/08B5_NeTi-20260923T161612+0800-direct0-dd1bff/results.json `
+    calibration_results/08B5_NeTi-20260923T161916+0800-direct120-23743b/results.json `
+    calibration_results/08B5_NeTi-20260923T161921+0800-direct240-d2ba95/results.json `
+  --output params/08B5_NeTi_end15Point_end5NewOptim.json
+```
+
+`--base_results` 也继续接受旧的三份完整 `results.json`。两种底包模式都允许 `--results` 仅包含 end15cm 或仅包含 end5cm，且必须覆盖 0/120/240 三方向；输出包可再次作为下一次的底包。参数包模式不支持 `--comparison`，并要求输出到不同于底包的新文件；每次替换区域后部署验证门禁会重置，需重新验证。
+
 ```bash
 python main.py --task optim --multi_region_calib True --end5cm_point_calib True --weights None --slopes None --direct 0
 ```
