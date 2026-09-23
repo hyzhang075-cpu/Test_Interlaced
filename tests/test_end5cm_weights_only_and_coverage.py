@@ -111,7 +111,7 @@ def test_weights_only_skips_slope_stage_and_preserves_slopes(monkeypatch):
 
     def fake_stage(*, coeff, **kwargs):
         calls.append(coeff)
-        return 0.2, 'converge', 0.3
+        return 0.2, 'converge', 0.3, []
 
     monkeypatch.setattr(optim, '_optim_one_coeff_until_stop', fake_stage)
     monkeypatch.setattr(optim, 'reconstruct_shapes', lambda **kwargs: (None, None))
@@ -142,7 +142,7 @@ def test_weights_only_log_describes_fixed_slopes_without_slope_stage(monkeypatch
     optim.avg_end_err = {'calib': 0.0}
     optim.avg_pitch_err = optim.avg_radius_err = 0.0
     monkeypatch.setattr(optim, '_optim_one_coeff_until_stop',
-                        lambda *, coeff, **kwargs: (0.2, 'converge', 0.3))
+                        lambda *, coeff, **kwargs: (0.2, 'converge', 0.3, []))
     monkeypatch.setattr(optim, 'reconstruct_shapes', lambda **kwargs: (None, None))
     monkeypatch.setattr(optim, '_compute_error', lambda **kwargs: None)
     monkeypatch.setattr(optim, '_print_errors', lambda: None)

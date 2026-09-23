@@ -376,9 +376,9 @@ def build_argument_parser():
     parser.add_argument('--optimization_regions', type=ast.literal_eval, default=['full', 'end15cm', 'end5cm'],
                         help='区域模式下optim/score依次处理的区域列表')
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
-                        default=[2, 3, 5, 2, 3, 3, 2, 2],
+                        default=[3, 4, 8, 3, 2, 2],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')
-    parser.add_argument('--calibration_data_root', type=str, default='0908-06B6',
+    parser.add_argument('--calibration_data_root', type=str, default=str((Path(__file__).resolve()).parents[2] / "形状感知公共文件/支气管镜/传感器测试数据/0917-08B5+镍钛管全身打孔固定全段加末段测试"),
                         help='定标数据根目录；相对路径以main.py所在目录为基准')
     parser.add_argument('--calibration_regions', type=ast.literal_eval, default={
         'full': {
@@ -413,16 +413,17 @@ def build_argument_parser():
     parser.add_argument('--calibration_output_dir', type=str, default='calibration_results',
                         help='批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录')
     # 硬件参数
-    parser.add_argument('--sensor_id', type=str, default="06B6_NeTi_v2_ftube", help='传感器编号')
-    parser.add_argument('--start_value', type=float, default=7.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
-    parser.add_argument('--end_value', type=float, default=10.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
+    parser.add_argument('--sensor_id', type=str, default='08B5', help='传感器编号')
+    parser.add_argument('--start_value', type=float, default=-11.0, help='传感器第一个传感点到固定件的距离, 单位为mm')
+    parser.add_argument('--end_value', type=float, default=6.0, help='传感器最后一个传感点到末端的距离, 单位为mm')
     # parser.add_argument('--R', type=float, default=0.235e-3, help='传感器半径, 单位为m') #肠镜
     parser.add_argument('--R', type=float, default=0.1e-3, help='传感器半径, 单位为m') # 支气管镜
     parser.add_argument('--ideal_len', type=float, default=None, help='FBG总长自动计算(m)；显式传值必须与几何一致')
     # parser.add_argument('--ideal_len', type=float, default=1.35, help='传感器长度, 单位为m') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 540, 570, 630, 710, 810, 910, 1010, 1110, 1210, 1310, 1410, 1510, 1610, 1710, 1815], help='FBG传感点位置(A组及中心), 单位为mm') #肠镜
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 520, 530, 540, 550, 580, 610, 640, 670, 720, 770, 850, 930, 1010, 1110, 1230], help='FBG传感点位置, 单位为mm')# 16点支气管镜
-    parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
+    # parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809, 860, 911, 962, 1013, 1064, 1115, 1166, 1217, 1268, 1319, 1370], help='FBG传感点位置, 单位为mm')# 22点支气管镜
+    parser.add_argument('--samp_dist_preset', type=ast.literal_eval, default=[510, 521, 533, 543, 577, 611, 645, 696, 746, 797, 847, 899, 950, 1001, 1053, 1104, 1155, 1207, 1257, 1308, 1359, 1410], help='FBG传感点位置, 单位为mm')# 22点支气管镜位置错误版本
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 521, 532, 543, 554, 579, 604, 629, 654, 696, 738, 780, 822, 864, 906, 948, 990, 1032, 1074, 1116, 1158, 1200], help='FBG传感点位置, 单位为mm')# 22点支气管镜，69cm
     parser.add_argument('--samp_dist_preset_sub', type=ast.literal_eval, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
@@ -453,9 +454,9 @@ def build_argument_parser():
     parser.add_argument('--slope_upper_bound', type=float, default=50.0, help='扭转系数大小上限')
     parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
 
-    parser.add_argument('--max_iter', type=int, default=10, help='优化的最大轮次')
+    parser.add_argument('--max_iter', type=int, default=20, help='优化的最大轮次')
     parser.add_argument('--k_point', type=float, default=1.0, help='优化目标中末端误差的权重')
-    parser.add_argument('--k_end', type=float, default=0.3, help='优化目标中末端误差的权重')
+    parser.add_argument('--k_end', type=float, default=0.5, help='优化目标中末端误差的权重')
     parser.add_argument('--k_pitch', type=float, default=1.0, help='优化目标中螺距误差的权重')
     parser.add_argument('--k_radius', type=float, default=1.0, help='优化目标中半径误差的权重')
     parser.add_argument('--method', type=str, default="Powell", help='优化算法, 用于输入scipy.optimize.minimimze')
@@ -478,7 +479,7 @@ def build_argument_parser():
     parser.add_argument('--unwrap_threshold', type=float, default=0.65, help='若两帧同一点角度变化小于该阈值，则统一unwrap方向')
     parser.add_argument('--align_threshold', type=float, default=0.20, help='若某帧第一点角度变化小于该阈值，则将第一点角度与上一帧对齐')
     parser.add_argument('--direction_blend_enabled', action='store_true', help='动态展示中启用0/120/240度参数半余弦软过渡；应在rot_ang确定后再打开')
-    parser.add_argument('--direction_reference_direct', type=int, default=0, choices=[0, 120, 240], help='动态第一遍方向估计及关闭软过渡时使用的最高精度参数方向')
+    parser.add_argument('--direction_reference_direct', type=int, default=240, choices=[0, 120, 240], help='动态第一遍方向估计及关闭软过渡时使用的最高精度参数方向')
     parser.add_argument('--direction_min_curvature', type=float, default=0.5, help='动态方向估计的有效弯曲点最小曲率，低于该值时冻结上一帧方向质量')
     parser.add_argument('--direction_min_consecutive', type=int, default=3, help='动态方向估计中近端稳定弯曲区要求的最少连续点数')
     parser.add_argument('--direction_consistency_threshold', type=float, default=0.6, help='曲率加权圆周平均的最小方向一致性，低于该值时冻结上一帧方向质量')

@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import warnings
 
 import numpy as np
 import pytest
@@ -95,13 +96,46 @@ def test_invalid_full_partition_is_not_silently_repaired(segments):
 
 
 @pytest.mark.parametrize('overrides', [
-    dict(start_value=-1), dict(end_value=float('nan')),
+    dict(start_value=float('nan')), dict(end_value=-1), dict(end_value=float('nan')),
     dict(samp_dist_preset=[510, 510, 520]),
     dict(samp_dist_preset=[510, 500]),
 ])
 def test_invalid_geometry_fails_before_data_read(overrides):
     with pytest.raises(ValueError):
         resolve(**overrides)
+
+
+def test_negative_start_is_allowed_and_points_before_zero_are_removed_from_full_region():
+    profiles = {
+        'full': dict(length_m=None, folder_path='body', radii={'circ': [0, 200]},
+                     thresholds=[1], segmentation=[2, 2]),
+    }
+    with pytest.warns(RuntimeWarning, match='首段仅剩 1 个点.*重新分段'):
+        result = resolve(
+            start_value=-5, end_value=5,
+            samp_dist_preset=[100, 110, 120, 130],
+            full_segmentation=[2, 2], profiles=profiles,
+        )
+    assert result['ideal_len'] == pytest.approx(.030)
+    assert result['global_point_ids'] == [2, 3, 4]
+    assert result['segmentation'] == [1, 2]
+    assert result['global_sample_dist_m'] == pytest.approx([.005, .015, .025])
+    assert result['sample_dist_m'] == pytest.approx([.005, .015, .025])
+
+
+def test_negative_start_does_not_warn_when_trimmed_first_segment_still_has_two_points():
+    profiles = {
+        'full': dict(length_m=None, folder_path='body', radii={'circ': [0, 200]},
+                     thresholds=[1], segmentation=[3, 2]),
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        result = resolve(
+            start_value=-5, end_value=5,
+            samp_dist_preset=[100, 110, 120, 130, 140],
+            full_segmentation=[3, 2], profiles=profiles,
+        )
+    assert result['segmentation'] == [2, 2]
 
 
 def test_exact_crop_boundary_keeps_real_point_and_full_segment():
@@ -135,7 +169,7 @@ def test_parameter_shape_rejects_old_local_slopes_for_full_calibration():
 
 
 @pytest.mark.parametrize('region,enabled,count,segments,last_radius', [
-    ('full', False, 22, FULL_SEGMENTS, 200),
+    ('full', False, 21, [2, 4, 8, 3, 2, 2], 200),
     ('end15cm', True, 7, [3, 2, 2], 30),
     ('end5cm', True, 4, [2, 2], 15),
 ])
@@ -156,7 +190,7 @@ def test_main_region_selection_reaches_optimizer(monkeypatch, region, enabled, c
                                     '--optimization_region', region])
     with pytest.raises(ConfigReached):
         main.main()
-    assert received['ideal_len'] == pytest.approx(.877)
+    assert received['ideal_len'] == pytest.approx(.895)
     assert received['segmentation'] == segments
     assert sum(received['segmentation']) == count
     assert received['radii']['circ'][-1] == last_radius
@@ -170,7 +204,7 @@ def test_main_geometry_overrides_recompute_length_before_optimizer(monkeypatch):
     class ConfigReached(Exception):
         pass
     def capture(**kwargs):
-        assert kwargs['ideal_len'] == pytest.approx(.890)
+        assert kwargs['ideal_len'] == pytest.approx(.930)
         assert kwargs['straight_trim'] == 0.0
         raise ConfigReached
     monkeypatch.setattr(main, 'Optimiser', capture)
@@ -189,8 +223,9 @@ def test_main_rejects_cross_boundary_segments_before_optimizer(monkeypatch):
                                     '--multi_region_calib', 'True',
                                     '--optimization_region', 'end5cm',
                                     '--full_segmentation', '[2,3,5,2,3,2,2,3]'])
-    with pytest.raises(ValueError, match='分段'):
-        main.main()
+    with pytest.warns(RuntimeWarning, match='重新分段'):
+        with pytest.raises(ValueError, match='分段'):
+            main.main()
 
 
 @pytest.mark.parametrize('trim,ids,samples,tip', [
@@ -218,6 +253,38 @@ def test_sensor_exact_boundary_and_reverse_preserve_global_ids():
     sensor.generate_samp_dist(True, 7, 10, -.02, [100, 110, 120, 130], None, False)
     assert sensor.global_point_ids.tolist() == [4, 3]
     assert sensor.samp_dist == pytest.approx([.01, .02])
+
+
+def test_sensor_negative_start_crops_pre_zero_point_before_zero_init():
+    from sensor import Sensor
+    sensor = Sensor.__new__(Sensor)
+    sensor.interrogator = 'FiberTecc'
+    sensor.ideal_len = 100
+    sensor.generate_samp_dist(False, -5, 5, 0.0, [100, 110, 120, 130], None, False)
+    assert sensor.raw_trim_idx == 1
+    assert sensor.global_point_ids.tolist() == [2, 3, 4]
+    assert sensor.samp_dist == pytest.approx([.005, .015, .025])
+    assert sensor.zero_init is True
+    assert sensor.ad_samp_dist == pytest.approx([0, .005, .015, .025, .030])
+
+
+def test_live_packet_indices_are_shifted_by_the_same_pre_zero_crop():
+    import struct
+    from sensor import Sensor
+    sensor = Sensor.__new__(Sensor)
+    sensor.buffer = bytearray(struct.pack('<I', 1) + b'x')
+    sensor._parse_packet = lambda body: [(101, 1.0), (102, 2.0), (104, 4.0)]
+    sensor.active_channels = {1: 0}
+    sensor.raw_trim_idx = 1
+    sensor.total_points = 3
+    sensor.current_snapshot = np.zeros((3, 1))
+    sensor.zero_points = {1: [None] * 3}
+    sensor.is_zero_set = {1: False}
+
+    sensor._process_buffer()
+
+    assert sensor.current_snapshot[:, 0] == pytest.approx([2.0, 0.0, 4.0])
+    assert sensor.zero_points[1] == [2.0, None, 4.0]
 
 
 def test_main_preloaded_lists_support_reconstructor_two_axis_indexing(monkeypatch):
