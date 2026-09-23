@@ -361,7 +361,15 @@ python main.py --task recon --multi_region_calib False --optimization_region end
 
 单区域recon默认将实验方向范围限制为当前 `direct`，不要求其他两个方向参数；显式 `--exp_directs "[0]"` 也可使用。显式指定多个实验方向时，参数校验仍要求该列表内每个方向都有参数，且列表必须包含当前direct。优化任务和多区域recon保留原方向范围。回放需与优化时的区域thresholds、分段、end_weights/end_start及插值设置一致；这只重构局部5cm，不代替完整传感器参数包。
 
-默认 `--end5cm_point_calib False` 保留所有区域原有优化。设置为 `True` 时，仅 end5cm 使用真实点目标，full和end15cm不受影响；批量调度会分别解析每个区域的有效模式。
+默认 `--end15cm_point_calib False` 和 `--end5cm_point_calib False` 保留所有区域原有几何优化。两个开关分别只控制 end15cm、end5cm 的真实点目标，full 始终使用几何目标；批量调度会分别解析每个区域的有效模式。两区域共用下述方向与曲率幅值损失定义，但 `end5cm_independent_weights`、三组权重评分、coverage-aware 权重和 `optim_weights_only` 仍仅支持 end5cm。
+
+单独优化 end15cm 时，例如：
+
+```bash
+python main.py --task optim --sensor_params params/08B5_NeTi_end5NewOptim.json --multi_region_calib False --optimization_region end15cm --end15cm_point_calib True --direct 0
+```
+
+已有参数包不会因打开开关而自动变更；需重新运行优化并导出新参数包，才会保存 end15cm 的 `calibration_objective=real_points`。
 
 ```bash
 python main.py --task optim --multi_region_calib True --end5cm_point_calib True --weights None --slopes None --direct 0

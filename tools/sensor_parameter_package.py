@@ -56,6 +56,7 @@ PARSER_GROUPS = {
     'runtime_control_parameters': (
         'sensor_params',
         'use_full_transported_phase',
+        'end15cm_point_calib',
         'end5cm_point_calib',
         'end5cm_independent_weights',
         'end5cm_independent_weight_score',
@@ -199,7 +200,7 @@ def _region_context(entry, region):
     if any(name not in context for name in required):
         raise ValueError(f'{region} context 不完整')
     objective = context.get('calibration_objective', 'geometry')
-    if objective not in ('geometry', 'real_points') or (objective == 'real_points' and region != 'end5cm'):
+    if objective not in ('geometry', 'real_points') or (objective == 'real_points' and region == 'full'):
         raise ValueError(f'{region} calibration_objective 不合法')
     score_mode = context.get('weight_score_mode', 'spatial_window')
     if score_mode not in ('spatial_window', 'group_mean'):
@@ -464,6 +465,8 @@ def build_sensor_package(parser, reports, *, source_commit=None, generated_at=No
         for group, names in PARSER_GROUPS.items()
     }
     shared['runtime_control_parameters']['use_full_transported_phase'] = bool(reference_directions)
+    shared['runtime_control_parameters']['end15cm_point_calib'] = (
+        region_blocks['end15cm']['calibration_objective'] == 'real_points')
     shared['runtime_control_parameters']['end5cm_point_calib'] = (
         region_blocks['end5cm']['calibration_objective'] == 'real_points')
     shared['runtime_control_parameters']['end5cm_independent_weights'] = (
@@ -696,6 +699,8 @@ def package_parser_defaults(package):
     defaults['global_phases_set'] = package['multi_region']['global_phases_set']
     defaults['rot_ang'] = package['multi_region']['rot_ang']
     # Region metadata is authoritative; missing fields in old packages disable the new objective.
+    defaults['end15cm_point_calib'] = package['regions'].get('end15cm', {}).get(
+        'calibration_objective', 'geometry') == 'real_points'
     defaults['end5cm_point_calib'] = package['regions'].get('end5cm', {}).get(
         'calibration_objective', 'geometry') == 'real_points'
     defaults['end5cm_independent_weights'] = package['regions'].get('end5cm', {}).get('weight_group_ids') is not None

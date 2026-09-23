@@ -136,26 +136,37 @@ def configure_calibration_args(args):
                   samp_dist_preset=preset, full_segmentation=full_segments,
                   profiles=profiles, multi_region_calib=args.multi_region_calib)
     context = resolve_calibration_region(optimization_region=args.optimization_region, **common)
-    point_calib = (getattr(args, 'end5cm_point_calib', False)
-                   and args.optimization_region == 'end5cm')
-    if getattr(args, 'optim_weights_only', False) and not point_calib:
+    end5_point_calib = (getattr(args, 'end5cm_point_calib', False)
+                        and args.optimization_region == 'end5cm')
+    end15_point_calib = (getattr(args, 'end15cm_point_calib', False)
+                         and args.optimization_region == 'end15cm')
+    point_calib = end5_point_calib or end15_point_calib
+    if getattr(args, 'optim_weights_only', False) and not end5_point_calib:
         raise ValueError('optim_weights_only=True 需要 end5cm_point_calib=True')
     context['calibration_objective'] = 'real_points' if point_calib else 'geometry'
     independent = (getattr(args, 'end5cm_independent_weights', False)
                    and args.optimization_region == 'end5cm')
-    groupwise = bool(getattr(args, 'end5cm_independent_weight_score', False))
-    if groupwise and args.optimization_region != 'end5cm' and args.task not in ('recon', 'demo'):
+    if (getattr(args, 'end5cm_independent_weight_score', False)
+            and args.optimization_region != 'end5cm'
+            and args.task not in ('recon', 'demo')
+            and 'end5cm_independent_weight_score' in explicit_cli):
         raise ValueError('end5cm_independent_weight_score 仅允许 optimization_region=end5cm')
+    groupwise = bool(getattr(args, 'end5cm_independent_weight_score', False)
+                     and args.optimization_region == 'end5cm')
     if groupwise and not independent and args.task not in ('recon', 'demo'):
         raise ValueError('end5cm_independent_weight_score 需要 end5cm_independent_weights=True')
-    coverage_aware = bool(getattr(args, 'end5cm_coverage_aware_weights', False))
+    coverage_configured = bool(getattr(args, 'end5cm_coverage_aware_weights', False))
+    if (coverage_configured and args.optimization_region != 'end5cm'
+            and args.task not in ('recon', 'demo')
+            and 'end5cm_coverage_aware_weights' in explicit_cli):
+        raise ValueError('end5cm_coverage_aware_weights 仅允许 optimization_region=end5cm')
+    coverage_aware = coverage_configured and (
+        args.optimization_region == 'end5cm' or args.task in ('recon', 'demo'))
     # Coverage-aware support selection controls which end5cm weights are free
     # during optimisation. Recon/demo consume the already-expanded 30-weight
     # package and therefore must not be constrained by the active runtime region.
     if coverage_aware and args.task not in ('recon', 'demo'):
-        if args.optimization_region != 'end5cm':
-            raise ValueError('end5cm_coverage_aware_weights 仅允许 optimization_region=end5cm')
-        if not point_calib:
+        if not end5_point_calib:
             raise ValueError('end5cm_coverage_aware_weights 需要 end5cm_point_calib=True')
         if not independent:
             raise ValueError('end5cm_coverage_aware_weights 需要 end5cm_independent_weights=True')
@@ -192,10 +203,10 @@ def configure_calibration_args(args):
     args._resolved_weight_group_ids = context['weight_group_ids']
     if point_calib:
         if set(context['radii']) != {'circ'}:
-            raise ValueError('end5cm真实点定标目前仅支持circ圆弧数据')
+            raise ValueError(f'{args.optimization_region}真实点定标目前仅支持circ圆弧数据')
         radii = np.asarray(context['radii']['circ'], dtype=float)
         if not np.all(np.isfinite(radii)) or np.any(radii < 0) or not np.any(radii > 0):
-            raise ValueError('end5cm真实点定标需要有限正半径；0仅表示直线状态')
+            raise ValueError(f'{args.optimization_region}真实点定标需要有限正半径；0仅表示直线状态')
     if args.multi_region_calib:
         # 开启区域模式时，所有已配置长度都必须与同一全长分段相容。
         for region in profiles:
@@ -351,6 +362,8 @@ def build_argument_parser():
                         help='有序传感器参数包 JSON；显式 CLI 参数优先')
     parser.add_argument('--use_full_transported_phase', type=_str2bool, default=False,
                         help='局部优化使用非零弯曲状态的固定上游相位；区域跨界固定使用full第0档slope')
+    parser.add_argument('--end15cm_point_calib', type=_str2bool, default=False,
+                        help='仅end15cm：使用真实点方向一致性优化slopes、已知半径曲率优化weights；默认沿用几何优化')
     parser.add_argument('--end5cm_point_calib', type=_str2bool, default=False,
                         help='仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化')
     parser.add_argument('--end5cm_independent_weights', type=_str2bool, default=False,

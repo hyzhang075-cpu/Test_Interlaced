@@ -15,6 +15,7 @@ from tools.end5_weight_coverage import compute_groupwise_weight_coverage
 
 # 这些参数控制任务/界面/输出，不属于 Optimiser/Sensor 的构造参数。
 CONTROL_KEYS = {
+    'end15cm_point_calib',
     'end5cm_independent_weights', 'end5cm_groupwise_weight_score',
     'end5cm_independent_weight_score', 'optim_weights_only',
     'end5cm_coverage_aware_weights', 'end5cm_min_weight_effective_samples',
@@ -40,12 +41,16 @@ def optimizer_parameters(args):
     parameters = {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
     parameters['end5cm_point_calib'] = bool(
         getattr(args, 'end5cm_point_calib', False) and args.optimization_region == 'end5cm')
+    parameters['real_point_calib'] = bool(
+        (getattr(args, 'end15cm_point_calib', False) and args.optimization_region == 'end15cm')
+        or parameters['end5cm_point_calib'])
     parameters['end5cm_independent_weight_score'] = bool(
         getattr(args, 'end5cm_independent_weight_score', False)
         and args.optimization_region == 'end5cm')
     parameters['optim_weights_only'] = bool(getattr(args, 'optim_weights_only', False))
     parameters['end5cm_coverage_aware_weights'] = bool(
-        getattr(args, 'end5cm_coverage_aware_weights', False))
+        getattr(args, 'end5cm_coverage_aware_weights', False)
+        and (args.optimization_region == 'end5cm' or args.task in ('recon', 'demo')))
     parameters['end5cm_min_weight_effective_samples'] = float(
         getattr(args, 'end5cm_min_weight_effective_samples', 1.0))
     parameters['end5cm_min_weight_max_mass'] = float(
@@ -194,7 +199,9 @@ def collect_calibration_result(optim, stages):
             'global_phases_set': optim.global_phases_set,
             'rot_ang': optim.rot_ang,
             'phase_reference': getattr(optim, 'phase_reference', None),
-            'calibration_objective': ('real_points' if getattr(optim, 'end5cm_point_calib', False)
+            'calibration_objective': ('real_points' if (
+                getattr(optim, 'real_point_calib', False)
+                or getattr(optim, 'end5cm_point_calib', False))
                                       else 'geometry'),
             'weight_group_ids': getattr(optim, 'weight_group_ids', None),
             'weight_score_mode': calibration_context.get(
