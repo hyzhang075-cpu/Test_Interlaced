@@ -399,7 +399,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertTrue(reply["ok"])
         self.assertEqual(reply["cmd"], "anchor_configure")
         self.assertTrue(reply["state"]["enabled"])
-        self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.07)
+        self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.08)
         self.assertFalse(reply["state"]["anchor_initialized"])
         self.assertFalse(reply["state"]["anchor_frame_initialized"])
         self.assertIsNone(reply["state"]["anchor_m"])
@@ -407,7 +407,7 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(reply["state"]["last_relative_insert_mm"], 0.0)
         self.assertAlmostEqual(reply["state"]["insert_value_mm"], 110.0)
 
-    def test_udp_anchor_configure_rejects_offset_shorter_than_sensor_tip_gap(self):
+    def test_udp_anchor_configure_accepts_offset_from_reconstructed_tip(self):
         harness = SimpleNamespace(
             entrance_anchor_constraint=EntranceAnchorConstraint(
                 enabled=False,
@@ -423,10 +423,10 @@ class DemonstratorAnchorPipelineTests(unittest.TestCase):
             b'"data":{"enabled":true,"entrance_offset_m":0.009,"reset":true}}',
         )
 
-        self.assertFalse(reply["ok"])
-        self.assertIn("0.01", reply["error"])
-        self.assertFalse(harness.entrance_anchor_constraint.enabled)
-        self.assertAlmostEqual(harness.entrance_anchor_constraint.entrance_offset_m, 0.06)
+        self.assertTrue(reply["ok"])
+        self.assertTrue(harness.entrance_anchor_constraint.enabled)
+        self.assertAlmostEqual(reply["state"]["entrance_offset_m"], 0.009)
+        self.assertAlmostEqual(harness.entrance_anchor_constraint.entrance_offset_m, 0.009)
 
     def test_udp_anchor_reset_keeps_configuration_and_clears_session(self):
         constraint = EntranceAnchorConstraint(enabled=True, entrance_offset_m=0.06)

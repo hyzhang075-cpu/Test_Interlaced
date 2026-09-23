@@ -5,7 +5,7 @@
 - Demonstrator 监听：`0.0.0.0:8888/UDP`。
 - 报文编码：UTF-8 JSON，每个 UDP datagram 对应一条完整命令。
 - 距离单位：`entrance_offset_m` 为 m；`insert_dis` 为 mm。
-- UDP 中的 `entrance_offset_m` 表示“导管物理末端到入口”的距离。传感器位于导管末端后方 0.01 m，因此算法实际使用 `effective_offset_m = entrance_offset_m - 0.01`。
+- UDP 中的 `entrance_offset_m` 表示从导管物理末端沿重构曲线向回量到入口的距离。重构曲线的虚拟末端已包含 `end_value`，与导管物理末端对齐，因此算法直接使用该距离，不再减去 `end_value` 或额外的末端后缩量。
 - 控制命令是单向输入。Demonstrator 不向命令来源回发任何 ACK/NACK UDP 报文，避免控制消息混入外部软件接收的 `sendObj` 数据流。
 - 命令执行成功、失败及 `anchor_status` 状态只打印在 Demonstrator 本机命令行。
 
@@ -13,7 +13,7 @@
 
 ## 2. 启动 Demonstrator
 
-默认入口距离为 0.06 m。可在启动时分别启用平移和旋转锚定：
+默认入口距离为 0.06 m（从重构曲线虚拟末端向回量 60 mm）。可在启动时分别启用平移和旋转锚定：
 
 ```powershell
 python main.py --task demo --anchor_translation_enabled --anchor_rotation_enabled --anchor_offset_m 0.06
@@ -47,17 +47,17 @@ python main.py --task demo --anchor_translation_enabled --anchor_rotation_enable
 ```python
 demo.configure_anchor_constraint(
     enabled=True,
-    entrance_offset_m=0.06,
+    entrance_offset_m=0.07,
     reset=True,
 )
 ```
 
-上例中外部发送 0.07 m，扣除传感器到导管末端的 0.01 m 后，锚定算法实际使用 0.06 m。进程内接口接收的是已补偿的有效距离，不会再次减去 0.01 m。
+上例中外部发送 0.07 m，锚定算法与进程内接口均直接使用 0.07 m，从已对齐物理导管末端的重构曲线虚拟点向回量取。
 
 约束：
 
 - `enabled` 必须是 JSON boolean，不能传字符串 `"true"`/`"false"`。
-- `entrance_offset_m` 必须是有限数且不小于 0.01 m，单位 m；小于 0.01 m 的命令会被拒绝，原锚定状态保持不变。
+- `entrance_offset_m` 必须是有限的非负数，单位 m；负数会被拒绝，原锚定状态保持不变。
 - `reset` 必须是 JSON boolean；省略时默认为 `true`。
 - 修改 `entrance_offset_m` 时推荐始终使用 `reset=true`。
 
@@ -149,7 +149,7 @@ command = {
     "request_id": "cfg-0001",
     "data": {
         "enabled": True,
-        "entrance_offset_m": 0.07,  # 算法实际使用 0.06 m
+        "entrance_offset_m": 0.07,  # 从重构曲线虚拟末端向回量 70 mm
         "reset": True,
     },
 }
