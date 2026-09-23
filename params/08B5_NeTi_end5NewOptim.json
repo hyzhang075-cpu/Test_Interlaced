@@ -132,7 +132,7 @@
       "maxsize": 10,
       "data_freq": 100,
       "use_stored_zero": true,
-      "zero_reference_path": "./params/06B6_NeTi_v2_ftube_zero_reference.json",
+      "zero_reference_path": "./params/08B5_NeTi_zero_reference.json",
       "wavelength_jump_threshold_pm": 300.0,
       "total_scale": 1.0,
       "imu": false,
