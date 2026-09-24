@@ -38,7 +38,8 @@ PARSER_GROUPS = {
     ),
     'dynamic_display_parameters': (
         'IP', 'PORT', 'maxsize', 'data_freq', 'use_stored_zero',
-        'zero_reference_path', 'wavelength_jump_threshold_pm', 'total_scale', 'imu', 'imu_com', 'imu_maxlen',
+        'zero_reference_path', 'wavelength_jump_guard_enabled', 'wavelength_jump_threshold_pm',
+        'total_scale', 'imu', 'imu_com', 'imu_maxlen',
         'demo_recorder', 'unwrap_threshold', 'align_threshold',
         'direction_blend_enabled', 'direction_reference_direct',
         'direction_min_curvature', 'direction_min_consecutive',
@@ -917,7 +918,8 @@ def package_parser_defaults(package):
     defaults['sensing_ranges'] = _direction_keyed(defaults.get('sensing_ranges'))
     # Packages created before the continuity guard remain valid and use the
     # parser's safe default when this optional field is absent.
-    defaults.setdefault('wavelength_jump_threshold_pm', 800.0)
+    defaults.setdefault('wavelength_jump_guard_enabled', True)
+    defaults.setdefault('wavelength_jump_threshold_pm', 12000.0)
 
     profiles = {}
     for region, block in package['regions'].items():

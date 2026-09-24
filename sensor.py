@@ -24,7 +24,7 @@ from calibration_regions import compute_fbg_geometry
 class WavelengthContinuityGuard:
     """Reject isolated large FiberTecc wavelength jumps independently per FBG."""
 
-    def __init__(self, threshold_nm=0.8):
+    def __init__(self, threshold_nm=12.0):
         threshold_nm = float(threshold_nm)
         if not np.isfinite(threshold_nm) or threshold_nm < 0.0:
             raise ValueError("threshold_nm must be a finite nonnegative number")
@@ -88,7 +88,7 @@ class Sensor:
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
                 use_stored_zero=False, zero_reference_path=None,
-                wavelength_jump_threshold_pm=800.0):
+                wavelength_jump_threshold_pm=12000.0, wavelength_jump_guard_enabled=True):
         
         # 实验参数
         self.exp_directs = exp_directs
@@ -147,6 +147,7 @@ class Sensor:
         self._configure_zero_reference(use_stored_zero, zero_reference_path)
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
+        self.wavelength_jump_guard_enabled = bool(wavelength_jump_guard_enabled)
         self.wavelength_jump_threshold_pm = float(wavelength_jump_threshold_pm)
         self._wavelength_guard = WavelengthContinuityGuard(
             threshold_nm=self.wavelength_jump_threshold_pm / 1000.0
@@ -1514,13 +1515,16 @@ class Sensor:
                     # 找到对应的列
                     col = self.active_channels[phy_ch]
                     
-                    # 逐 FBG 连续性检查必须发生在绝对波长写入快照之前。
-                    safe_wavelength = self._wavelength_guard.filter(
-                        sensor_id=sensor_id,
-                        wavelength=wavelength,
-                    )
-                    if safe_wavelength is None:
-                        continue
+                    if self.wavelength_jump_guard_enabled:
+                        # 逐 FBG 连续性检查必须发生在绝对波长写入快照之前。
+                        safe_wavelength = self._wavelength_guard.filter(
+                            sensor_id=sensor_id,
+                            wavelength=wavelength,
+                        )
+                        if safe_wavelength is None:
+                            continue
+                    else:
+                        safe_wavelength = wavelength
                     self.current_snapshot[effective_idx, col] = safe_wavelength
                     
                     # 4. 归零基准设置 (首次收到有效数据时)

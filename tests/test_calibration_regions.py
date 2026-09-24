@@ -270,7 +270,7 @@ def test_sensor_negative_start_crops_pre_zero_point_before_zero_init():
 
 def test_live_packet_indices_are_shifted_by_the_same_pre_zero_crop():
     import struct
-    from sensor import Sensor
+    from sensor import Sensor, WavelengthContinuityGuard
     sensor = Sensor.__new__(Sensor)
     sensor.buffer = bytearray(struct.pack('<I', 1) + b'x')
     sensor._parse_packet = lambda body: [(101, 1.0), (102, 2.0), (104, 4.0)]
@@ -280,6 +280,8 @@ def test_live_packet_indices_are_shifted_by_the_same_pre_zero_crop():
     sensor.current_snapshot = np.zeros((3, 1))
     sensor.zero_points = {1: [None] * 3}
     sensor.is_zero_set = {1: False}
+    sensor.wavelength_jump_guard_enabled = True
+    sensor._wavelength_guard = WavelengthContinuityGuard()
 
     sensor._process_buffer()
 

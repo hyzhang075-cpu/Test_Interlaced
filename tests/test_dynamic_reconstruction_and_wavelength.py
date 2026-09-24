@@ -62,11 +62,13 @@ def test_process_buffer_writes_only_guarded_absolute_wavelengths():
     sensor = Sensor.__new__(Sensor)
     sensor.buffer = packet((1001, 1550.0), (2001, 1560.0))
     sensor.active_channels = {1: 0, 2: 1}
+    sensor.raw_trim_idx = 0
     sensor.total_points = 1
     sensor.current_snapshot = np.zeros((1, 2))
     sensor.zero_points = {1: [None], 2: [None]}
     sensor.is_zero_set = {1: False, 2: False}
     sensor._wavelength_guard = WavelengthContinuityGuard(threshold_nm=0.3)
+    sensor.wavelength_jump_guard_enabled = True
     sensor._process_buffer()
     np.testing.assert_allclose(sensor.current_snapshot, [[1550.0, 1560.0]])
 
@@ -86,8 +88,14 @@ def test_wavelength_jump_threshold_is_a_parser_and_package_compatible_parameter(
     args = main.parse_main_args([
         "--task", "demo",
         "--wavelength_jump_threshold_pm", "450",
+        "--wavelength_jump_guard_enabled", "false",
     ])
     assert args.wavelength_jump_threshold_pm == pytest.approx(450.0)
+    assert args.wavelength_jump_guard_enabled is False
+
+    default_args = main.parse_main_args(["--task", "demo"])
+    assert default_args.wavelength_jump_threshold_pm == pytest.approx(12000.0)
+    assert default_args.wavelength_jump_guard_enabled is True
 
     package = {
         "shared_parameters": {
@@ -104,17 +112,47 @@ def test_wavelength_jump_threshold_is_a_parser_and_package_compatible_parameter(
         "regions": {},
     }
     defaults = package_parser_defaults(package)
-    assert defaults["wavelength_jump_threshold_pm"] == pytest.approx(800.0)
+    assert defaults["wavelength_jump_threshold_pm"] == pytest.approx(12000.0)
+    assert defaults["wavelength_jump_guard_enabled"] is True
 
 
-def test_wavelength_guard_default_accepts_800_pm_boundary_and_rejects_larger_jump():
+def test_wavelength_guard_default_accepts_12000_pm_boundary_and_rejects_larger_jump():
     from sensor import WavelengthContinuityGuard
 
     guard = WavelengthContinuityGuard()
 
     assert guard.filter(1001, 1550.0) == pytest.approx(1550.0)
-    assert guard.filter(1001, 1550.8) == pytest.approx(1550.8)
-    assert guard.filter(1001, 1551.61) == pytest.approx(1550.8)
+    assert guard.filter(1001, 1562.0) == pytest.approx(1562.0)
+    assert guard.filter(1001, 1574.01) == pytest.approx(1562.0)
+
+
+def test_sensor_can_disable_wavelength_guard_and_pass_large_jump_unchanged(capsys):
+    from sensor import Sensor
+
+    def packet(sensor_id, wavelength):
+        body = bytearray(struct.pack("<H", 1))
+        block = bytearray(20)
+        struct.pack_into("<H", block, 2, sensor_id)
+        struct.pack_into("<f", block, 16, wavelength)
+        body.extend(block)
+        return bytearray(struct.pack("<I", len(body)) + body)
+
+    sensor = Sensor.__new__(Sensor)
+    sensor.buffer = packet(1001, 1550.0)
+    sensor.active_channels = {1: 0}
+    sensor.raw_trim_idx = 0
+    sensor.total_points = 1
+    sensor.current_snapshot = np.zeros((1, 1))
+    sensor.zero_points = {1: [1550.0]}
+    sensor.is_zero_set = {1: True}
+    sensor.wavelength_jump_guard_enabled = False
+    sensor._process_buffer()
+
+    sensor.buffer = packet(1001, 1565.0)
+    sensor._process_buffer()
+
+    np.testing.assert_allclose(sensor.current_snapshot, [[1565.0]])
+    assert "波长跳变提醒" not in capsys.readouterr().out
 
 
 def test_dynamic_kalman_filters_local_curvature_vector_components():
