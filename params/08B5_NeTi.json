@@ -133,6 +133,7 @@
       "data_freq": 100,
       "use_stored_zero": true,
       "zero_reference_path": "./params/08B5_NeTi_zero_reference.json",
+      "wavelength_jump_threshold_pm": 800.0,
       "total_scale": 1.0,
       "imu": false,
       "imu_com": "COM6",

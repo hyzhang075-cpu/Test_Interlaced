@@ -917,7 +917,7 @@ def package_parser_defaults(package):
     defaults['sensing_ranges'] = _direction_keyed(defaults.get('sensing_ranges'))
     # Packages created before the continuity guard remain valid and use the
     # parser's safe default when this optional field is absent.
-    defaults.setdefault('wavelength_jump_threshold_pm', 300.0)
+    defaults.setdefault('wavelength_jump_threshold_pm', 800.0)
 
     profiles = {}
     for region, block in package['regions'].items():

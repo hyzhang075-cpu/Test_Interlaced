@@ -104,7 +104,17 @@ def test_wavelength_jump_threshold_is_a_parser_and_package_compatible_parameter(
         "regions": {},
     }
     defaults = package_parser_defaults(package)
-    assert defaults["wavelength_jump_threshold_pm"] == pytest.approx(300.0)
+    assert defaults["wavelength_jump_threshold_pm"] == pytest.approx(800.0)
+
+
+def test_wavelength_guard_default_accepts_800_pm_boundary_and_rejects_larger_jump():
+    from sensor import WavelengthContinuityGuard
+
+    guard = WavelengthContinuityGuard()
+
+    assert guard.filter(1001, 1550.0) == pytest.approx(1550.0)
+    assert guard.filter(1001, 1550.8) == pytest.approx(1550.8)
+    assert guard.filter(1001, 1551.61) == pytest.approx(1550.8)
 
 
 def test_dynamic_kalman_filters_local_curvature_vector_components():

@@ -24,7 +24,7 @@ from calibration_regions import compute_fbg_geometry
 class WavelengthContinuityGuard:
     """Reject isolated large FiberTecc wavelength jumps independently per FBG."""
 
-    def __init__(self, threshold_nm=0.3):
+    def __init__(self, threshold_nm=0.8):
         threshold_nm = float(threshold_nm)
         if not np.isfinite(threshold_nm) or threshold_nm < 0.0:
             raise ValueError("threshold_nm must be a finite nonnegative number")
@@ -46,7 +46,8 @@ class WavelengthContinuityGuard:
         candidate = self._candidate.get(sensor_id)
         if candidate is None:
             change = abs(value - previous)
-            if change <= self.threshold_nm:
+            if change <= self.threshold_nm or np.isclose(
+                    change, self.threshold_nm, rtol=0.0, atol=1e-12):
                 self._last_valid[sensor_id] = value
                 return value
             self._candidate[sensor_id] = value
@@ -57,8 +58,12 @@ class WavelengthContinuityGuard:
             )
             return previous
 
-        near_previous = abs(value - previous) <= self.threshold_nm
-        near_candidate = abs(value - candidate) <= self.threshold_nm
+        previous_change = abs(value - previous)
+        candidate_change = abs(value - candidate)
+        near_previous = previous_change <= self.threshold_nm or np.isclose(
+            previous_change, self.threshold_nm, rtol=0.0, atol=1e-12)
+        near_candidate = candidate_change <= self.threshold_nm or np.isclose(
+            candidate_change, self.threshold_nm, rtol=0.0, atol=1e-12)
         if near_previous:
             self._candidate.pop(sensor_id, None)
             self._last_valid[sensor_id] = value
@@ -83,7 +88,7 @@ class Sensor:
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
                 use_stored_zero=False, zero_reference_path=None,
-                wavelength_jump_threshold_pm=300.0):
+                wavelength_jump_threshold_pm=800.0):
         
         # 实验参数
         self.exp_directs = exp_directs
