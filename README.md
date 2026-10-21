@@ -369,6 +369,10 @@ python main.py --task demo `
 
 在项目根目录执行工具，例如 `python tools/sensor_parameter_package.py --help`，也可用 `python -m tools.sensor_parameter_package --help`。`main.py` 的任务命令和 `params` 文件路径保持原用法。
 
+静态定标原始数据与理论曲线可用 `python tools/generate_calibration_reference.py` 导出。
+工具支持旧版平铺目录和新数据的多角度目录、circ 与 end 分段圆弧，保留 `raw_data`、`ideal_coordinates_m` 字段。
+运行参数、分段与坐标约定、JSON 字段见 [静态定标导出说明](docs/calibration-reference-export.md)。
+
 ### 区域独立末端权重
 
 `calibration_regions` 中的 `end_weights/end_start` 决定各区域是否另算末端权重。当前parser区域默认值为：full、end15cm关闭；end5cm开启，`end_start=-1`，只补偿全局第22个真实点。虚拟末点随后复制第22点补偿后的曲率。

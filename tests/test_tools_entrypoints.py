@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-@pytest.mark.parametrize('name', ['sensor_parameter_package', 'calibration_validation', 'build_zero_reference'])
+@pytest.mark.parametrize('name', ['sensor_parameter_package', 'calibration_validation', 'build_zero_reference', 'generate_calibration_reference'])
 @pytest.mark.parametrize('mode', ['script', 'module'])
 def test_tools_help_entrypoints(name, mode):
     target = [str(ROOT / 'tools' / f'{name}.py')] if mode == 'script' else ['-m', f'tools.{name}']
