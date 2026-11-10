@@ -466,3 +466,8 @@ python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_regi
 | v10.1 | 2026-07-30 | 曹丹倩 | 修正初始化时global phase角度平均在边界处出错的问题 | 无 |
 | v10.2 | 2026-08-07 | 邱国翀 | 加了动态kalman滤波 | 无 |
 | v10.5 | 2026-08-22 | 曹丹倩 | 增加向量插值算法，动态0状态匹配，修改数据传输内容，TNN endpose修改，增加pickle保存内容 | 无 |
+
+
+## 算法模块与 YAML 配置
+
+八模块封装、完整传感器配置模板、运行快照、显式续算和新旧 JSON 参数包说明见[算法封装指南](docs/algorithm-packaging.md)。新工作配置入口示例：`python main.py --config configs/my-sensor.yaml --task init`。新发布包由 `tools/export_algorithm_package.py --runs <run目录> --output <文件>` 从已保存运行快照生成。

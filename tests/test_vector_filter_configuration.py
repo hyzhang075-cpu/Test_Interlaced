@@ -24,13 +24,14 @@ def _load_main_argument_helpers():
     return namespace
 
 
-def test_main_vector_filter_defaults_off_and_accepts_explicit_true():
+def test_main_vector_filter_defaults_true_and_accepts_explicit_values():
     helpers = _load_main_argument_helpers()
     parser = argparse.ArgumentParser()
     helpers['add_vector_filter_arguments'](parser)
 
-    assert parser.parse_args([]).move_filter_for_vector is False
+    assert parser.parse_args([]).move_filter_for_vector is True
     assert parser.parse_args(['--move_filter_for_vector', 'True']).move_filter_for_vector is True
+    assert parser.parse_args(['--move_filter_for_vector', 'False']).move_filter_for_vector is False
 
 
 def test_reconstructor_vector_filter_constructor_default_is_off():

@@ -57,3 +57,6 @@ Thumbs.db
 
 # 分区域定标运行结果（每次按传感器和时间创建目录）
 /calibration_results/
+
+# Algorithm package task snapshots
+/runs/

@@ -10,6 +10,8 @@ from pathlib import Path
 
 from calibration_regions import resolve_calibration_region, validate_calibration_parameters
 from calibration_batch import optimizer_parameters, prepare_calibration_jobs, run_calibration_jobs
+from shape_sensing.configuration import load_working_config
+from shape_sensing.artifacts.packages import load_algorithm_package
 from tools.sensor_parameter_package import (
     load_sensor_package, package_deployment_ready, package_parser_defaults,
 )
@@ -34,7 +36,7 @@ def configure_calibration_args(args):
     if args.task == 'recon' and not args.multi_region_calib:
         # A single-region replay reconstructs only args.direct. Keep an explicit
         # experiment scope, but do not require unused parameter directions by default.
-        if 'exp_directs' not in getattr(args, '_explicit_cli_parameters', ()):
+        if 'exp_directs' not in (set(getattr(args, '_explicit_cli_parameters', ())) | set(getattr(args, '_explicit_config_parameters', ()))):
             args.exp_directs = [args.direct]
         if args.direct not in args.exp_directs:
             raise ValueError('recon的direct必须包含在exp_directs中')
@@ -82,10 +84,15 @@ def configure_calibration_args(args):
         selected[key] = selected.get(key, fallback) if override is None else override
         setattr(args, key, selected[key])
     explicit_cli = set(getattr(args, '_explicit_cli_parameters', ()))
-    if selected.get('sharpness') is not None and 'sharpness' not in explicit_cli:
+    explicit_config = set(getattr(args, '_explicit_config_parameters', ()))
+    explicit_any = explicit_cli | explicit_config
+    if selected.get('sharpness') is not None and 'sharpness' not in explicit_any:
         args.sharpness = selected['sharpness']
-    if selected.get('score_window') is not None and 'min_consecutive' not in explicit_cli:
+    if selected.get('score_window') is not None and 'min_consecutive' not in explicit_any:
         args.min_consecutive = selected['score_window']
+    if (getattr(args, '_resume_provenance', None) and 'rot_ang' not in explicit_cli
+            and selected.get('rot_ang') is not None):
+        args.rot_ang = selected['rot_ang']
     root = Path(args.calibration_data_root)
     if not root.is_absolute():
         root = Path(__file__).resolve().parent / root
@@ -108,7 +115,8 @@ def configure_calibration_args(args):
         explicit_seeds = set(getattr(args, '_explicit_seed_parameters', ()))
         has_package_source = getattr(args, '_sensor_package', None) is not None
         has_explicit_source = 'slopes' in explicit_seeds
-        if args.slopes is None or not (has_package_source or has_explicit_source):
+        has_validated_resume_source = 'slopes' in getattr(args, '_resume_seed_parameters', ())
+        if args.slopes is None or not (has_package_source or has_explicit_source or has_validated_resume_source):
             raise ValueError('optim_weights_only=True 必须通过 --sensor_params 或显式 --slopes 提供slopes')
     if args.global_phases_set is None and selected.get('global_phases_set') is not None:
         args.global_phases_set = selected['global_phases_set']
@@ -297,7 +305,7 @@ def add_vector_filter_arguments(parser):
         '--move_filter_for_vector',
         type=_str2bool,
         default=True,
-        help='向量曲率插值前是否启用空间方向窗口滤波；默认False，直接插值原始kx/ky',
+        help='向量曲率插值前是否启用空间方向窗口滤波；默认True，关闭时直接插值原始kx/ky',
     )
     return parser
 
@@ -441,7 +449,7 @@ def build_argument_parser():
     parser.add_argument('--samp_dist_preset_sub', type=ast.literal_eval, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
     parser.add_argument('--interlaced_grating', type=bool, default=False, help='栅区是否交错排列')
-    parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为度')
+    parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为rad')
     # parser.add_argument('--global_phases_set', type=float, default=-0.20541970186130923, help='全局相位，初始值为None') #全段相位
     parser.add_argument('--global_phases_set', type=float, default=None, help='全局相位，初始值为None')
     # 标定实验参数
@@ -679,6 +687,8 @@ def build_argument_parser():
     #                                                                       240: np.array([[-18.0572074057512, -6.6741979652677, 6.697489332747131, -8.105492053853402, 9.881245949675385, 20.137585912085754, 1.5883976506143516], [-20.31076374178319, -6.431819420808289, 5.196088017613206, -6.029167172933978, 14.974302991598677, -32.74077406738238, -65.81663862047878], [-17.371263267744933, -6.400716310795336, 6.208875060466032, -6.382086704704831, 6.541009487620292, 15.421693839564846, -36.569877691695396], [-17.21632340199352, -6.679827934760619, 3.4911498453006753, -2.648722506838495, 14.15459310514768, -0.5922025484675825, 65.81663862047878], [-17.647572247352432, -5.84788063221774, 13.399334325162279, -15.538794434737795, 9.759947228432459, -7.801882895774606, -3.203449031587574], [-14.853974197588073, -7.63648717606176, -26.36680139049186, 20.861483031417155, -0.23877939249754931, 17.713238411572426, -4.896348621567681]])}, help='扭转系数')
     
     # 不传入Optimiser的参数
+    parser.add_argument('--config', type=str, default=None, help='YAML工作配置路径；优先级为 parser默认值 < YAML < 显式CLI')
+    parser.add_argument('--resume', type=str, default=None, help='显式指定的续算结果路径')
     parser.add_argument('--task', type=str, required=True, choices=['init', 'ang', 'optim', 'recon', 'demo', 'score'], help='选择运行目的为初始化、旋转角度优化、曲率权重与扭转系数优化、重构、动态展示或评分诊断')
     parser.add_argument('--ang_step', type=float, default=0.1, help='旋转角度搜索步长, 初始为0.1')
     parser.add_argument('--ang_range', type=float, default=1.0, help='旋转角度搜索距离, 初始为180.0')
@@ -701,29 +711,88 @@ def _explicit_cli_destinations(parser, argv):
 
 
 def parse_main_args(argv=None):
-    """Load package defaults before the full parse, preserving CLI precedence."""
+    """解析旧参数包或 YAML 工作配置，优先级为默认值 < 文件 < 显式 CLI。"""
     argv = list(sys.argv[1:] if argv is None else argv)
     bootstrap = argparse.ArgumentParser(add_help=False)
     bootstrap.add_argument('--sensor_params')
     bootstrap.add_argument('--sensor_id')
+    bootstrap.add_argument('--config')
+    bootstrap.add_argument('--task')
+    bootstrap.add_argument('--direct', type=int)
+    bootstrap.add_argument('--optimization_region')
+    bootstrap.add_argument('--multi_region_calib', type=_str2bool, nargs='?', const=True, default=None)
     bootstrap_args, _ = bootstrap.parse_known_args(argv)
+    if bootstrap_args.config and bootstrap_args.sensor_params:
+        raise ValueError('--config 与 --sensor_params 不能同时使用')
 
+    working = load_working_config(bootstrap_args.config) if bootstrap_args.config else None
     parser = build_argument_parser()
     explicit = _explicit_cli_destinations(parser, argv)
+    option_dest = {opt: action.dest for action in parser._actions for opt in action.option_strings}
+    seen = set()
+    for token in argv:
+        opt = token.split('=', 1)[0]
+        dest = option_dest.get(opt)
+        if dest and dest in seen:
+            parser.error(f'参数重复指定: {opt}')
+        if dest: seen.add(dest)
     package = None
+    defaults = {}
     if bootstrap_args.sensor_params:
-        package = load_sensor_package(
-            bootstrap_args.sensor_params,
-            expected_sensor_id=(bootstrap_args.sensor_id if 'sensor_id' in explicit else None),
-        )
-        defaults = package_parser_defaults(package)
-        # A package records the parser default for auditability, but cannot
-        # provide the required action selected for this invocation.
-        defaults.pop('task', None)
+        package = load_algorithm_package(bootstrap_args.sensor_params)
+        if package.get('package_type') == 'shape_sensing_algorithm_package':
+            if 'sensor_id' in explicit and bootstrap_args.sensor_id:
+                if bootstrap_args.sensor_id != package['sensor_id']:
+                    raise ValueError('--sensor_id 与算法参数包 sensor_id 不一致')
+            defaults.update({k:v for k,v in package['configuration'].items()
+                             if k not in ('task','config','resume','schema_version','provenance')})
+            region = bootstrap_args.optimization_region or defaults.get('optimization_region','full')
+            direction=str(bootstrap_args.direct if bootstrap_args.direct is not None else defaults.get('direct',0))
+            multi=bootstrap_args.multi_region_calib if bootstrap_args.multi_region_calib is not None else defaults.get('multi_region_calib',False)
+            if multi:
+                all_regions=package['calibration']
+                missing=[name for name in ('full','end15cm','end5cm') if name not in all_regions]
+                if missing: raise ValueError(f'多区域算法参数包缺少区域: {missing}')
+                directions=package.get('multi_region',{}).get('directions',[])
+                if directions != [0,120,240]: raise ValueError('多区域算法参数包必须包含0/120/240三个方向')
+                def package_direction_value(entry,key,direct):
+                    value=entry[key]
+                    return value.get(str(direct),value.get(direct)) if isinstance(value,dict) else value
+                defaults['weights']={d:package_direction_value(all_regions['full'][str(d)],'weights',d) for d in directions}
+                defaults['slopes']={d:package_direction_value(all_regions['full'][str(d)],'slopes',d) for d in directions}
+                selected=all_regions.get(region,{}).get(direction)
+            else:
+                selected=package['calibration'].get(region,{}).get(direction)
+            if selected is None and bootstrap_args.task == 'init':
+                selected=package.get('initialization',{}).get(region)
+            if selected is None:
+                raise ValueError(f'算法参数包缺少 region={region}/direct={direction} 的可用结果')
+            for key in ('weights','slopes','global_phases_set','rot_ang'):
+                if multi and key in ('weights','slopes'): continue
+                if key in selected: defaults[key]=selected[key]
+        else:
+            package = load_sensor_package(
+                bootstrap_args.sensor_params,
+                expected_sensor_id=(bootstrap_args.sensor_id if 'sensor_id' in explicit else None),
+            )
+            defaults.update(package_parser_defaults(package))
+            defaults.pop('task', None)
+    if working:
+        defaults.update({k: v for k, v in working.items()
+                         if k not in ('task', 'config', 'resume', 'sensor_params', 'schema_version', '_config_path')})
+        for control in ('resume',):
+            if working.get(control) is not None and control not in explicit:
+                defaults[control] = working[control]
+    if defaults:
         parser.set_defaults(**defaults)
-    args = parser.parse_args(argv)
+    parse_argv = list(argv)
+    if working and working.get('task') and 'task' not in explicit:
+        parse_argv = ['--task', str(working['task'])] + parse_argv
+    args = parser.parse_args(parse_argv)
     args._explicit_cli_parameters = sorted(explicit)
+    args._explicit_config_parameters = sorted(k for k in (working or {}) if k not in ('task','config','resume','schema_version','_config_path'))
     args._sensor_package = package
+    args._working_config = working
     if (package is not None and not args.multi_region_calib
             and args.optimization_region != 'full'
             and 'global_phases_set' not in explicit):
@@ -736,87 +805,16 @@ def parse_main_args(argv=None):
 
 
 def main():
-    """解析任务配置，并分派 init、optim、score、recon、ang 或 demo 流程。"""
-    args = parse_main_args()
+    """解析参数并通过 shape_sensing pipeline 分派原有任务。"""
+    from shape_sensing.pipelines import execute_task
+    return execute_task(
+        parse_main_args(), optimiser_factory=Optimiser, visualizer_factory=Visualisor,
+        app_factory=QApplication, configure_args=configure_calibration_args,
+        parameter_builder=optimizer_parameters, prepare_jobs=prepare_calibration_jobs,
+        run_jobs=run_calibration_jobs, compute_error_ang=compute_error_ang,
+        optim_ang=optim_ang, project_root=Path(__file__).resolve().parent, system=sys,
+    )
 
-    # 存储零状态只作用于动态展示；其他任务保持原有静态数据流程。
-    if args.task != 'demo':
-        args.use_stored_zero = False
-
-    # 避免Terminal指令读取错误
-    if args.weights == "None":
-        args.weights = None
-    if args.slopes == "None":
-        args.slopes = None
-
-    if args.task in ('optim', 'score'):
-        jobs = prepare_calibration_jobs(args, configure_calibration_args)
-        output_root = Path(args.calibration_output_dir)
-        if not output_root.is_absolute():
-            output_root = Path(__file__).resolve().parent / output_root
-        return run_calibration_jobs(jobs, Optimiser, output_root=output_root)
-
-    calibration_context = configure_calibration_args(args)
-    
-    # 只传给 Demonstrator 的参数，不传给 Optimiser
-    # demo_param_keys = ['total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold',
-    #                    'body_model_path', 'entry_length_cm', 'max_curvature', 'back_num', 'entry_exclude', 'enable_t_align', 't2_smooth_window', 'clip_pct', 'clip_k', 'still_rms_th', 'still_hold_frames'] # 用于完整样机展示
-    demo_param_keys = [
-        'total_scale', 'imu', 'imu_com', 'imu_maxlen', 'demo_recorder', 'unwrap_threshold', 'align_threshold',
-        'direction_blend_enabled', 'direction_reference_direct', 'direction_min_curvature', 'direction_min_consecutive',
-        'direction_consistency_threshold', 'direction_smooth_alpha',
-        'demo_kalman_enabled', 'demo_kalman_Rk', 'demo_kalman_Bk',
-        'anchor_constraint_enabled', 'anchor_translation_enabled',
-        'anchor_rotation_enabled', 'anchor_offset_m',
-    ]
-
-    params = optimizer_parameters(args)
-
-    demo_params = {k: getattr(args, k) for k in demo_param_keys}
-
-    # 初始化优化器与可视化工具
-    optim = Optimiser(**params)
-    optim.calibration_context = calibration_context
-    print(f"curvature interpolation mode: {optim.curvature_interp}")
-
-
-    if args.task == 'demo':
-        app = QApplication(sys.argv)
-        demo = Demonstrator(recon=optim, **demo_params)
-        demo.show()
-        
-        if demo.imu: 
-            IMU_thread = threading.Thread(target=demo.receive_IMU)
-            IMU_thread.daemon = True
-            IMU_thread.start()
-            print("---------- 开始接收IMU数据 ----------")       
-        else:
-            print("---------- 未启用IMU ----------")
-
-        if optim.interrogator == 'FiberTecc':
-            data_receiver_thread = threading.Thread(target=optim.receive_data_FiberTecc, daemon=True)
-        elif optim.interrogator == 'Hippo':
-            data_receiver_thread = threading.Thread(target=optim.receive_data_Hippo, daemon=True)
-        data_receiver_thread.start()
-        sys.exit(app.exec_())
-
-    else:
-        vis = Visualisor(recon=optim)
-        if args.task == 'init':
-            compute_error_ang(optim=optim, vis=vis, init=True)
-        elif args.task == 'ang':
-            optim_ang(rot_ang=args.rot_ang, ang_step=args.ang_step, ang_range=args.ang_range, optim=optim, vis=vis)
-        elif args.task in ['optim']:
-            optim.optim_coeff(verbose=True)            
-        elif args.task == 'recon':
-            rs = {}
-            for calib_shape in optim.calib_shapes:
-                r_results_postrot, interp_dist = optim.reconstruct_shapes(calib_shape=calib_shape, direct=args.direct, verbose=False)
-                rs[calib_shape] = r_results_postrot
-            optim._compute_error(interp_dist=interp_dist, rs=rs)
-            vis.show_reconstruction(direct=args.direct, rs=rs, interp_dist=interp_dist, showanime=True)
-            optim._print_errors()
-    
 
 if __name__ == '__main__':
     main()

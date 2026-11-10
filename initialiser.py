@@ -18,7 +18,7 @@ class Initialiser(Sensor):
         self.connect = connect
         self.global_phases_set = global_phases_set
         self.interlaced_offset = interlaced_offset
-        if not self.global_phases_set:
+        if self.global_phases_set is None:
             self.global_phases_set = 0.0
             self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
 

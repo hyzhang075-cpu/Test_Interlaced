@@ -22,7 +22,7 @@ CONTROL_KEYS = {
     'end5cm_min_weight_max_mass', 'end5cm_uncovered_weight_policy',
     '_resolved_weight_group_ids',
     'use_full_transported_phase', '_phase_source_jobs',
-    'task', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
+    'task', 'config', 'resume', '_working_config', '_config_path', 'sensor_params', '_sensor_package', '_explicit_cli_parameters',
     'ang_step', 'ang_range', 'multi_region_calib', 'optimization_region',
     'optimization_regions', 'full_segmentation', 'calibration_regions',
     'calibration_data_root', 'calibration_output_dir', '_explicit_seed_parameters',
@@ -38,7 +38,7 @@ CONTROL_KEYS = {
 
 def optimizer_parameters(args):
     """复制可传给 Optimiser 的参数，排除任务调度、界面和输出控制项。"""
-    parameters = {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS}
+    parameters = {key: deepcopy(value) for key, value in vars(args).items() if key not in CONTROL_KEYS and not key.startswith('_')}
     parameters['end5cm_point_calib'] = bool(
         getattr(args, 'end5cm_point_calib', False) and args.optimization_region == 'end5cm')
     parameters['real_point_calib'] = bool(
