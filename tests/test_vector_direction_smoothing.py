@@ -9,7 +9,7 @@ from scipy.ndimage import uniform_filter1d
 
 
 def reconstructor():
-    tree = ast.parse((Path(__file__).parents[1] / 'reconstructor.py').read_text(encoding='utf-8'))
+    tree = ast.parse((Path(__file__).parents[1] / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Reconstructor')
     names = {'_moving_average_scipy', '_smooth_curvature_direction', '_interpolate_curvature_vector'}
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in names]

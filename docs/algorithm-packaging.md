@@ -1,8 +1,8 @@
 # 算法模块封装与工作配置
 
-## 结构与 legacy 映射
+## 独立库结构与兼容入口
 
-新增 `shape_sensing` 包采用渐进适配：输入模块按 `interrogator` 调 `Sensor.read_data_FBG/read_data_OFDR`、在线接收调 `receive_data_FiberTecc/receive_data_Hippo`；初始化调 `Initialiser.rot_seg_fit`；曲率调 `Reconstructor._Strain_2_Cur`；优化调 `Optimiser.optim_coeff`；积分调 `_reconstruct_from_interpolated_curvature`；评估调 `_construct_ideal_shape/_compute_error`；绘图和实时系统延迟构造 `Visualisor/Demonstrator`。数值算法仍留在原类中，`main.py` 保留旧 helper 并将六种任务交给 `shape_sensing.pipelines`。
+`shape_sensing` 已包含八模块的实际函数实现，输入、初始化、曲率、优化、积分、评估、绘图与实时系统分别在对应子包维护。原算法函数按源文本迁移，保留逻辑和注释；根目录旧模块仅反向转发到新库。独立安装、模块归属、纯数组积分和程序化调用见[独立库使用说明](standalone-library.md)。`shape_sensing.cli` 负责参数解析，将任务交给 `shape_sensing.pipelines`。
 
 `LegacyContext` 每次任务持有独立 Optimiser。配置和纯适配模块导入不创建窗口或连设备；`demo` 才会显式创建窗口、启动接收线程，退出时关闭 runtime。
 
@@ -39,4 +39,4 @@ python main.py --sensor_params packages/08B5.json --task recon --optimization_re
 
 兼容说明：`global_phases_set=0` 是合法相位值，只有 `None` 表示缺省并触发拟合；旧代码曾用真假判断把零相位当作未提供，本轮单独修正此行为（不改拟合公式）。`interlaced_offset` 名称沿用旧参数，但单位是 rad；旧 parser help 曾误写“度”，模板和当前说明已更正，默认 `π/3` 不变。
 
-数值实现、标定对象继承链和大多数绘图/设备实现仍位于根目录 legacy 类中，本轮封装没有复制或重写它们。没有运行真实设备或生产数据优化；设备动态链路只具备代码级适配和离线/假对象验证。旧 format_version=2 多区域包继续兼容；完整的新格式包也支持多区域重构。
+数值实现和绘图/设备实现已迁入新库。为保持原初始化与计算行为，部分算法类仍通过无构造器的职责 mixin 组合状态；`LegacyContext` 名称继续兼容已有调用。没有运行真实设备或生产数据优化；设备动态链路已通过离线/假对象验证。旧 format_version=2 多区域包继续兼容；完整的新格式包也支持多区域重构。

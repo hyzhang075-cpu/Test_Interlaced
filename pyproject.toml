@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shape-sensing"
+version = "0.1.0"
+description = "Standalone fiber shape sensing algorithms and tools"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "pandas", "PyYAML"]
+
+[project.optional-dependencies]
+gui = ["matplotlib", "PyQt5", "vtk"]
+runtime = ["pyserial"]
+
+[project.scripts]
+shape-sensing = "shape_sensing.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["shape_sensing*"]
+
+[tool.setuptools.package-data]
+shape_sensing = ["configuration/parameters.json", "resources/*.yaml"]

@@ -10,7 +10,7 @@ import pytest
 @pytest.mark.parametrize('mode', ['vector_pchip', 'vector_linear', 'hermite'])
 @pytest.mark.parametrize('virtual_points', [False, True])
 def test_vector_bypasses_kalman_but_scalar_keeps_it(mode, virtual_points):
-    tree = ast.parse((Path(__file__).parents[1] / 'reconstructor.py').read_text(encoding='utf-8'))
+    tree = ast.parse((Path(__file__).parents[1] / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Reconstructor')
     method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_reconstruct_frame')
     ns = {'np': np}

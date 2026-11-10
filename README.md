@@ -470,4 +470,4 @@ python main.py --task recon --sensor_params params/06B6_NeTi_v2_ftube_multi_regi
 
 ## 算法模块与 YAML 配置
 
-八模块封装、完整传感器配置模板、运行快照、显式续算和新旧 JSON 参数包说明见[算法封装指南](docs/algorithm-packaging.md)。新工作配置入口示例：`python main.py --config configs/my-sensor.yaml --task init`。新发布包由 `tools/export_algorithm_package.py --runs <run目录> --output <文件>` 从已保存运行快照生成。
+八模块的实际算法实现已迁入 `shape_sensing/`，可独立安装和使用，旧入口保留兼容。安装、模块分工及公开调用见[独立算法库说明](docs/standalone-library.md)。完整传感器配置模板、运行快照、显式续算和新旧 JSON 参数包说明见[算法封装指南](docs/algorithm-packaging.md)。新工作配置入口示例：`python main.py --config configs/my-sensor.yaml --task init`。新发布包由 `tools/export_algorithm_package.py --runs <run目录> --output <文件>` 从已保存运行快照生成。

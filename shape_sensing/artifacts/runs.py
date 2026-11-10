@@ -34,7 +34,7 @@ class RunStore:
 
 def _code_provenance():
     """读取 run 创建时的 Git 来源；无 Git/元数据时如实记录 unknown。"""
-    root=Path(__file__).resolve().parents[2]
+    root=Path.cwd()
     def git(*args):
         try: return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL,text=True).strip()
         except Exception: return None

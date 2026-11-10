@@ -86,7 +86,7 @@ def export_package(run_paths,output):
         if not ctx and not cfg.get('calibration_regions'):
             continue
         if not ctx:
-            from calibration_regions import resolve_calibration_region
+            from ..configuration.regions import resolve_calibration_region
             profiles=cfg.get('calibration_regions',{})
             profiles['full']['segmentation']=list(cfg.get('full_segmentation',profiles['full'].get('segmentation',[])))
             ctx=resolve_calibration_region(start_value=cfg['start_value'],end_value=cfg['end_value'],
@@ -141,7 +141,7 @@ def load_algorithm_package(path):
     """校验并读取新包；format_version=2 委托原 loader。"""
     source=Path(path); data=json.loads(source.read_text(encoding='utf-8'))
     if data.get('format_version')==2 and data.get('package_type') is None:
-        from tools.sensor_parameter_package import load_sensor_package
+        from .legacy_package import load_sensor_package
         return load_sensor_package(source)
     if 'format_version' in data and data.get('format_version') != 2:
         raise ValueError(f"不支持的 format_version={data.get('format_version')}")

@@ -60,3 +60,8 @@ Thumbs.db
 
 # Algorithm package task snapshots
 /runs/
+
+# 独立算法库构建产物
+/build/
+/dist/
+/*.egg-info/

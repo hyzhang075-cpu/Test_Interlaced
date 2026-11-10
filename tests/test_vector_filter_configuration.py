@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def _load_main_argument_helpers():
-    tree = ast.parse((ROOT / 'main.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'shape_sensing' / 'cli.py').read_text(encoding='utf-8'))
     wanted = {'_str2bool', 'add_vector_filter_arguments'}
     functions = [
         node for node in tree.body
@@ -35,7 +35,7 @@ def test_main_vector_filter_defaults_true_and_accepts_explicit_values():
 
 
 def test_reconstructor_vector_filter_constructor_default_is_off():
-    tree = ast.parse((ROOT / 'reconstructor.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'Reconstructor')
     init = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '__init__')
     cls.body = [init]
@@ -48,7 +48,7 @@ def test_reconstructor_vector_filter_constructor_default_is_off():
 
 
 def test_reconstructor_preserves_existing_positional_parameter_order():
-    tree = ast.parse((ROOT / 'reconstructor.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'Reconstructor')
     init = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '__init__')
     cls.body = [init]
