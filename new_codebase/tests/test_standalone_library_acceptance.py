@@ -30,10 +30,10 @@ def test_standalone_package_has_no_imports_from_old_repository_modules():
 
 
 def test_numerical_implementations_live_in_their_responsible_modules():
-    from shape_sensing.input_preprocessing.sensor import Sensor
-    from shape_sensing.initialization.fitting import Initialiser
-    from shape_sensing.reconstruction.engine import Reconstructor
-    from shape_sensing.optimization.engine import Optimiser
+    from shape_sensing.input_preprocessing.compat import Sensor
+    from shape_sensing.initialization.compat import Initialiser
+    from shape_sensing.reconstruction.compat import Reconstructor
+    from shape_sensing.optimization.compat import Optimiser
     from shape_sensing.reconstruction.integration import ShapeIntegrator
     cases=[(Sensor.read_data_FBG,'input_preprocessing'),
            (Initialiser.rot_seg_fit,'initialization'),
@@ -59,6 +59,16 @@ def test_installed_wheel_computes_without_old_files(tmp_path):
                          cwd=tmp_path,capture_output=True,text=True,timeout=180)
     assert build.returncode==0, build.stdout+'\n'+build.stderr
     paths=list(wheels.glob('*.whl')); assert len(paths)==1
+    # 重命名后的发布物只包含compat入口，防止旧build残留再次进入wheel。
+    import zipfile
+    renamed = {'input_preprocessing': 'sensor', 'initialization': 'fitting',
+               'reconstruction': 'engine', 'optimization': 'engine',
+               'runtime': 'demonstrator'}
+    with zipfile.ZipFile(paths[0]) as archive:
+        members = set(archive.namelist())
+    for module, old_name in renamed.items():
+        assert f'shape_sensing/{module}/compat.py' in members
+        assert f'shape_sensing/{module}/{old_name}.py' not in members
     installed=tmp_path/'installed'
     install=subprocess.run([sys.executable,'-m','pip','install','--no-index','--no-deps',
                             '--target',str(installed),str(paths[0])],
@@ -77,8 +87,8 @@ class DenyLegacy(importlib.abc.MetaPathFinder):
             raise AssertionError('Old repository import: '+fullname)
 sys.meta_path.insert(0,DenyLegacy())
 import numpy as np
-from shape_sensing.initialization.fitting import Initialiser
-from shape_sensing.optimization.engine import Optimiser
+from shape_sensing.initialization.compat import Initialiser
+from shape_sensing.optimization.compat import Optimiser
 from shape_sensing.reconstruction import ShapeIntegrator
 from shape_sensing.configuration import parameter_catalog
 assert len(parameter_catalog())>=110
@@ -115,7 +125,7 @@ def test_public_create_engine_uses_validated_namespace_and_preserves_context(tmp
     """程序化入口复用真实配置解析，在构造数据对象前截获参数。"""
     from types import SimpleNamespace
     import yaml
-    import shape_sensing.cli as cli
+    from shape_sensing.pipelines import session
     from shape_sensing.api import create_engine
     config={'sensor_id':'API-CHECK','R':.0001,'start_value':0.,'end_value':10.,
             'samp_dist_preset':[0.,20.,110.,130.,190.,290.,390.,490.],
@@ -125,8 +135,13 @@ def test_public_create_engine_uses_validated_namespace_and_preserves_context(tmp
                 'end_weights':False,'end_start':-1,'weights':None,'slopes':None}}}
     path=tmp_path/'sensor.yaml'; path.write_text(yaml.safe_dump(config),encoding='utf-8')
     received={}
-    def factory(**kwargs): received.update(kwargs); return SimpleNamespace()
-    monkeypatch.setattr(cli,'Optimiser',factory)
+    class FakeSession(SimpleNamespace):
+        def initialize(self): self.initialized = True
+    def factory(parameters, **session_options):
+        received.update(parameters)
+        received['session_options'] = session_options
+        return FakeSession(calibration_context=None)
+    monkeypatch.setattr(session,'TaskSession',factory)
     engine=create_engine(path,task='init',max_iter=3,full_segmentation=[2,2,2,2])
     assert received['sensor_id']=='API-CHECK' and received['max_iter']==3
     assert engine.calibration_context['optimization_region']=='full'

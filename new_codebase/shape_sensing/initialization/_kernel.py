@@ -1,28 +1,17 @@
+"""初始化模块私有拟合核，方法正文及注释保持原样。"""
 import numpy as np
 from scipy import stats
-
-from ..input_preprocessing.sensor import Sensor
-
 from ..common.utils import dict_recur_extract_path, dict_recur_flatten, dict_recur_unflatten
 
-from ..curvature.geometry import StrainGeometryMixin
+class InitializationKernel:
+    def _calculate_dynamic_angles(self, mode, segments, seg_slopes):
+        """委托模块3公开几何API；模块2只提供当前拟合相位与分段。"""
+        return self.geometry.dynamic_angles(phase_rad=self.global_phases_set, mode=mode,
+                                            segments=segments, slopes=seg_slopes)
 
-class Initialiser(StrainGeometryMixin, Sensor):
-    """
-    形状重构的初始化模块
-    """
-    def __init__(self, discont, segmentation, connect=True, global_phases_set=None, interlaced_offset=None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.discont = discont
-        self.segmentation = segmentation # 对应原本的segments
-        self.num_segments = len(segmentation)
-        self.connect = connect
-        self.global_phases_set = global_phases_set
-        self.interlaced_offset = interlaced_offset
-        if self.global_phases_set is None:
-            self.global_phases_set = 0.0
-            self.rot_seg_fit(verbose=False, update_phase=True) # 初始化正确的全局相位与全局扭转系数
+    def _calculate_curvature_and_angle(self, epsilon, alpha_dynamic):
+        """委托模块3公开物理API，输入(C,P)，输出(P,)曲率与方向。"""
+        return self.geometry.curvature(epsilon, alpha_dynamic)
 
     def rot_seg_fit(self, verbose, update_phase):
         """

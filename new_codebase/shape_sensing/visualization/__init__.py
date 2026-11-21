@@ -13,3 +13,5 @@ class Visualizer:
     @property
     def legacy(self): return self._get()
     def show_reconstruction(self,*args,**kwargs): return self._get().show_reconstruction(*args,**kwargs)
+
+from .service import VisualizationService, VisualizationInputs

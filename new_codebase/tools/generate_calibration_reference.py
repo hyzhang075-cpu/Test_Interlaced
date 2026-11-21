@@ -114,7 +114,7 @@ def _inventory(data_dir):
     角度父目录按数值排序，支持 60 度及其他整数角度；父子目录方向须一致。
     只跳过完全没有文件的角度目录；部分采集的数据继续交给后续完整性检查。
     """
-    from shape_sensing.input_preprocessing.sensor import Sensor
+    from shape_sensing.input_preprocessing.compat import Sensor
 
     angle_folders = sorted(
         (p for p in data_dir.iterdir() if p.is_dir() and re.fullmatch(r"\d+度", p.name)),
@@ -153,7 +153,7 @@ def _create_sensor(data_dir: Path, package: dict, directs, radii):
     Sensor 仍会自动裁掉负坐标点，并用同一索引裁切 Data。
     中心光纤补偿由 Sensor 正常执行，但本工具只导出未经该补偿的 Data。
     """
-    from shape_sensing.input_preprocessing.sensor import Sensor
+    from shape_sensing.input_preprocessing.compat import Sensor
 
     shared = package["shared_parameters"]
     hardware = shared["hardware_parameters"]
@@ -185,7 +185,7 @@ def _build_ideal_curves(sensor, radii, interp_num, *, direct=0,
     N 取参数包 interp_num，弧长范围包括 Sensor 的虚拟起点和末端点。
     此处仅装配现有几何方法所需属性，不运行 Optimiser.__init__ 或优化过程。
     """
-    from shape_sensing.optimization.engine import Optimiser
+    from shape_sensing.optimization.compat import Optimiser
 
     # 绕过优化器初始化，仅复用现有圆弧及分段拼接方法。
     builder = Optimiser.__new__(Optimiser)

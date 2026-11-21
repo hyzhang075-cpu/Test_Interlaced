@@ -91,7 +91,8 @@ class VTKViewMixin:
         - 当前实现中球体初始半径固定为 30.0，初始中心均为原点
         - 球体的实际位置会在后续 _update_frame() 中动态更新
         """
-        self.indexArr = self.recon.ad_samp_dist[::-1] * 1000
+        distance = self.sampling_distance_m if hasattr(self, 'sampling_distance_m') else self.recon.ad_samp_dist
+        self.indexArr = distance[::-1] * 1000
         self.sphereArr = []
         self.sphereActorArr = []
         for _ in enumerate(self.indexArr):

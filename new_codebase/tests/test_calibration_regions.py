@@ -15,6 +15,28 @@ PRESET = [510, 521, 532, 543, 554, 588, 622, 656, 707, 758, 809,
 FULL_SEGMENTS = [2, 3, 5, 2, 3, 3, 2, 2]
 
 
+def install_session_capture(monkeypatch, capture):
+    """Route the session's built parameter mapping into a legacy-shaped assertion."""
+    from shape_sensing.pipelines import tasks
+
+    def session_capture(parameters, **session_options):
+        capture(**parameters)
+
+    monkeypatch.setattr(tasks, 'TaskSession', session_capture)
+
+
+@pytest.fixture(autouse=True)
+def isolate_run_snapshots(tmp_path, monkeypatch):
+    from shape_sensing.artifacts import runs
+
+    create_run = runs.create_run
+
+    def create_test_run(sensor_id, task, resolved, artifact_root=None):
+        return create_run(sensor_id, task, resolved, tmp_path / 'runs')
+
+    monkeypatch.setattr(runs, 'create_run', create_test_run)
+
+
 @pytest.mark.parametrize('enabled,start', [(True, -5), (True, 0), (True, 1), (True, -1.5), ('False', -1)])
 def test_end_weight_region_validation_rejects_invalid_flags_and_indices(enabled, start):
     from calibration_regions import validate_end_weight_config
@@ -188,7 +210,7 @@ def test_main_region_selection_reaches_optimizer(tmp_path, monkeypatch, region, 
     def capture(**kwargs):
         received.update(kwargs)
         raise ConfigReached
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'init', '--calibration_data_root', str(args_root),
                                     '--multi_region_calib', str(enabled),
                                     '--optimization_region', region])
@@ -211,7 +233,7 @@ def test_main_geometry_overrides_recompute_length_before_optimizer(monkeypatch):
         assert kwargs['ideal_len'] == pytest.approx(.930)
         assert kwargs['straight_trim'] == 0.0
         raise ConfigReached
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'init',
                                     '--start_value', '10', '--end_value', '20'])
     with pytest.raises(ConfigReached):
@@ -222,7 +244,7 @@ def test_main_rejects_cross_boundary_segments_before_optimizer(monkeypatch):
     import main
     def forbidden(**kwargs):
         pytest.fail('invalid spatial partition reached optimizer')
-    monkeypatch.setattr(main, 'Optimiser', forbidden)
+    install_session_capture(monkeypatch, forbidden)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'optim',
                                     '--multi_region_calib', 'True',
                                     '--optimization_region', 'end5cm',
@@ -305,7 +327,7 @@ def test_main_preloaded_lists_support_reconstructor_two_axis_indexing(monkeypatc
         raise ConfigReached
     slopes = {d: [[1.0, 1.0] for _ in range(level_count)] for d in [0, 120, 240]}
     weights = {d: [1.0] * (2 * level_count) for d in [0, 120, 240]}
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'recon',
                                     '--multi_region_calib', 'False', '--optimization_region', 'end5cm',
                                     '--weights', repr(weights), '--slopes', repr(slopes)])
@@ -326,7 +348,7 @@ def test_merged_recon_requires_package_and_passes_full_geometry_to_optimizer(mon
         assert kwargs['multi_region_parameters']['multi_region']['directions'] == [0, 120, 240]
         raise ConfigReached
 
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', [
         'main.py', '--task', 'recon', '--multi_region_calib', 'True',
         '--sensor_params', str(package_path), '--optimization_region', 'end5cm',
@@ -352,7 +374,7 @@ def test_merged_demo_passes_full_geometry_and_region_package_to_optimizer(monkey
         assert kwargs['multi_region_parameters']['multi_region']['directions'] == [0, 120, 240]
         raise ConfigReached
 
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', [
         'main.py', '--task', 'demo', '--multi_region_calib', 'True',
         '--sensor_params', str(package_path),
@@ -372,7 +394,7 @@ def test_multiregion_demo_warns_but_runs_with_non_deployable_package(monkeypatch
         assert kwargs['multi_region_parameters']['multi_region']['deployment_ready'] is False
         raise ConfigReached
 
-    monkeypatch.setattr(main, 'Optimiser', capture)
+    install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', [
         'main.py', '--task', 'demo', '--multi_region_calib', 'True',
         '--sensor_params', str(package_path),

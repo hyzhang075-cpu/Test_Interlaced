@@ -1,19 +1,28 @@
 from types import SimpleNamespace
 from pathlib import Path
-from shape_sensing.context import LegacyContext
+from shape_sensing.pipelines import tasks
 from shape_sensing.pipelines import build_context, execute_task
 
 class Engine:
-    curvature_interp='hermite'
+    def __init__(self, parameters=None, task='recon', region='full'):
+        from types import SimpleNamespace
+        self.parameters=SimpleNamespace(parameters_by_region={region:{'rot_ang':0.}})
+        self.region=region
+        self.config=SimpleNamespace(optimization=SimpleNamespace(k_end=0.,k_pitch=0.))
+        self.dataset=SimpleNamespace(radii=[0])
+        self.initialization_result=None
+        self.weights=None; self.slopes=None; self.global_phases_set=0.
     calib_shapes=['circ']
-    def reconstruct_shapes(self, **kwargs): return ([[0,0,0],[.1,0,0]],[0.,.1])
-    def _compute_error(self, interp_dist, rs):
-        self.avg_point_err={'calib':.2}; self.avg_end_err={'calib':.1}; self.avg_pitch_err=0.; self.avg_radius_err=0.
-    def _print_errors(self): self.printed=True
+    def initialize(self, verbose=False): self.initialized=True
+    def load_data(self): self.loaded=True
+    def reconstruct_shapes(self, kind, direct): return ([[0,0,0],[.1,0,0]],[0.,.1])
+    def evaluate(self, distance, curves, direct):
+        return SimpleNamespace(metrics={'avg_point_err':{'calib':.2},'avg_end_err':{'calib':.1},'avg_pitch_err':0.},details={'ideals':None})
 
 class Vis:
-    def __init__(self,recon): self.engine=recon; self.shown=False
-    def show_reconstruction(self,**kwargs): self.shown=True
+    def __init__(self,recon=None): self.engine=recon; self.shown=False
+    def init_visualise(self,direct): pass
+    def show_reconstruction(self,*args,**kwargs): self.shown=True
 
 def args(task,**overrides):
     values=dict(task=task,use_stored_zero=True,weights=None,slopes=None,calibration_output_dir='runs',
@@ -25,37 +34,43 @@ def args(task,**overrides):
         anchor_translation_enabled=False,anchor_rotation_enabled=False,anchor_offset_m=0.)
     values.update(overrides); return SimpleNamespace(**values)
 
-def deps(engine_factory=lambda **kw: Engine(), artifact_root=Path(".pytest_cache/task-pipeline-runs")):
+def deps(monkeypatch, engine_factory=lambda **kw: Engine(), artifact_root=Path(".pytest_cache/task-pipeline-runs")):
     captured={}
-    def runner(jobs, factory, output_root): captured.update(jobs=jobs,factory=factory,output_root=output_root); return 'batch-result'
+    def runner(jobs, *, session_factory, output_root): captured.update(jobs=jobs,factory=session_factory,output_root=output_root); return 'batch-result'
+    def build_parameters(ns): return vars(ns)
+    def configure(ns): return 'calibration'
+    monkeypatch.setattr(tasks, 'TaskSession', lambda parameters, **options: Engine(parameters, **options))
+    monkeypatch.setattr(tasks, '_visualization', lambda session: Vis(session))
     return dict(optimiser_factory=engine_factory,visualizer_factory=Vis,app_factory=lambda argv:None,
-        configure_args=lambda ns:'calibration',parameter_builder=lambda ns:{},prepare_jobs=lambda ns,fn:['job'],
+        configure_args=configure,parameter_builder=build_parameters,prepare_jobs=lambda ns,fn:[(args('optim',optimization_region='full',weights={0:[1.]},slopes={0:[[0.]]},global_phases_set=0.),{})],
         run_jobs=runner,compute_error_ang=lambda **kw:'init-result',optim_ang=lambda **kw:'ang-result',
         project_root=Path('project'),artifact_root=artifact_root)
 
-def test_build_context_creates_isolated_task_engine(tmp_path):
+def test_build_context_creates_isolated_task_engine(tmp_path, monkeypatch):
     engines=[]
     def factory(**kw):
         engine=Engine(); engines.append(engine); return engine
-    d=deps(factory,tmp_path)
-    one=build_context(args('init'),optimiser_factory=d['optimiser_factory'],parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
-    two=build_context(args('init'),optimiser_factory=d['optimiser_factory'],parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
-    assert one.engine is not two.engine and len(engines)==2
+    d=deps(monkeypatch,factory,tmp_path)
+    one=build_context(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
+    two=build_context(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
+    assert one.session is not two.session
 
-def test_optim_and_score_use_batch_path(tmp_path):
-    d=deps(artifact_root=tmp_path); assert execute_task(args('optim'),**d)=='batch-result'
-    assert d['prepare_jobs'](None,None)==['job']
+def test_optim_and_score_use_batch_path(tmp_path,monkeypatch):
+    d=deps(monkeypatch,artifact_root=tmp_path); assert execute_task(args('optim'),**d)=='batch-result'
+    assert len(d['prepare_jobs'](None,None)[0])==2
     assert execute_task(args('score'),**d)=='batch-result'
 
-def test_init_ang_recon_use_adapters_and_preserve_results(tmp_path):
-    d=deps(artifact_root=tmp_path)
-    assert execute_task(args('init'),**d)=='init-result'
-    assert execute_task(args('ang'),**d)=='ang-result'
+def test_init_ang_recon_use_adapters_and_preserve_results(tmp_path,monkeypatch):
+    d=deps(monkeypatch,artifact_root=tmp_path)
+    init=execute_task(args('init'),**d)
+    assert init['errors']=={0:.2}
+    ang=execute_task(args('ang',ang_range=0.),**d)
+    assert ang['rot_ang']==0. and ang['errors']=={0:.2}
     metrics=execute_task(args('recon'),**d)
     assert metrics['avg_point_err']=={'calib':.2}
 
 
-def test_batch_resume_restores_each_region_not_last_engine(tmp_path):
+def test_batch_resume_restores_each_region_not_last_engine(tmp_path,monkeypatch):
     import json
     from shape_sensing.artifacts.runs import create_run
     profiles={name:{'thresholds':[1.], 'segmentation':[2], 'weights':None,'slopes':None} for name in ('full','end15cm','end5cm')}
@@ -66,8 +81,11 @@ def test_batch_resume_restores_each_region_not_last_engine(tmp_path):
         'global_phases_set':(i+1)/10,'rot_ang':i+1}} for i,name in enumerate(profiles)}}
     source.write_result({'result':['results.json',report]},'optim'); source.finish('succeeded')
     captured={}
-    def prepare(ns,configure): captured['args']=ns; return ['batch']
-    d=deps(artifact_root=tmp_path/'continued'); d['prepare_jobs']=prepare
+    def prepare(ns,configure):
+        captured['args']=ns
+        return [(args('optim', optimization_region=region, **ns.calibration_regions[region]), {})
+                for region in ns.optimization_regions]
+    d=deps(monkeypatch,artifact_root=tmp_path/'continued'); d['prepare_jobs']=prepare
     ns=args('optim',sensor_id='S',multi_region_calib=True,optimization_region='full',
         optimization_regions=['full','end15cm','end5cm'],calibration_regions=profiles,resume=str(source.path))
     execute_task(ns,**d)
@@ -78,7 +96,7 @@ def test_batch_resume_restores_each_region_not_last_engine(tmp_path):
     assert [ns.calibration_regions[r]['global_phases_set'] for r in profiles]==[.1,.2,.3]
     assert [ns.calibration_regions[r]['rot_ang'] for r in profiles]==[1,2,3]
 
-def test_single_region_resume_requires_requested_direction(tmp_path):
+def test_single_region_resume_requires_requested_direction(tmp_path,monkeypatch):
     import pytest
     from shape_sensing.artifacts.runs import create_run
     run=create_run('S','optim',{'sensor_id':'S','optimization_region':'full'},tmp_path)
@@ -87,4 +105,4 @@ def test_single_region_resume_requires_requested_direction(tmp_path):
     run.write_result({'result':['r',report]},'optim'); run.finish('succeeded')
     ns=args('optim',sensor_id='S',direct=120,resume=str(run.path),optimization_region='full')
     with pytest.raises(ValueError,match='direct=120'):
-        execute_task(ns,**deps(artifact_root=tmp_path/'continued'))
+        execute_task(ns,**deps(monkeypatch,artifact_root=tmp_path/'continued'))

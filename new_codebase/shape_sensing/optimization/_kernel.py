@@ -4,45 +4,12 @@ import bisect
 import copy
 from scipy.optimize import minimize
 
-from ..reconstruction.engine import Reconstructor
-from ..evaluation.metrics import EvaluationMixin
-
 from ..common.utils import dict_recur_operate, dict_recur_extract, dict_recur_value, dict_recur_extract_path, fit_radius
 
-class Optimiser(EvaluationMixin, Reconstructor):
-    def __init__(self, direct=0, end_len=0.05, max_iter=5, min_loss_diff=1e-6, hyper_params=[10000, 1e-6, 1e-6], freeze=None, method='Powell', straight_threshold=2.0, rot_threshold=4.0, k_point=1.0, k_end=0.0, k_pitch=1.0, k_radius=1.0, weight_bounds=(0.5, 1.0), slope_upper_bound=20.0, *args, end5cm_point_calib=False, real_point_calib=False, **kwargs):
-        self.optim_weights_only = bool(kwargs.pop('optim_weights_only', False))
-        self.end5cm_coverage_aware_weights = bool(kwargs.pop('end5cm_coverage_aware_weights', False))
-        self.end5cm_min_weight_effective_samples = float(
-            kwargs.pop('end5cm_min_weight_effective_samples', 1.0))
-        self.end5cm_min_weight_max_mass = float(
-            kwargs.pop('end5cm_min_weight_max_mass', 0.05))
-        self.end5cm_uncovered_weight_policy = kwargs.pop(
-            'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
-        self.source_sensor_params = kwargs.pop('source_sensor_params', None)
-        super().__init__(*args, **kwargs)
-        self.direct = direct
-        self.end5cm_point_calib = end5cm_point_calib
-        self.real_point_calib = bool(real_point_calib or end5cm_point_calib)
-        self.end_len = end_len
-        self.max_iter = max_iter
-        self.min_loss_diff = min_loss_diff
-        self.hyper_params = hyper_params
-
-        self.method = method
-        self.straight_threshold = straight_threshold
-        self.rot_threshold = rot_threshold
-        self.k_point = k_point
-        self.k_end = k_end
-        self.k_pitch = k_pitch
-        self.k_radius = k_radius
-        self.weight_bounds = [(weight_bounds[0] * self.init_weight, weight_bounds[1] * self.init_weight)]
-        self.slope_upper_bound = slope_upper_bound
-        self.slopes_shape = np.asarray(self.slopes[self.direct], dtype=float).shape
-
-        self.freeze = freeze
-        self._coverage_support_map = None
-        self._get_freeze_idx()
+class OptimizationKernel:
+    def _minimize(self, **kwargs):
+        """运行本模块scipy搜索；测试可注入求解器验证候选边界。"""
+        return minimize(**kwargs)
 
     def _uses_real_point_objective(self):
         """Support older callers that set only end5cm_point_calib."""
@@ -535,7 +502,7 @@ class Optimiser(EvaluationMixin, Reconstructor):
 
             return current_loss, init_loss
 
-        res = minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
+        res = self._minimize(fun=loss_fn, x0=x0, method=self.method, options=options, bounds=coeff_bounds)
         current_loss = float(res.fun)
 
         if coeff == "slopes":
@@ -602,50 +569,29 @@ class Optimiser(EvaluationMixin, Reconstructor):
         return float(np.mean(losses))
 
     def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound, force_ideal_magnitude=False):
-        """
-        给定当前候选参数，计算优化器使用的总损失值。
-
-        参数：
-        - rot_ang: 当前旋转角补偿，单位为度。
-        - weights: 当前候选应变权重向量。
-        - slopes_normalised: 当前候选归一化 slopes，通常为展平数组。
-        - slope_upper_bound: 将 slopes_normalised 恢复为实际 slopes 的尺度。
-        - force_ideal_magnitude: 重构时是否强制使用理论曲率大小。
-
-        处理流程：
-        1. 将 rot_ang 写回 self.rot_ang；
-        2. 将 weights 写回 self.weights[self.direct]；
-        3. 将 slopes_normalised * slope_upper_bound reshape 为 self.slopes_shape，并写回 self.slopes[self.direct]；
-        4. 使用当前参数对 self.calib_shapes 中的所有形状执行重构；
-        5. 调用 _compute_error() 更新逐点误差、末端误差、rot0 螺距误差和半径误差；
-        6. 返回加权总损失：
-        k_point * avg_point_err['calib']
-        + k_end * avg_end_err['calib']
-        + k_pitch * avg_pitch_err
-        + k_radius * avg_radius_err。
-
-        输出：
-        - loss: 标量浮点数，总优化损失。
-
-        说明：
-        - force_ideal_magnitude=True 时，曲率大小不再来自应变幅值估计，主要用于 slopes 阶段；
-        - real_point_calib=True时，此布尔字段改为区分真实点方向/幅值目标，不进入几何重构；
-        - 当前 'calib' 汇总误差由 _compute_error() 中的 calib_error_shapes 决定，通常包括 circ、S、end、end3；
-        - rot0 不参与 'calib' 的逐点/末端误差汇总，而通过 avg_pitch_err 与 avg_radius_err 单独进入损失。
-        """
-        # ---------- unpack parameters ----------
-        self.rot_ang = rot_ang
-        self.weights[self.direct] = weights
-        # self.weights[self.direct] = np.ones(self.num_levels)
-        self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape)
-        if self._uses_real_point_objective():
-            return self._real_point_loss(direction_only=force_ideal_magnitude)
-        # ---------- 计算误差 ----------
-        rs = {}
-        for calib_shape in self.calib_shapes:
-            r_results_postrot, interp_dist = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct, verbose=False, force_ideal_magnitude=force_ideal_magnitude,)
-            rs[calib_shape] = r_results_postrot
-
-        self._compute_error(interp_dist=interp_dist, rs=rs)
-
-        return self.k_point * self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib'] + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err
+        """候选参数只在局部副本评估，返回标量后恢复当前最优参数。"""
+        previous_weights = copy.deepcopy(self.weights)
+        previous_slopes = copy.deepcopy(self.slopes)
+        missing_rotation = object()
+        previous_rotation = getattr(self, 'rot_ang', missing_rotation)
+        try:
+            self.rot_ang = rot_ang
+            self.weights[self.direct] = np.array(weights, copy=True)
+            self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape).copy()
+            if self._uses_real_point_objective():
+                return self._real_point_loss(direction_only=force_ideal_magnitude)
+            rs = {}
+            for calib_shape in self.calib_shapes:
+                result, distance = self.reconstruct_shapes(calib_shape=calib_shape, direct=self.direct,
+                    force_ideal_magnitude=force_ideal_magnitude)
+                rs[calib_shape] = result
+            self._compute_error(interp_dist=distance, rs=rs)
+            return (self.k_point * self.avg_point_err['calib'] + self.k_end * self.avg_end_err['calib']
+                    + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err)
+        finally:
+            self.weights = previous_weights
+            self.slopes = previous_slopes
+            if previous_rotation is missing_rotation:
+                del self.rot_ang
+            else:
+                self.rot_ang = previous_rotation

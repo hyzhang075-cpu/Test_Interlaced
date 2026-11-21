@@ -35,7 +35,7 @@ def test_main_vector_filter_defaults_true_and_accepts_explicit_values():
 
 
 def test_reconstructor_vector_filter_constructor_default_is_off():
-    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'compat.py').read_text(encoding='utf-8'))
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'Reconstructor')
     init = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '__init__')
     cls.body = [init]
@@ -48,7 +48,7 @@ def test_reconstructor_vector_filter_constructor_default_is_off():
 
 
 def test_reconstructor_preserves_existing_positional_parameter_order():
-    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'engine.py').read_text(encoding='utf-8'))
+    tree = ast.parse((ROOT / 'shape_sensing' / 'reconstruction' / 'compat.py').read_text(encoding='utf-8'))
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'Reconstructor')
     init = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '__init__')
     cls.body = [init]
@@ -67,17 +67,18 @@ def test_reconstructor_preserves_existing_positional_parameter_order():
 def test_main_forwards_explicit_vector_filter_value_to_optimiser(monkeypatch):
     sys.path.insert(0, str(ROOT))
     import main
+    from shape_sensing.pipelines import tasks
 
     received = {}
 
     class StopAfterOptimiser(Exception):
         pass
 
-    def capture_optimiser(**kwargs):
-        received.update(kwargs)
+    def capture_session(parameters, **session_options):
+        received.update(parameters)
         raise StopAfterOptimiser
 
-    monkeypatch.setattr(main, 'Optimiser', capture_optimiser)
+    monkeypatch.setattr(tasks, 'TaskSession', capture_session)
     monkeypatch.setattr(
         sys,
         'argv',

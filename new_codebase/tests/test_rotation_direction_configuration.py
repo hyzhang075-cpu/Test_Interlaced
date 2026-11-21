@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import yaml
 from shape_sensing.cli import parse_main_args
-from shape_sensing.reconstruction.engine import Reconstructor
+from shape_sensing.reconstruction.compat import Reconstructor
 
 
 @pytest.mark.parametrize('rotation,sign', [

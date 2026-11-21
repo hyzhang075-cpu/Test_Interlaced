@@ -115,3 +115,7 @@ Thumbs.db
 /legacy_codebase/data/261017_易老师数据/
 /legacy_codebase/data/1020-08B5-导管两端固定全段+小圈定标测试/
 /legacy_codebase/data/1016-09B7-自研（1+3）22点86cmFBG+镍钛管全末段定标测试/
+
+# 八模块独立验收临时目录
+/new_codebase/.pytest-*/
+/new_codebase/artifacts/

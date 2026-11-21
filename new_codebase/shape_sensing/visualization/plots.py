@@ -1,5 +1,4 @@
 import os
-import vtk
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -12,7 +11,10 @@ class Visualisor:
     """
     可视化方法以及必要参数
     """
-    def __init__(self, recon):
+    def __init__(self, recon=None, *, inputs=None):
+        if inputs is not None:
+            self._init_explicit_inputs(inputs)
+            return
         self.sensor_id = recon.sensor_id
         self.active_channels = recon.active_channels
         self.samp_dist = recon.samp_dist
@@ -35,6 +37,31 @@ class Visualisor:
 
         self._calculate_segments = recon._calculate_segments
         self._construct_ideals = recon._construct_ideals
+
+    def _init_explicit_inputs(self, inputs):
+        """输入VisualizationInputs，输出None；复制显式绘图参数，不绑定引擎私有方法。"""
+        from .segments import PlotSegments
+        dataset = inputs.dataset
+        diagnostics = inputs.initialization
+        self.sensor_id = dataset.design.sensor_id
+        self.active_channels = {channel: None for channel in dataset.channel_ids}
+        self.samp_dist = dataset.design.sampling_distance_m.copy()
+        self.ad_samp_dist = self.samp_dist.copy()
+        self.ideal_len = inputs.ideal_length_m
+        self.rot_ang = inputs.rotation_deg
+        self.calib_shapes = list(dataset.data)
+        self.plot_Data = dataset.plot_data
+        self.radii = dataset.radii
+        self.init_weight = inputs.initial_weight
+        self.segmentation = inputs.segmentation
+        self.angle_results_unwrap = {} if diagnostics is None else diagnostics.angle_results_unwrap
+        self.angle_results_raw = {} if diagnostics is None else diagnostics.angle_results_raw
+        self.global_fit_direct = {} if diagnostics is None else diagnostics.global_fit_direct
+        self.individual_fits_direct = {} if diagnostics is None else diagnostics.individual_fits_direct
+        self.zero_init = inputs.zero_init
+        segments = PlotSegments(inputs)
+        self._segment_data = segments._segment_data
+        self._calculate_segments = segments._calculate_segments
 
     # def init_visualise(self, direct):
     #     """
@@ -567,7 +594,7 @@ class Visualisor:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
 
-    def show_reconstruction(self, direct, rs, interp_dist, showanime=False):
+    def show_reconstruction(self, direct, rs, interp_dist, showanime=False, *, ideals=None):
         """
         将各标定形状的三维重构结果与理论曲线进行可视化，并保存旋转动画。
 
@@ -594,12 +621,13 @@ class Visualisor:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         for shape in rs:
-            ideals = self._construct_ideals(calib_shape=shape, interp_dist=interp_dist, val_len=self.ideal_len)
+            shape_ideals = (ideals[shape] if ideals is not None else
+                            self._construct_ideals(calib_shape=shape, interp_dist=interp_dist, val_len=self.ideal_len))
             results = rs[shape]
 
             fig_anim = plt.figure(figsize=(10, 8))
             ax_anim = fig_anim.add_subplot(111, projection='3d')
-            self._plot_reconstruction(ax_anim, results, ideals)
+            self._plot_reconstruction(ax_anim, results, shape_ideals)
             ax_anim.set_title(f'3D reconstruction: shape={shape}, direct={direct}')
 
             shape_save_dir = os.path.join(base_save_dir, str(shape))
@@ -614,7 +642,7 @@ class Visualisor:
             if showanime:
                 fig_show = plt.figure(figsize=(10, 8))
                 ax_show = fig_show.add_subplot(111, projection='3d')
-                self._plot_reconstruction(ax_show, results, ideals)
+                self._plot_reconstruction(ax_show, results, shape_ideals)
                 ax_show.set_title(f'3D reconstruction: shape={shape}, direct={direct}')
                 plt.show()
                 plt.close(fig_show)

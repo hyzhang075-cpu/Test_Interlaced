@@ -1,18 +1,24 @@
-"""程序化创建独立算法引擎与纯输入形状积分器。"""
+"""程序化组合独立模块服务与纯输入形状积分器。"""
 from pathlib import Path
 from .reconstruction import ShapeIntegrator
 from .configuration import load_working_config
 
 def create_engine(config=None, **overrides):
-    """按现有工作 YAML 构造任务引擎，或用显式 Optimiser 参数创建。
+    """按现有工作 YAML 创建TaskSession，或用显式模块参数创建。
 
     config 为配置文件路径时复用 CLI 的解析和区域检查；任务优先级为显式
     task 覆盖、YAML task、recon。程序化覆盖会先转换并校验，再参与区域验证。
-    构造会读取配置指定的数据，但不会连接硬件。
+    task=init显式加载数据并拟合；其他任务仅组合服务并校验初值，不读取标定CSV。
     """
-    from .cli import Optimiser, build_argument_parser, configure_calibration_args, parse_main_args, optimizer_parameters
+    from .cli import build_argument_parser, configure_calibration_args, parse_main_args, optimizer_parameters
+    from .pipelines.session import TaskSession
+    from .pipelines.tasks import module_parameters
     if config is None:
-        return Optimiser(**overrides)
+        task = overrides.pop('task', 'recon')
+        session = TaskSession(overrides, task=task)
+        if task == 'init':
+            session.initialize()
+        return session
     path=Path(config).resolve()
     loaded=load_working_config(path)
     if overrides.get('resume') is not None or loaded.get('resume') is not None:
@@ -39,7 +45,9 @@ def create_engine(config=None, **overrides):
     if 'full_segmentation' in overrides:
         args._full_segmentation_explicit=True
     context=configure_calibration_args(args)
-    engine=Optimiser(**optimizer_parameters(args))
+    engine=TaskSession(module_parameters(args, optimizer_parameters), task=task, region=args.optimization_region)
+    if task == 'init':
+        engine.initialize()
     engine.calibration_context=context
     return engine
 

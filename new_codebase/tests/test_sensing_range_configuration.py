@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import yaml
 from shape_sensing.configuration import load_working_config
-from shape_sensing.input_preprocessing.sensor import Sensor
+from shape_sensing.input_preprocessing.compat import Sensor
 
 
 def load_config(tmp_path, ranges):

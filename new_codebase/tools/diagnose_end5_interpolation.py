@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 from shape_sensing.cli import main
 from shape_sensing.optimization.batch import _native, optimizer_parameters
 from tools.calibration_validation import _full_region_slope_map, integrate_phase_to_point
-from shape_sensing.optimization.engine import Optimiser
+from shape_sensing.optimization.compat import Optimiser
 
 
 def build(package_path, region, merged=False, local_phase=False):

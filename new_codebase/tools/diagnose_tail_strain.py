@@ -15,7 +15,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from shape_sensing.configuration.regions import compute_fbg_geometry
-from shape_sensing.reconstruction.engine import Reconstructor
+from shape_sensing.reconstruction.compat import Reconstructor
 
 
 def valid_rows(values, threshold=9000, half_window=5):

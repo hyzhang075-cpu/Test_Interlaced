@@ -6,14 +6,14 @@
 
 | 模块 | 工程师 | 实际实现文件 |
 |---|---|---|
-| 1 波长输入与预处理 | A | `input_preprocessing/sensor.py`、`zero_reference.py` |
-| 2 相位/扭转系数初始化拟合 | A | `initialization/fitting.py`、`phase_reference.py` |
+| 1 波长输入与预处理 | A | `input_preprocessing/compat.py`、`zero_reference.py` |
+| 2 相位/扭转系数初始化拟合 | A | `initialization/compat.py`、`phase_reference.py` |
 | 3 应变、曲率大小与方向 | A | `curvature/geometry.py`、`model.py` |
-| 4 slope/weight 参数优化 | A | `optimization/engine.py`、`batch.py`、`coverage.py` |
-| 5 曲率积分与形状重构 | B | `reconstruction/engine.py`、`integration.py` |
+| 4 slope/weight 参数优化 | A | `optimization/compat.py`、`batch.py`、`coverage.py` |
+| 5 曲率积分与形状重构 | B | `reconstruction/compat.py`、`integration.py` |
 | 6 理想曲线与误差计算 | B | `evaluation/metrics.py`、`ideal_curvature.py` |
 | 7 可视化 | B | `visualization/plots.py`、`vtk_view.py` |
-| 8 动态执行与实时系统 | B | `runtime/demonstrator.py`、`prototype.py`、`imu.py`、`anchor.py` |
+| 8 动态执行与实时系统 | B | `runtime/compat.py`、`prototype.py`、`imu.py`、`anchor.py` |
 
 以上路径均相对于 `shape_sensing/`。配置、结果发布、公共工具与任务编排分别位于 `configuration/`、`artifacts/`、`common/`、`pipelines/`。`cli.py` 提供命令行入口，`api.py` 提供程序化入口。
 

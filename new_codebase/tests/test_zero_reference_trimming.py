@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from shape_sensing.input_preprocessing.sensor import Sensor
+from shape_sensing.input_preprocessing.compat import Sensor
 
 
 def _sensor_with_one_pre_zero_point():

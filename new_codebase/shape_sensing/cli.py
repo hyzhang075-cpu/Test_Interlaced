@@ -18,11 +18,26 @@ from .artifacts.legacy_package import (
 
 
 
-from .optimization.engine import Optimiser
+def __getattr__(name):
+    if name == 'Optimiser':
+        from .optimization.compat import Optimiser
+        return Optimiser
+    raise AttributeError(name)
 
 
 
 
+
+
+def _parameter_directions(args):
+    """区别实验数据读取范围与demo实际消费的参数方向，保留混合所需三方向。"""
+    directions = list(args.exp_directs)
+    if args.task == 'demo':
+        required = [0, 120, 240] if args.direction_blend_enabled else [args.direction_reference_direct]
+        for direct in required:
+            if direct not in directions:
+                directions.append(direct)
+    return directions
 
 
 def configure_calibration_args(args):
@@ -134,7 +149,7 @@ def configure_calibration_args(args):
         args.ideal_len = 1.35 if args.ideal_len is None else args.ideal_len
         args.straight_trim = 0.0 if args.straight_trim is None else args.straight_trim
         args.weights, args.slopes = validate_calibration_parameters(
-            args.weights, args.slopes, args.thresholds, args.segmentation, args.exp_directs,
+            args.weights, args.slopes, args.thresholds, args.segmentation, _parameter_directions(args),
             end_weights=args.end_weights, s_shape='S' in args.radii,
         )
         return None
@@ -240,7 +255,7 @@ def configure_calibration_args(args):
         # 当前反向路径仅在起点补虚拟点，不延伸反向终点。
         context['reconstruction_length_m'] = context['sample_dist_m'][-1]
     args.weights, args.slopes = validate_calibration_parameters(
-        args.weights, args.slopes, args.thresholds, args.segmentation, args.exp_directs,
+        args.weights, args.slopes, args.thresholds, args.segmentation, _parameter_directions(args),
         end_weights=args.end_weights, s_shape='S' in args.radii,
         weight_group_ids=context['weight_group_ids'],
     )
@@ -295,6 +310,15 @@ def _str2bool(v):
         return v
     return str(v).strip().lower() in ('true', '1', 'yes')
 
+
+def _literal_sequence(value):
+    """解析CLI列表字面量，保持YAML已解析序列；拒绝把字符串拆成字符列表。"""
+    parsed = ast.literal_eval(value) if isinstance(value, str) else value
+    if parsed is None:
+        return None
+    if not isinstance(parsed, (list, tuple)):
+        raise argparse.ArgumentTypeError('参数须为列表，例如[0,1]')
+    return list(parsed)
 
 def _finite_nonnegative_float(value):
     number = float(value)
@@ -474,7 +498,7 @@ def build_argument_parser():
     parser.add_argument('--end_len', type=float, default=0.05, help='end形状中进入末端大曲率弧圈的包含长度')
     # 优化使用的超参数
     parser.add_argument('--direct', type=int, default=0, help='优化曲率权重与扭转系数的标定方向')
-    parser.add_argument('--freeze', type=list, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None。分区index从0开始。')
+    parser.add_argument('--freeze', type=_literal_sequence, default=None, help='冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None。分区index从0开始。')
     parser.add_argument('--weight_bounds', type=ast.literal_eval, default=(0.6, 5.0), help='曲率权重范围')
     parser.add_argument('--slope_upper_bound', type=float, default=50.0, help='扭转系数大小上限')
     parser.add_argument('--thresholds', type=ast.literal_eval, default=None, help='覆盖所选区域曲率阈值列表(m^-1)')
@@ -485,7 +509,7 @@ def build_argument_parser():
     parser.add_argument('--k_pitch', type=float, default=1.0, help='优化目标中螺距误差的权重')
     parser.add_argument('--k_radius', type=float, default=1.0, help='优化目标中半径误差的权重')
     parser.add_argument('--method', type=str, default="Powell", help='优化算法, 用于输入scipy.optimize.minimimze')
-    parser.add_argument('--hyper_params', type=dict, default=[20000, 1e-6, 1e-6], help='优化算法使用的超参数')
+    parser.add_argument('--hyper_params', type=_literal_sequence, default=[20000, 1e-6, 1e-6], help='优化算法使用的超参数')
     parser.add_argument('--min_loss_diff', type=float, default=1e-4, help='收敛判定')
     parser.add_argument('--ss', type=float, default=2.6e-3, help='LUNA传感点间隔, 单位为m')
     # 动态展示参数
@@ -795,6 +819,37 @@ def parse_main_args(argv=None):
     args = parser.parse_args(parse_argv)
     args._explicit_cli_parameters = sorted(explicit)
     args._explicit_config_parameters = sorted(k for k in (working or {}) if k not in ('task','config','resume','schema_version','_config_path'))
+    # A single-region static reconstruction consumes one selected direct.
+    # A demo may consume the reference direction or blend all three directions,
+    # so restore its complete direction table after CLI overrides are known.
+    if (package is not None
+            and package.get('package_type') == 'shape_sensing_algorithm_package'
+            and args.task == 'demo' and not args.multi_region_calib):
+        entries = package.get('calibration', {}).get(args.optimization_region, {})
+        available = sorted(int(key) for key in entries)
+        required = [0, 120, 240] if args.direction_blend_enabled else [args.direction_reference_direct]
+        missing = [direct for direct in required if direct not in available]
+        if missing:
+            raise ValueError(f'demo参数包缺少方向: {missing}；direction_blend_enabled=True需要0/120/240')
+        for name in ('weights', 'slopes'):
+            if name in explicit:
+                continue
+            values = {}
+            for direct in available:
+                entry = entries.get(str(direct), entries.get(direct))
+                value = entry.get(name)
+                if isinstance(value, dict):
+                    value = value.get(str(direct), value.get(direct))
+                if value is None:
+                    raise ValueError(f'demo参数包缺少region={args.optimization_region}/direct={direct}的{name}')
+                values[direct] = deepcopy(value)
+            setattr(args, name, values)
+        if 'exp_directs' not in explicit:
+            args.exp_directs = available
+        reference = entries.get(str(args.direction_reference_direct), entries.get(args.direction_reference_direct))
+        for name in ('global_phases_set', 'rot_ang'):
+            if name not in explicit and name in reference:
+                setattr(args, name, reference[name])
     args._sensor_package = package
     args._working_config = working
     if (package is not None and not args.multi_region_calib
@@ -802,7 +857,8 @@ def parse_main_args(argv=None):
             and 'global_phases_set' not in explicit):
         local_phases = package.get('provenance', {}).get('local_global_phases_set', {})
         region_phases = local_phases.get(args.optimization_region, {})
-        local_phase = region_phases.get(str(args.direct), region_phases.get(args.direct))
+        phase_direct = args.direction_reference_direct if args.task == 'demo' else args.direct
+        local_phase = region_phases.get(str(phase_direct), region_phases.get(phase_direct))
         if local_phase is not None:
             args.global_phases_set = local_phase
     return args
@@ -816,7 +872,7 @@ def _visualizer_factory(**kwargs):
 
 def _demonstrator_factory(**kwargs):
     """仅在请求动态演示时加载 Qt/VTK 运行时。"""
-    from .runtime.demonstrator import Demonstrator
+    from .runtime.compat import Demonstrator
     return Demonstrator(**kwargs)
 
 
@@ -834,7 +890,7 @@ def main():
     from .pipelines import execute_task
     args = parse_main_args()
     return execute_task(
-        args, optimiser_factory=Optimiser, visualizer_factory=_visualizer_factory,
+        args, optimiser_factory=None, visualizer_factory=_visualizer_factory,
         app_factory=_application_factory, configure_args=configure_calibration_args,
         parameter_builder=optimizer_parameters, prepare_jobs=prepare_calibration_jobs,
         run_jobs=run_calibration_jobs, compute_error_ang=compute_error_ang,

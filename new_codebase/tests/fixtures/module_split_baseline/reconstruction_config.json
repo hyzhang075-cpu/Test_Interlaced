@@ -1,0 +1,73 @@
+{
+  "curvature_interp": "vector_pchip",
+  "move_filter": 3,
+  "move_filter_for_vector": true,
+  "frame_rule": "TNN",
+  "TNB_threshold": 0.0,
+  "interp_num": 120,
+  "nonnegative_curvature": false,
+  "kalman_params": {
+    "angle": {
+      "Rk": 0.001,
+      "Bk": 0.001
+    },
+    "magnitude": {
+      "Rk": 0.0001,
+      "Bk": 0.01
+    }
+  },
+  "start_value": 19.7,
+  "end_value": 5.0,
+  "samp_dist_preset": [
+    510,
+    521,
+    532,
+    543,
+    554,
+    588,
+    622,
+    656,
+    707,
+    758,
+    809,
+    860,
+    911,
+    962,
+    1013,
+    1064,
+    1115,
+    1166,
+    1217,
+    1268,
+    1319,
+    1370
+  ],
+  "rot_ang": 0,
+  "rot_dir": {
+    "0": -1,
+    "120": -1,
+    "240": -1
+  },
+  "centre_fibre": true,
+  "active_channels": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "interlaced_grating": false,
+  "interlaced_offset": 1.0471975511965976,
+  "discont": 3.141592653589793,
+  "segmentation": null,
+  "full_segmentation": [
+    2,
+    5,
+    2,
+    4,
+    2,
+    2,
+    2,
+    3
+  ],
+  "turn_threshold": 2.0
+}

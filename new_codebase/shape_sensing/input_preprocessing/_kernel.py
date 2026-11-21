@@ -77,7 +77,7 @@ class WavelengthContinuityGuard:
         return previous
 
 
-class Sensor:
+class InputKernel:
     """
     传感器自身物理参数以及数据处理模块
     """
@@ -147,7 +147,8 @@ class Sensor:
         # 动态数据处理相关参数
         self.zero_points = {ch: [None] * self.total_points for ch in active_channels}
         self.is_zero_set = {ch: False for ch in active_channels}
-        self._configure_zero_reference(use_stored_zero, zero_reference_path)
+        self.use_stored_zero = use_stored_zero
+        self.zero_reference_path = zero_reference_path
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
         self.buffer = bytearray()
         self.wavelength_jump_guard_enabled = bool(wavelength_jump_guard_enabled)
@@ -165,6 +166,12 @@ class Sensor:
         self.samp_dist_preset_sub = samp_dist_preset_sub
         self.interlaced_offset = interlaced_offset # 确保这个也保存了
 
+    def load_data(self, folder_path):
+        """显式读取并预处理实验数据；构造几何本身不访问文件。"""
+        self._configure_zero_reference(self.use_stored_zero, self.zero_reference_path)
+        samp_dist_preset = self.samp_dist_preset
+        samp_dist_preset_sub = self.samp_dist_preset_sub
+        reverse = self.reverse
         if self.interrogator in ['FiberTecc', 'Hippo']:
             # 1. 读取和清洗原始数据
             # read_data_FBG 只负责读取，输出矩阵按物理通道升序排列

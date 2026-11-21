@@ -12,20 +12,20 @@
 
 ## 目标文件与函数归属
 ### 1 输入预处理（A）
-shape_sensing/input_preprocessing/sensor.py：Sensor、WavelengthContinuityGuard及原读取/解析/通道整理实现。
+shape_sensing/input_preprocessing/compat.py：Sensor、WavelengthContinuityGuard及原读取/解析/通道整理实现。
 shape_sensing/input_preprocessing/zero_reference.py：tools/zero_reference.py 实现。
 ### 2 初始化（A）
-shape_sensing/initialization/fitting.py：Initialiser、rot_seg_fit及拟合/分段实现。
+shape_sensing/initialization/compat.py：Initialiser、rot_seg_fit及拟合/分段实现。
 shape_sensing/initialization/phase_reference.py：calibration_phase_reference.py。
 ### 3 曲率（A）
 shape_sensing/curvature/geometry.py：从Initialiser移入_calculate_dynamic_angles、_calculate_curvature_and_angle，构成无构造器的StrainGeometryMixin，由Initialiser继承。
 shape_sensing/curvature/model.py：从Reconstructor移入_Strain_2_Cur（实际名字_Strain里的零宽字符不得进入源码，使用原_Strain_2_Cur拼写）、_get_base、_alloc_mass、_get_scores、_normalise_multiregion_parameters、_local_segment_labels、_get_groupwise_weight_scores、_assemble_multiregion_parameters、_generate_dynamic_segments，作为CurvatureModelMixin。按原函数真实名字提取，不依据本文特殊排版创建新名字。
 ### 4 优化（A）
-shape_sensing/optimization/engine.py：Optimiser保留优化、损失、边界、收敛等实现，继承下述EvaluationMixin和新Reconstructor。
+shape_sensing/optimization/compat.py：Optimiser保留优化、损失、边界、收敛等实现，继承下述EvaluationMixin和新Reconstructor。
 shape_sensing/optimization/batch.py：calibration_batch.py；coverage.py：tools/end5_weight_coverage.py。
 角度搜索/任务辅助函数可以保留在新cli或迁入optimization/angle_search.py，不能反向依赖旧main。
 ### 5 重构（B）
-shape_sensing/reconstruction/engine.py：Reconstructor、完整帧流程、空间滤波、插值、角度展开。继承新CurvatureModelMixin、新Initialiser与必要理想曲率mixin。
+shape_sensing/reconstruction/compat.py：Reconstructor、完整帧流程、空间滤波、插值、角度展开。继承新CurvatureModelMixin、新Initialiser与必要理想曲率mixin。
 shape_sensing/reconstruction/integration.py：实际迁入_reconstruct_from_interpolated_curvature、_F_S_frame、_parallel_frame、_build_end_pose、_get_rot_x。通过ShapeIntegrationMixin复用；公开ShapeIntegrator可只给曲率/角度/弧长直接积分，不构造Sensor、不读取文件。frame_rule/TNB_threshold等所需状态显式初始化，保留旧输出坐标/标架约定。
 ### 6 理想曲线/误差（B）
 shape_sensing/evaluation/metrics.py：从Optimiser移入_print_errors、_compute_error、_construct_ideals、所有_construct_ideal_*、_compute_point_err、_compute_rot0_err、_find_rot_segment、_find_rot_axis等原评估实现，作为EvaluationMixin；不要移走优化专属_loss_fn/_real_point_loss。
@@ -34,7 +34,7 @@ shape_sensing/evaluation/ideal_curvature.py：Reconstructor._construct_ideal_mag
 shape_sensing/visualization/plots.py：Visualisor原实现。
 shape_sensing/visualization/vtk_view.py：从Demonstrator移入add_ball/add_axes/add_end_pose_arrows/add_anchor_marker/_update_anchor_marker/_update_end_pose_arrows/_update_frame等纯视图方法，作为无构造器mixin供runtime窗口继承。保留Qt/VTK按需加载。
 ### 8 实时系统（B）
-shape_sensing/runtime/demonstrator.py：Demonstrator动态调度、通信、滤波与状态，使用新视图mixin；DataRecorder可单独recorder.py。
+shape_sensing/runtime/compat.py：Demonstrator动态调度、通信、滤波与状态，使用新视图mixin；DataRecorder可单独recorder.py。
 shape_sensing/runtime/prototype.py：proto_demonstrator原样迁入并改内部导入，保留模型路径配置。
 shape_sensing/runtime/imu.py：IMU.py实际实现及许可原文；anchor.py：entrance_anchor.py。
 ### 公共基础与入口

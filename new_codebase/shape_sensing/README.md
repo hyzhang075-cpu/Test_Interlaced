@@ -45,7 +45,7 @@ direction_blend_enabled: false
 imu: false
 ```
 
-同时检查 `calibration_regions` 各区域中的 `weights/slopes` 是否也是预期初值。`null` 相位触发初始化拟合，数值 `0` 表示明确提供零相位。
+同时检查 `calibration_regions` 各区域中的 `weights/slopes` 是否也是预期初值。只有 `init` 任务允许根据 `null` 相位执行初始化拟合；数值 `0` 表示明确提供零相位。`optim`、`score`、`recon`、`demo` 必须恢复或显式提供完整标定参数，构造不会调用模块2。
 
 `rot_dir` 字典按实验方向角取值，例如 `{0: -1, 120: -1, 240: -1}`；历史列表按 `calib_shapes` 顺序取值，单个数值应用于全部实验。`sensing_ranges` 是 LUNA 专用参数，FBG 使用 `samp_dist_preset`。
 
@@ -69,41 +69,48 @@ calibration_regions:
 
 ## 3. 初始化与优化
 
-### 3.1 初始化
+### 3.1 每个区域显式初始化
+
+以下命令分别使用各区域对应的静态数据、阈值和分段，保存独立的初始化快照：
 
 ```powershell
-python main.py --config configs/my-sensor.yaml --task init --optimization_region full
+python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region full
+python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region end15cm
+python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region end5cm
 ```
 
-初始化读取配置指定的数据，拟合相位和初始分段参数，然后对 `exp_directs` 中的方向重构、计算误差并绘图。运行完成后，在 `runs/<sensor_id>/<run_id>/` 保存 `initialization.json`。
+只使用全长单区域时，执行第一条即可。初始化对 `exp_directs` 中的方向拟合相位及分段扭转初值，再重构、评估并绘图；每次保存 `runs/<sensor_id>/<run_id>/initialization.json`。各区域的点数和分段不同，不能将 full 初值直接用于 end15cm/end5cm。
 
-绘图流程会保存图像和 MP4 动画，MP4 导出还需要 Matplotlib 能找到可用的 FFmpeg。`init` 的存储零点功能关闭，首帧归零按原数据处理流程执行。
+绘图会保存图像和 MP4，MP4 导出需要可用的 FFmpeg。`init` 关闭存储零点，沿用静态数据预处理流程。要重新拟合，请运行新的 `init`；`--weights None --slopes None` 不会使优化任务执行初始化。
 
-初始化结果保存后，后续任务默认重新按当前配置构造引擎；要复用某次运行的初值，请显式续算：
+### 3.2 从匹配初值优化三个方向
+
+将下列三个目录替换成刚完成的对应区域 init run。默认的独立区域工作流保持 `use_full_transported_phase: false`；已有上游相位传递流程见第 3.3 节。
 
 ```powershell
-python main.py --config configs/my-sensor.yaml --task optim --direct 0 --resume "runs/实际sensor_id/实际init目录"
+$initFull = "runs/my_sensor/实际full-init目录"
+$initEnd15 = "runs/my_sensor/实际end15cm-init目录"
+$initEnd5 = "runs/my_sensor/实际end5cm-init目录"
+$initializations = @{ full = $initFull; end15cm = $initEnd15; end5cm = $initEnd5 }
+
+foreach ($region in @("full", "end15cm", "end5cm")) {
+    $seedRun = $initializations[$region]
+    foreach ($direct in @(0, 120, 240)) {
+        python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib False --optimization_region $region --direct $direct --resume "$seedRun"
+        if ($LASTEXITCODE -ne 0) { throw "优化失败：$region / $direct" }
+    }
+}
 ```
 
-续算会检查传感器、几何和区域布局。显式命令行种子优先于续算值；`--weights None --slopes None` 表示重新初始化这些参数。重新开始时，还应去掉配置中的 `resume` 并检查区域内初值。
+这会产生九个 optim run，每个区域/方向各一个。只优化全长时，将区域循环改为 `@("full")`，只需 `$initFull`。**每次 optim 只优化 `--direct` 指定的方向。** `exp_directs` 说明可加载的数据方向，不会代替三次方向优化。
 
-### 3.2 仅优化一个区域的三个方向
+续算会检查传感器、几何、区域、阈值和参数布局。显式命令行种子优先于续算参数；若显式设置 `None` 导致缺少必要初值，任务会在读取标定 CSV 前报错并指导运行 `init` 和 `--resume`。正常的零相位 `0` 不会触发重新拟合。
 
-模板默认 `multi_region_calib: false`、`optimization_region: full`。分别执行：
+### 3.3 已有完整初值时的批量任务
 
-```powershell
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib False --optimization_region full --direct 0
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib False --optimization_region full --direct 120
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib False --optimization_region full --direct 240
-```
+只有 `calibration_regions` 的每个区域都已有匹配的 `weights`、`slopes`、`global_phases_set`，或恢复包含所有目标区域结果的优化报告时，才能使用 `--multi_region_calib True`。系统会先检查全部区域初值，再开始读取和优化；顶层 full 初值不会盲填到局部区域。
 
-**每次 optim 只优化 `--direct` 指定的方向。** `exp_directs: [0,120,240]` 控制参与数据读取和初始化的方向，运行三次相同 `direct` 会得到重复方向的结果。
-
-单区域也可以显式选择 `--optimization_region end15cm` 或 `end5cm`，区域配置和上游相位依赖需要满足相应算法要求。
-
-### 3.3 每个方向依次优化三个区域
-
-先准备 full、end15cm、end5cm 的数据和区域配置，再运行：
+若已具备这些条件，可按方向执行：
 
 ```powershell
 python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib True --optimization_regions "['full','end15cm','end5cm']" --direct 0
@@ -111,9 +118,7 @@ python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib
 python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib True --optimization_regions "['full','end15cm','end5cm']" --direct 240
 ```
 
-三次运行得到三个方向、三个区域，共九组标定参数。批量任务的局部半径、阈值、分段和初值写在各自的 `calibration_regions` 中，避免用一个顶层覆盖值应用于全部区域。
-
-若启用 `use_full_transported_phase`，按 `full → end15cm → end5cm` 的顺序执行，局部优化会记录上游相位引用。单独重做局部区域时，需要已有匹配的来源参数包。真实点标定、独立权重与覆盖评分由模板对应开关控制，合并时要求跨方向布局与模式一致。
+批量任务的半径、阈值、分段和初值写在各自区域中。若启用 `use_full_transported_phase`，必须已有完整初值，并按 `full → end15cm → end5cm` 记录上游相位引用；单独重做局部区域还需要匹配的来源参数包。该开关不会允许优化调用模块2。
 
 ## 4. 判断任务完成并找到对应结果
 
@@ -173,7 +178,24 @@ python tools/export_algorithm_package.py --runs "$run0" "$run120" "$run240" --ou
 
 `--runs` 接收包含 `manifest.json`、`config_resolved.json`、`optim.json` 的目录。直接把 `calibration_results/.../results.json` 传给该选项，会因缺少快照配套文件而失败。
 
-如果按区域分别运行，可给 `--runs` 传入九个成功目录。每个 **区域/方向** 组合选定一份结果，重复组合会报错。重新优化某一方向后，重新选择所需的成功快照并导出新的包。
+按第 3.2 节分别优化三个区域时，用九个成功 run 导出完整发布包：
+
+```powershell
+$optimRuns = @(
+    "runs/my_sensor/实际full-0-optim目录",
+    "runs/my_sensor/实际full-120-optim目录",
+    "runs/my_sensor/实际full-240-optim目录",
+    "runs/my_sensor/实际end15cm-0-optim目录",
+    "runs/my_sensor/实际end15cm-120-optim目录",
+    "runs/my_sensor/实际end15cm-240-optim目录",
+    "runs/my_sensor/实际end5cm-0-optim目录",
+    "runs/my_sensor/实际end5cm-120-optim目录",
+    "runs/my_sensor/实际end5cm-240-optim目录"
+)
+python tools/export_algorithm_package.py --runs @optimRuns --output "packages/my_sensor-multiregion-v1.json"
+```
+
+每个 **区域/方向** 组合选定一份结果，重复组合会报错。重新优化某一方向后，重新选择所需的成功快照并导出新的包。
 
 导出工具检查 sensor_id、传感器设计、区域布局、标定模式及参数完成状态，并按区域和方向组织结果。init 快照导出的是初值包，`final_calibration` 为 false；最终标定发布应选择 optim 快照。
 
@@ -215,7 +237,7 @@ python tools/sensor_parameter_package.py --results "calibration_results/实际di
 
 若导出时 `configuration.zero_reference_path` 有值，工具会复制该文件到 `<包名>_resources/` 并改写相对引用。未准备零点文件时保持 `null`，demo 阶段也可以通过命令行单独提供。
 
-交付 JSON、存在时的资源目录、所用算法源码版本或 wheel，以及目标任务需要的数据和模型文件。当前引擎在 recon/demo 构造阶段仍读取定标数据目录，参数包中保存的数据路径也可能是绝对路径。跨机器时需要检查路径，本次任务的数据目录可以用 `--folder_path "目标机器上的全段测试目录"` 覆盖；多区域重新优化时，工作 YAML 的各区域路径应一起更新。参数 JSON 不包含原始实验数据。
+交付 JSON、存在时的资源目录、所用算法源码版本或 wheel，以及目标任务需要的数据和模型文件。新服务的构造不读取标定 CSV；demo 只加载设计、最终标定参数与动态数据源。静态 recon 在执行时仍需待重构的实验信号数据，参数包中保存的数据路径可能是绝对路径，跨机器时可以用 `--folder_path "目标机器上的全段测试目录"` 覆盖；多区域重新优化时，工作 YAML 的各区域路径应一起更新。参数 JSON 不包含原始实验数据。
 
 ### 5.5 同时交付算法库 wheel
 
@@ -241,7 +263,7 @@ python main.py --sensor_params packages/my_sensor-v1.json --task recon --multi_r
 python main.py --sensor_params packages/my_sensor-v1.json --task recon --multi_region_calib False --optimization_region full --direct 240 --exp_directs "[240]"
 ```
 
-新包单区域加载器按 `--direct` 选出一套参数。显式指定 `--exp_directs` 可避免导出时的三方向配置继续要求另外两套参数。
+静态 `recon` 按 `--direct` 选出一套参数；未显式指定 `--exp_directs` 时，读取范围自动使用该方向，示例中的显式范围也可以保留。
 
 ### 完整三区域包
 
@@ -261,9 +283,9 @@ python main.py --sensor_params packages/my_sensor-multiregion-v1.json --task rec
 python main.py --sensor_params packages/my_sensor-v1.json --task demo --multi_region_calib False --optimization_region full --direct 0 --exp_directs "[0]" --direction_reference_direct 0 --use_stored_zero False --IP "192.168.1.75" --PORT 26546
 ```
 
-选择 120 方向时，将 `direct`、`exp_directs`、`direction_reference_direct` 同时改为 120；240 方向同理。`direction_reference_direct` 的 parser 默认值为 240，因此选择其他方向时要显式覆盖。
+选择 120 方向时，将 `direct`、`exp_directs`、`direction_reference_direct` 同时改为 120；240 方向同理。`exp_directs` 可以省略，单区域 demo 会加载该区域包内所有可用方向的参数。`direction_reference_direct` 的 parser 默认值为 240，因此选择其他方向时要显式覆盖。
 
-当前新格式单区域加载器一次取所选方向的一套参数。上述命令使用单套参数运行。
+新格式单区域 demo 会加载所选区域全部可用方向的参数，并使用 `direction_reference_direct` 对应的相位和旋转设置。未启用混合时，只使用参考方向参数计算帧；启用 `--direction_blend_enabled` 时，必须有 0/120/240 三套参数，即使显式设置 `--exp_directs "[0]"` 也会保留混合需要的三套参数。显式 `--weights`、`--slopes`、相位和旋转覆盖仍优先，若覆盖后缺少必要方向会清楚报错。
 
 ### 7.2 完整三区域包
 
@@ -315,9 +337,16 @@ python tools/build_zero_reference.py "实际零状态CSV目录" --sensor-id my_s
 | `rot_dir` 方向查找失败 | 字典按方向角读，列表按标定形状读，检查实际需要的方向是否有配置 |
 | 合并提示缺少快照配置 | `--runs` 应指向任务快照目录，核对三个配套 JSON |
 | 合并提示重复方向 | 同一区域/方向输入了多份结果，选定一份成功 run |
-| demo 提示方向参数缺失 | 单区域设置匹配的 `direct`、`exp_directs`、`direction_reference_direct` |
+| demo 提示方向参数缺失 | 检查包中是否包含参考方向；混合模式必须含0/120/240三套，显式参数覆盖也须满足此范围 |
 | 改 YAML 后发布包没有变化 | 已发布 JSON 是快照，重新选择结果并导出新包；demo 可用 CLI 覆盖设备参数 |
+
+公开 API 的字段、shape、单位、输入是否被修改及状态归属见 [模块数据接口](../docs/module-data-interfaces.md)。实时运行与无窗口回放共同调用 `TaskSession.process_frame`，源连接、队列、IMU、锚定与记录归模块8管理。
 
 数值实现按八模块维护，任务流程位于 [pipelines/tasks.py](pipelines/tasks.py)，参数解析位于 [cli.py](cli.py)，配置加载位于 [configuration/loader.py](configuration/loader.py)，新包导出位于 [artifacts/packages.py](artifacts/packages.py)。
 
 修改源码后使用可编辑安装可直接使用工作树代码；已分发的 wheel 是构建时快照，需要重新构建、安装才能包含后续修复。
+
+
+## 9. 当前示例传感器的局部配置说明
+
+`configs/09B7_NeTi.yaml` 的 full 配置可用于前述全长流程。当前原有 end5cm 配置的几何覆盖5个真实点（18–22），但局部分段为 `[2,2]`，并启用了限定4点（19–22）的独立权重模式，不能直接执行该区域的初始化/优化。需要先根据实际实验确定一致的点位、区域和分段，再重新初始化，不能沿用不同布局的参数。本次切分没有替使用者更改这些设计值。具体核查和临时验收条件见 [八模块切分验收记录](../docs/module-split-acceptance.md)。

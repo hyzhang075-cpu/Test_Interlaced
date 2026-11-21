@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import numpy as np
 import vtk
 
-import shape_sensing.runtime.demonstrator as demonstrator_module
+import shape_sensing.runtime.compat as demonstrator_module
 from shape_sensing.runtime.anchor import EntranceAnchorConstraint, apply_entrance_anchor
-from shape_sensing.runtime.demonstrator import DataRecorder, Demonstrator, _build_anchor_marker_segments
+from shape_sensing.runtime.compat import DataRecorder, Demonstrator, _build_anchor_marker_segments
 from shape_sensing.cli import add_anchor_arguments
 
 

@@ -60,7 +60,7 @@ def test_acceptance_store_true_yaml_rejects_string_boolean(tmp_path):
         load_working_config(path)
 
 
-def test_acceptance_resume_uses_saved_parameters_not_error_summary(tmp_path):
+def test_acceptance_resume_uses_saved_parameters_not_error_summary(tmp_path, monkeypatch):
     """真实 init 输出同时含误差摘要和参数，续算必须读取参数。"""
     import runpy
     from pathlib import Path
@@ -76,7 +76,15 @@ def test_acceptance_resume_uses_saved_parameters_not_error_summary(tmp_path):
     }, 'initialization')
     run.finish('succeeded')
     args = helpers['args']('optim', sensor_id='RESUME', resume=str(run.path))
-    execute_task(args, **helpers['deps'](artifact_root=tmp_path/'continued'))
+    import shape_sensing.pipelines.tasks as tasks
+    # Exercise the real artifact/resume merge before numerical work. Numerical
+    # services and the full init->optim path are independently golden-tested.
+    seen = {}
+    def dispatch(resumed_args, **kwargs):
+        seen.update(weights=resumed_args.weights, slopes=resumed_args.slopes)
+        return {'stage': 'parameters_loaded'}
+    monkeypatch.setattr(tasks, '_execute_task_body', dispatch)
+    execute_task(args, **helpers['deps'](monkeypatch, artifact_root=tmp_path/'continued'))
     assert args.global_phases_set == 0.
     assert 0 in args.weights
     np.testing.assert_array_equal(args.weights[0], [1., 2.])
@@ -158,43 +166,53 @@ def test_acceptance_explicit_zero_phase_does_not_refit(monkeypatch):
 
 
 def test_acceptance_demo_closes_runtime_on_normal_and_failed_exit(tmp_path, monkeypatch):
-    """假设备与假窗口验证调度及清理，不连接真实解调仪。"""
-    import runpy
-    from pathlib import Path
+    """假数据源与窗口验证真实demo装配退出清理，不连接设备。"""
     import pytest
-    import shape_sensing.pipelines.tasks as tasks
-    helpers = runpy.run_path(str(Path(__file__).with_name('test_task_pipelines.py')))
+    import shape_sensing.runtime.demo as demo
+    import shape_sensing.runtime.transport as transport
     events = []
+    class Source:
+        def open(self): events.append('source-open')
+        def read(self): events.append('receive')
+        def close(self): events.append('source-close')
     class Runtime:
-        def __init__(self, context, **kwargs): pass
-        def run(self):
-            events.append('run')
-            return SimpleNamespace(imu=False, show=lambda: events.append('show'))
-        def close(self): events.append('close')
-    class Receiver:
-        def __init__(self, context): pass
-        def receive(self): events.append('receive')
-    class Thread:
-        def __init__(self, target, **kwargs): self.target = target
-        def start(self): self.target()
+        def __init__(self):
+            self.source = Source()
+            self.resources = []
+        def start(self):
+            self.source.open()
+            self.source.read()
+        def close(self):
+            for resource in self.resources:
+                resource.close()
+            self.source.close()
+            events.append('runtime-close')
+    class Transport:
+        def __init__(self, runtime): pass
+        def open(self): events.append('transport-open')
+        def publish(self, frame): pass
+        def close(self): events.append('transport-close')
     class App:
         def __init__(self, fail): self.fail = fail
         def exec_(self):
-            if self.fail: raise RuntimeError('event-loop-failure')
+            if self.fail:
+                raise RuntimeError('event-loop-failure')
             return 7
-    monkeypatch.setattr(tasks, 'RealtimeSystem', Runtime)
-    monkeypatch.setattr(tasks, 'InputPreprocessor', Receiver)
-    monkeypatch.setattr(tasks.threading, 'Thread', Thread)
+    def create(session, args):
+        return Runtime(), SimpleNamespace(show=lambda: events.append('show'),
+                                          close=lambda: events.append('window-close'))
+    monkeypatch.setattr(demo, 'create_demo', create)
+    monkeypatch.setattr(transport, 'UdpTransport', Transport)
+    args = SimpleNamespace(imu=False, demo_recorder=False)
     for fail in (False, True):
-        deps = helpers['deps'](artifact_root=tmp_path/str(fail))
-        deps['app_factory'] = lambda argv: App(fail)
-        args = helpers['args']('demo')
+        factory = lambda argv: App(fail)
         if fail:
             with pytest.raises(RuntimeError, match='event-loop-failure'):
-                tasks.execute_task(args, **deps)
+                demo.run_demo(object(), args, factory)
         else:
-            assert tasks.execute_task(args, **deps) == 7
-        assert events[-1] == 'close'
+            assert demo.run_demo(object(), args, factory) == 7
+        assert events[-2:] == ['source-close', 'runtime-close']
+        assert 'window-close' in events
     assert events.count('receive') == 2
 
 

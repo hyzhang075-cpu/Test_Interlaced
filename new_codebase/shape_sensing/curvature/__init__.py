@@ -10,3 +10,5 @@ class CurvatureEstimator:
     def __init__(self,context): self.context=context
     def estimate(self,*args,**kwargs): return self.context.engine._Strain_2_Cur(*args,**kwargs)
 __all__=["StrainGeometryMixin","CurvatureModelMixin","CurvatureEstimator"]
+
+from .service import CurvatureService

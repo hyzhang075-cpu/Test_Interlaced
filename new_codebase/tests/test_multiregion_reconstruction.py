@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from shape_sensing.reconstruction.engine import Reconstructor
+from shape_sensing.reconstruction.compat import Reconstructor
 
 
 def package():

@@ -1,0 +1,21 @@
+class OriginalTemporal:
+    def _apply_curvature_vector_kalman(self, cur_interp, ang_interp):
+        """Filter interpolated local curvature components across dynamic frames."""
+        cur_interp = np.asarray(cur_interp, dtype=float)
+        ang_interp = np.asarray(ang_interp, dtype=float)
+        if cur_interp.ndim != 1 or ang_interp.shape != cur_interp.shape:
+            raise ValueError("cur_interp and ang_interp must be equal-length one-dimensional arrays")
+        z = cur_interp[:, None] * np.column_stack((np.cos(ang_interp), np.sin(ang_interp)))
+        if self.kalman_x is None or self.kalman_x.shape != z.shape:
+            self.kalman_x = z.copy()
+            self.kalman_p = np.full_like(z, self.demo_kalman_Bk)
+            filtered = self.kalman_x.copy()
+        else:
+            # 预测：恒定曲率向量模型，状态不变，协方差累加过程噪声
+            p_pred = self.kalman_p + self.demo_kalman_Bk
+            K = p_pred / (p_pred + self.demo_kalman_Rk)
+            self.kalman_x = self.kalman_x + K * (z - self.kalman_x)
+            self.kalman_p = (1.0 - K) * p_pred
+            filtered = self.kalman_x.copy()
+
+        return np.hypot(filtered[:, 0], filtered[:, 1]), np.arctan2(filtered[:, 1], filtered[:, 0])

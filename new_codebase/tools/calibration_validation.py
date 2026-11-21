@@ -370,7 +370,7 @@ def validate_multiregion_package(package_path, score_results, policy=None):
     """Replay full and local experiments through one 22-point reconstruction."""
     import shape_sensing.cli as main
     from shape_sensing.optimization.batch import optimizer_parameters
-    from shape_sensing.optimization.engine import Optimiser
+    from shape_sensing.optimization.compat import Optimiser
     from tools.sensor_parameter_package import _project_relative_path
 
     package_path = str(Path(package_path).resolve())

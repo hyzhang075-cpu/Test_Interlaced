@@ -5,7 +5,7 @@ import pytest
 
 import main
 from shape_sensing.optimization.batch import optimizer_parameters, prepare_calibration_jobs
-from shape_sensing.optimization.engine import Optimiser
+from shape_sensing.optimization.compat import Optimiser
 from tests.test_end5cm_point_calibration import point_optimizer
 from tests.test_sensor_parameter_package import _parser, _report
 from tools.sensor_parameter_package import (

@@ -12,12 +12,12 @@ _MODULES = {
     "calibration_batch": "shape_sensing.optimization.batch",
     "calibration_regions": "shape_sensing.configuration.regions",
     "calibration_phase_reference": "shape_sensing.initialization.phase_reference",
-    "reconstructor": "shape_sensing.reconstruction.engine",
-    "optimiser": "shape_sensing.optimization.engine",
-    "sensor": "shape_sensing.input_preprocessing.sensor",
-    "initialiser": "shape_sensing.initialization.fitting",
+    "reconstructor": "shape_sensing.reconstruction.compat",
+    "optimiser": "shape_sensing.optimization.compat",
+    "sensor": "shape_sensing.input_preprocessing.compat",
+    "initialiser": "shape_sensing.initialization.compat",
     "entrance_anchor": "shape_sensing.runtime.anchor",
-    "demonstrator": "shape_sensing.runtime.demonstrator",
+    "demonstrator": "shape_sensing.runtime.compat",
 }
 
 for _alias, _target in _MODULES.items():

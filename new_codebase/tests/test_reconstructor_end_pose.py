@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from shape_sensing.reconstruction.engine import Reconstructor
+from shape_sensing.reconstruction.compat import Reconstructor
 
 
 class BuildEndPoseTests(unittest.TestCase):

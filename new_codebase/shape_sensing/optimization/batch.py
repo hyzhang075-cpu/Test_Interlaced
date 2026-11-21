@@ -460,12 +460,16 @@ def _plot_scores(report, path):
     fig.savefig(path, dpi=150)
 
 
-def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
+def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_factory=None):
     """逐区域执行并立即落盘。异常时保留已完成项并标记失败项，然后停止。
 
 每次启动使用独立目录，防止覆盖另一方向的定标结果。导出的参数只标记
 本次 --direct 为已优化，不把其他方向的初始化值冒充最优参数。
 """
+    def construct(job_args):
+        if session_factory is not None:
+            return session_factory(job_args)
+        return optimizer_factory(**optimizer_parameters(job_args))
     first = jobs[0][0]
     sensor = re.sub(r'[^\w.-]+', '_', first.sensor_id).strip('.') or 'sensor'
     run_id = (datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%z')
@@ -500,7 +504,7 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
                     source_args, _ = args._phase_source_jobs['full']
                     if source_args.weights is None or source_args.slopes is None:
                         raise ValueError('来源参数包缺少full已优化weights/slopes')
-                    full = optimizer_factory(**optimizer_parameters(source_args))
+                    full = construct(source_args)
                 upstream = full
                 if region == 'end5cm':
                     upstream = completed_optimizers.get('end15cm')
@@ -513,14 +517,14 @@ def run_calibration_jobs(jobs, optimizer_factory, *, output_root):
                         if not saved:
                             raise ValueError('独立end5cm固定相位优化需要先导出同方向固定相位end15cm结果')
                         source_args.global_phases_set = saved['phase_at_first_point_rad']
-                        upstream = optimizer_factory(**optimizer_parameters(source_args))
+                        upstream = construct(source_args)
                 reference = build_fixed_phase_reference(full, upstream, context, args.direct)
                 reference['source_kind'] = ('current_batch' if upstream in completed_optimizers.values()
                                             else 'sensor_package')
                 reference['source_sensor_params'] = getattr(args, 'sensor_params', None)
                 args.global_phases_set = reference['phase_at_first_point_rad']
                 entry['configuration']['global_phases_set'] = args.global_phases_set
-            optim = optimizer_factory(**optimizer_parameters(args))
+            optim = construct(args)
             optim.phase_reference = reference
             optim.calibration_context = context
             if args.task in ('optim', 'score'):

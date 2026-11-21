@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.sensor_parameter_package import load_sensor_package
-from shape_sensing.reconstruction.engine import Reconstructor
+from shape_sensing.reconstruction.compat import Reconstructor
 
 
 VARIANTS = (

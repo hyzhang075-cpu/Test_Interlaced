@@ -22,6 +22,7 @@ def _config(tmp_path, task=None, profile_seeds=True):
 
 def _capture_configure(monkeypatch):
     import shape_sensing.cli as cli
+    from shape_sensing.pipelines import session
     from shape_sensing.api import create_engine
     captured={}
     real_configure=cli.configure_calibration_args
@@ -31,7 +32,9 @@ def _capture_configure(monkeypatch):
         captured['context']=context
         return context
     monkeypatch.setattr(cli,'configure_calibration_args',capture)
-    monkeypatch.setattr(cli,'Optimiser',lambda **kwargs: SimpleNamespace(**kwargs))
+    class FakeSession(SimpleNamespace):
+        def initialize(self): self.initialized = True
+    monkeypatch.setattr(session,'TaskSession',lambda parameters, **kw: FakeSession(**parameters, **kw))
     return create_engine,captured
 
 

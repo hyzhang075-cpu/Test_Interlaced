@@ -1,15 +1,39 @@
-"""重构器与纯曲率积分公开接口。"""
-from .engine import Reconstructor
+"""模块5公开服务；旧引擎延迟导入，仅供兼容调用。"""
 from .integration import ShapeIntegrator
+from .service import ReconstructionService
+
 
 class ShapeReconstructor:
-    """将任务上下文引擎暴露为重构接口。"""
-    def __init__(self, context): self.context = context
-    def reconstruct_shapes(self, *args, **kwargs): return self.context.engine.reconstruct_shapes(*args, **kwargs)
+    """将旧任务上下文适配到独立重构任务会话。"""
+
+    def __init__(self, context):
+        """输入持有session的任务context，不访问旧大引擎。"""
+        self.context = context
+
+    def reconstruct_shapes(self, *args, **kwargs):
+        """输入旧形状/方向参数，输出重构树(N,3)m与距离(N,)m。"""
+        from ..context import LegacyContext
+        if isinstance(self.context, LegacyContext):
+            return self.context.engine.reconstruct_shapes(*args, **kwargs)
+        return self.context.session.reconstruct_shapes(*args, **kwargs)
+
     def integrate(self, cur_interp, ang_interp, interp_dist, init_T):
-        """使用当前重构器的积分实现和对象状态。"""
-        return self.context.engine._reconstruct_from_interpolated_curvature(
-            cur_interp, ang_interp, interp_dist, init_T)
+        """输入曲率(N,)1/m、方向rad、距离m与切向(3,)，输出旧位置/标架tuple。"""
+        from ..context import LegacyContext
+        if isinstance(self.context, LegacyContext):
+            return self.context.engine._reconstruct_from_interpolated_curvature(
+                cur_interp, ang_interp, interp_dist, init_T)
+        config = self.context.session.configuration.reconstruction
+        return ShapeIntegrator(config.frame_rule, config.TNB_threshold,
+                               config.rot_ang).integrate(cur_interp, ang_interp, interp_dist, init_T)
 
 
-__all__ = ["Reconstructor", "ShapeIntegrator", "ShapeReconstructor"]
+def __getattr__(name):
+    """仅显式请求旧Reconstructor符号时加载兼容引擎。"""
+    if name == 'Reconstructor':
+        from .compat import Reconstructor
+        return Reconstructor
+    raise AttributeError(name)
+
+
+__all__ = ['Reconstructor', 'ShapeIntegrator', 'ShapeReconstructor', 'ReconstructionService']

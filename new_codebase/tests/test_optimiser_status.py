@@ -3,7 +3,7 @@ from types import MethodType
 import numpy as np
 import pytest
 
-from shape_sensing.optimization.engine import Optimiser
+from shape_sensing.optimization.compat import Optimiser
 
 
 def _optimizer_returning(loss):

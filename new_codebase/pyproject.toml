@@ -21,3 +21,7 @@ include = ["shape_sensing*"]
 
 [tool.setuptools.package-data]
 shape_sensing = ["configuration/parameters.json", "resources/*.yaml"]
+
+[tool.pytest.ini_options]
+cache_dir = "artifacts/testing/cache"
+addopts = "--basetemp=artifacts/testing/tmp"

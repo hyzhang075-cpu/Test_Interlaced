@@ -1,3 +1,4 @@
+# 历史类兼容入口集中于本模块；新生产入口请使用 shape_sensing.runtime.service.RuntimeService。
 import pickle
 import queue
 from datetime import datetime

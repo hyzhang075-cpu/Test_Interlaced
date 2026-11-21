@@ -59,7 +59,7 @@ class ShapeIntegrationMixin:
 
         说明：
         - 当某点曲率小于 self.TNB_threshold 时，认为局部形状变化过小，直接沿用上一点的 T/N/B。
-        - 当前实现的返回顺序为 (r, N, T, B)。
+        - 当前实现的返回顺序为 (r, T, N, B)。
 
         输入：
         - kappa: 曲率数组，形状为 (num_points,)
@@ -282,7 +282,7 @@ class ShapeIntegrator(ShapeIntegrationMixin):
 
     输入数组长度一致且至少有两个样本；曲率单位为 1/m，角度为 rad，弧长为 m，
     init_T 为全局单位切向量。返回 position、T、Y、Z 四个 (N, 3) 数组。
-    不创建 Sensor、不读取外部文件；TNB 返回 position/N/T/B，TNN 返回 position/T/Y/Z，
+    不创建 Sensor、不读取外部文件；TNB 返回 position/T/N/B，TNN 返回 position/T/Y/Z，
     保留旧实现的分支返回顺序。
     """
     def __init__(self, frame_rule='TNB', TNB_threshold=0.15, rot_ang=0.0):

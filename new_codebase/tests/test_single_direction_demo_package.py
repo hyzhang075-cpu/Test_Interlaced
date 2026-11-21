@@ -132,3 +132,61 @@ def test_demo_accepts_coverage_aware_end5_weights_with_full_runtime_region(tmp_p
     assert args.optimization_region == 'full'
     assert args.end5cm_coverage_aware_weights is True
     assert context['end5cm_coverage_aware_weights'] is True
+
+
+def test_published_algorithm_demo_loads_all_available_directions_without_calibration_io(monkeypatch):
+    """真实09B7发布包demo拥有三个方向，构造及同帧计算不读取标定CSV。"""
+    from shape_sensing.cli import parse_main_args, configure_calibration_args, optimizer_parameters
+    from shape_sensing.pipelines.session import TaskSession
+    from shape_sensing.pipelines.tasks import module_parameters
+    import pandas as pd
+    args = parse_main_args(['--sensor_params', str(ROOT/'packages/09B7_NeTi.json'), '--task', 'demo'])
+    configure_calibration_args(args)
+    assert set(args.weights) == {0, 120, 240}
+    assert set(args.slopes) == {0, 120, 240}
+    assert args.exp_directs == [0, 120, 240]
+    def reject_csv(*args, **kwargs):
+        raise AssertionError('published demo must not read calibration CSV')
+    monkeypatch.setattr(pd, 'read_csv', reject_csv)
+    session = TaskSession(module_parameters(args, optimizer_parameters), task='demo')
+    raw = np.zeros((len(session.design.sampling_distance_m), len(args.active_channels)))
+    shape, state = session.process_frame(raw, acquired=True, direct=args.direction_reference_direct)
+    assert shape.position_m.shape == (args.interp_num, 3)
+    assert state is not None
+
+
+def test_algorithm_demo_blend_requires_three_parameter_directions(tmp_path):
+    from shape_sensing.cli import parse_main_args, configure_calibration_args
+    package = json.loads((ROOT/'packages/09B7_NeTi.json').read_text(encoding='utf-8'))
+    path = tmp_path/'demo-blend.json'
+    path.write_text(json.dumps(package), encoding='utf-8')
+    args = parse_main_args(['--sensor_params', str(path), '--task', 'demo', '--direction_blend_enabled', '--exp_directs', '[0]'])
+    configure_calibration_args(args)
+    assert args.exp_directs == [0]
+    assert set(args.weights) == {0, 120, 240}
+    from shape_sensing.pipelines.session import TaskSession
+    from shape_sensing.pipelines.tasks import module_parameters
+    from shape_sensing.cli import optimizer_parameters
+    from shape_sensing.runtime.demo import LiveFrameProcessor
+    session = TaskSession(module_parameters(args, optimizer_parameters), task='demo')
+    processor = LiveFrameProcessor(session, args)
+    raw = np.zeros((len(session.design.sampling_distance_m), len(args.active_channels)))
+    shape, state = processor(raw, direct=args.direction_reference_direct)
+    assert shape.position_m.shape == (args.interp_num, 3)
+    assert state.direction is not None
+    del package['calibration']['full']['120']
+    path.write_text(json.dumps(package), encoding='utf-8')
+    with pytest.raises(ValueError, match='120'):
+        parse_main_args(['--sensor_params', str(path), '--task', 'demo', '--direction_blend_enabled'])
+
+
+def test_algorithm_demo_preserves_explicit_seed_and_static_recon_scope():
+    from shape_sensing.cli import parse_main_args, configure_calibration_args
+    path = str(ROOT/'packages/09B7_NeTi.json')
+    args = parse_main_args(['--sensor_params', path, '--task', 'demo', '--weights', '{0:[2.]}'])
+    assert args.weights == {0:[2.]}
+    assert set(args.slopes) == {0, 120, 240}
+    static = parse_main_args(['--sensor_params', path, '--task', 'recon', '--direct', '120'])
+    configure_calibration_args(static)
+    assert static.exp_directs == [120]
+    assert set(static.weights) == {120}

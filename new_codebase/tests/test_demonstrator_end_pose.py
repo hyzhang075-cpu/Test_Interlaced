@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from shape_sensing.runtime.demonstrator import _build_end_pose_arrow_matrices
+from shape_sensing.runtime.compat import _build_end_pose_arrow_matrices
 
 
 class BuildEndPoseArrowMatricesTests(unittest.TestCase):
