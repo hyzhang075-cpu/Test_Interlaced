@@ -138,7 +138,7 @@ calibration_regions:
     end_start: -1
     segmentation:
     - 2
-    - 2
+    - 3
     weights: null
     slopes: null
 # calibration_output_dir: 批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录

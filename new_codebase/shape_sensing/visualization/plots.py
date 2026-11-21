@@ -44,12 +44,17 @@ class Visualisor:
         dataset = inputs.dataset
         diagnostics = inputs.initialization
         self.sensor_id = dataset.design.sensor_id
-        self.active_channels = {channel: None for channel in dataset.channel_ids}
+        # 绘图数据保留设计通道顺序（包括中心通道），映射值必须是对应列索引。
+        self.active_channels = {channel: idx for idx, channel in enumerate(dataset.design.active_channels)}
         self.samp_dist = dataset.design.sampling_distance_m.copy()
         self.ad_samp_dist = self.samp_dist.copy()
         self.ideal_len = inputs.ideal_length_m
         self.rot_ang = inputs.rotation_deg
-        self.calib_shapes = list(dataset.data)
+        self.calib_shapes = [
+            shape for shape, directions in dataset.data.items()
+            if any(values and dataset.plot_data.get(shape, {}).get(direct)
+                   for direct, values in directions.items())
+        ]
         self.plot_Data = dataset.plot_data
         self.radii = dataset.radii
         self.init_weight = inputs.initial_weight
@@ -107,6 +112,8 @@ class Visualisor:
         os.makedirs(init_dir, exist_ok=True)
 
         for calib_shape in self.calib_shapes:
+            if not self.plot_Data.get(calib_shape, {}).get(direct):
+                continue
             if calib_shape == 'S' and 'S' in self.angle_results_raw and direct in self.angle_results_raw['S']:
                 self._ang_curve(angle=self.angle_results_raw['S'][direct], angle_unwrap=self.angle_results_unwrap['S'][direct], save_dir=init_dir)
             self._strain_curve(direct=direct, calib_shape=calib_shape, save_dir=init_dir)
@@ -320,7 +327,8 @@ class Visualisor:
         """
         title = f"Strain Data {calib_shape}"
         # 创建图形
-        fig, axes = plt.subplots(len(self.active_channels), 1, figsize=(8, 12))
+        fig, axes = plt.subplots(len(self.active_channels), 1, figsize=(8, 12), squeeze=False)
+        axes = axes.ravel()
 
         # 遍历每个通道
         for phy_ch, idx in self.active_channels.items():
