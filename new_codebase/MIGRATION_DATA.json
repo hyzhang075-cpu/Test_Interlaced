@@ -1,0 +1,61 @@
+{
+  "mappings": [
+    {
+      "sha256_verified": true,
+      "files": 1227,
+      "operation": "independent copy",
+      "destination": "new_codebase/data/1016-09B7-自研（1+3）22点86cmFBG+镍钛管全末段定标测试",
+      "source": "1016-09B7-自研（1+3）22点86cmFBG+镍钛管全末段定标测试"
+    },
+    {
+      "files": 9,
+      "operation": "move",
+      "destination": "new_codebase/outputs/09B7_NeTi",
+      "source": "root/09B7_NeTi"
+    },
+    {
+      "files": 16,
+      "operation": "move; snapshots retained",
+      "destination": "new_codebase/runs/09B7_NeTi",
+      "source": "root/runs/09B7_NeTi"
+    },
+    {
+      "files": 1,
+      "operation": "copy then archive original",
+      "destination": "new_codebase/packages/09B7_NeTi.json",
+      "source": "root/packages/09B7_NeTi.json"
+    },
+    {
+      "files": 79,
+      "operation": "independent copies",
+      "destination": "new_codebase/params and legacy_codebase/params/historical",
+      "source": "root/params/*"
+    },
+    {
+      "operation": "move",
+      "destination": "legacy_codebase/calibration_results",
+      "source": "root/calibration_results (non-09B7 legacy reports)"
+    },
+    {
+      "operation": "move",
+      "destination": "legacy_codebase/data",
+      "source": "root/other raw experiment directories"
+    },
+    {
+      "operation": "move",
+      "destination": "legacy_codebase/archive",
+      "source": "root/build,dist,egg-info,__pycache__,VTK snapshot"
+    }
+  ],
+  "source_path_update": "Original provenance is retained in new_codebase/docs/RAW_COPY_SHA256.json and this mapping; runtime references point only within new_codebase",
+  "reports_rebased": 3,
+  "created_utc": "2026-11-21T08:11:41.9562555Z",
+  "scope": "data, parameters, packages, runs, calibration results, outputs, archives",
+  "path_strategy": "Runtime configuration and region folder_path values are rebased to new_codebase/data; output paths to new_codebase/calibration_results. Structured JSON rebasing covered package configuration, top-level regions, and nested run/report configuration/context fields; all provenance strings remain original source metadata.",
+  "runtime_validation": {
+    "python": "D:\\anaconda3\\envs\\dc_Shape\\python.exe",
+    "folder_path": "new_codebase/data/1016-09B7-自研（1+3）22点86cmFBG+镍钛管全末段定标测试/全段测试",
+    "path_is_dir": true,
+    "method": "shape_sensing.cli.parse_main_args + configure_calibration_args with --sensor_params packages/09B7_NeTi.json --task recon --direct 0 --exp_directs [0]"
+  }
+}
