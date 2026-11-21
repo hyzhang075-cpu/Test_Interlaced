@@ -213,6 +213,7 @@ active_angles: null
 # folder_path: 覆盖所选区域的数据目录；默认由 calibration_regions 提供
 folder_path: null
 # rot_dir: 各个标定实验按逆(1)还是顺(-1)顺时针调整的方向
+# 字典按实验方向角 0/120/240 配置；列表按 calib_shapes 顺序配置；单个数值用于全部实验。
 rot_dir:
   '0': -1
   '120': -1
@@ -271,9 +272,10 @@ maxsize: 10
 # data_freq: 解调仪频率
 data_freq: 100
 # use_stored_zero: demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零
-use_stored_zero: true
+use_stored_zero: false
 # zero_reference_path: 统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致
-zero_reference_path: ./params/06B6_NeTi_v2_ftube_zero_reference.json
+# 初始化和优化阶段无需零点文件；仅在 demo 使用存储零点时填写路径。
+zero_reference_path: null
 # wavelength_jump_guard_enabled: 启用逐 FBG 跨帧波长连续性检查（True/False；默认开启）
 wavelength_jump_guard_enabled: true
 # wavelength_jump_threshold_pm: 逐 FBG 跨帧波长跳变阈值，单位 pm；超过阈值的单帧跳变先安全保持，默认 12000 pm

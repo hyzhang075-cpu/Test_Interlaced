@@ -397,9 +397,7 @@ def test_package_merges_literal_direction_angles_in_stable_order():
 def test_parser_and_exported_package_use_project_relative_paths():
     parser = _parser()
     parser.set_defaults(calibration_data_root=str(ROOT / '0908-06B6'))
-    assert parser.get_default('zero_reference_path') == (
-        './params/06B6_NeTi_v2_ftube_zero_reference.json'
-    )
+    assert parser.get_default('zero_reference_path') is None
 
     reports = [_report(direct) for direct in (0, 120, 240)]
     for report in reports:

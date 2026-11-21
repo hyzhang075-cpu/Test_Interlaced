@@ -527,7 +527,7 @@
     "options": [
       "--rot_dir"
     ],
-    "type": "list"
+    "type": "literal_eval"
   },
   "exp_directs": {
     "help": "实验使用的字面方向角列表，如[0]或[0,120,240]；单区域recon默认只使用direct",
@@ -741,7 +741,7 @@
   "use_stored_zero": {
     "help": "demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零",
     "choices": null,
-    "default": true,
+    "default": false,
     "options": [
       "--use_stored_zero"
     ],
@@ -750,7 +750,7 @@
   "zero_reference_path": {
     "help": "统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致",
     "choices": null,
-    "default": "./params/06B6_NeTi_v2_ftube_zero_reference.json",
+    "default": null,
     "options": [
       "--zero_reference_path"
     ],

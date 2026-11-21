@@ -25,6 +25,10 @@ def parameter_catalog():
 
 def _type_ok(value, kind, name=None):
     if value is None: return True
+    if name == 'rot_dir':
+        # 兼容方向角字典、按标定形状排列的旧列表和统一旋转符号。
+        return isinstance(value, (dict, list, tuple)) or (
+            type(value) in (int, float) and math.isfinite(value))
     if kind in ('bool', '_str2bool') or (kind in (None, 'None') and isinstance(_CATALOG.get(name, {}).get('default'), bool)): return type(value) is bool
     if kind in ('float', '_finite_nonnegative_float'):
         return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)
@@ -87,7 +91,8 @@ def validate_working_config(data):
             if new_key in normalized: raise ValueError(f'{path} 方向键重复: {new_key}')
             normalized[new_key]=normalize_direction_keys(child,f'{path}.{new_key}')
         return normalized
-    for key in ('weights','slopes','radii'):
+    # YAML/JSON 中的物理通道号同方向角一样，统一为整数键。
+    for key in ('weights','slopes','radii','sensing_ranges','rot_dir'):
         if key in data: data[key]=normalize_direction_keys(data[key],key)
     return dict(data)
 

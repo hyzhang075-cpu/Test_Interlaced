@@ -117,15 +117,18 @@ class Sensor:
         self.ss = ss
         self.num_groups = len(radii)
         self.N = N
+        # LUNA 使用连续采样区间；FBG 使用 samp_dist_preset，无需配置这些区间。
+        self.min_len = None
+        self.sensing_ranges = {}
         if interrogator == 'LUNA':
             missing_ranges = [phy_ch for phy_ch in active_channels if phy_ch not in sensing_ranges]
             if missing_ranges:
                 raise ValueError(f"sensing_ranges 缺少这些激活物理通道的配置: {missing_ranges}")
 
-        self.min_len = min(end - start for phy_ch, (start, end) in sensing_ranges.items() if phy_ch in self.active_channels)
+            self.min_len = min(end - start for phy_ch, (start, end) in sensing_ranges.items() if phy_ch in self.active_channels)
 
-        # sensing_ranges 的 key 直接使用物理通道号
-        self.sensing_ranges = {phy_ch: (start, start + self.min_len) for phy_ch, (start, _) in sensing_ranges.items() if phy_ch in self.active_channels}
+            # sensing_ranges 的 key 直接使用物理通道号
+            self.sensing_ranges = {phy_ch: (start, start + self.min_len) for phy_ch, (start, _) in sensing_ranges.items() if phy_ch in self.active_channels}
         self.smoothing_params = smoothing_params
 
         # 传感器物理参数

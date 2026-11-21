@@ -32,6 +32,11 @@ def configure_calibration_args(args):
 数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
 返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
 """
+    # 存储零点只在 demo 阶段显式启用，定标任务无需提前准备零点文件。
+    if args.task != 'demo':
+        args.use_stored_zero = False
+    elif args.use_stored_zero and not args.zero_reference_path:
+        raise ValueError('demo 启用 use_stored_zero 时必须提供 zero_reference_path')
     if args.task == 'recon' and not args.multi_region_calib:
         # A single-region replay reconstructs only args.direct. Keep an explicit
         # experiment scope, but do not require unused parameter directions by default.
@@ -460,7 +465,7 @@ def build_argument_parser():
     # parser.add_argument('--folder_path', type=str, default="./0908-06B6/全段测试", help='数据存储路径')
     # parser.add_argument('--folder_path', type=str, default="./0908-06B6/末端测试/15cm", help='数据存储路径')
     parser.add_argument('--folder_path', type=str, default=None, help='覆盖所选区域的数据目录；默认由 calibration_regions 提供')
-    parser.add_argument('--rot_dir', type=list, default={0:-1,120:-1,240:-1}, help='各个标定实验按逆(1)还是顺(-1)顺时针调整的方向')
+    parser.add_argument('--rot_dir', type=ast.literal_eval, default={0:-1,120:-1,240:-1}, help='各个标定实验按逆(1)还是顺(-1)顺时针调整的方向')
     parser.add_argument('--exp_directs', type=ast.literal_eval, default=[0, 120, 240],
                         help='实验使用的字面方向角列表，如[0]或[0,120,240]；单区域recon默认只使用direct')
     # parser.add_argument('--radii', type=list, default={'circ': [0, 2000, 1500, 1000, 800, 600, 400, 300, 200]}, help='标定圆弧形状半径')
@@ -488,8 +493,8 @@ def build_argument_parser():
     parser.add_argument('--PORT', type=int, default=26546, choices=[26546, 4010], help='FiberTecc使用26546, Hippo使用4010')
     parser.add_argument('--maxsize', type=int, default=10, choices=[10, 2], help='FiberTecc使用10, Hippo使用2')
     parser.add_argument('--data_freq', type=int, default=100, help='解调仪频率')
-    parser.add_argument('--use_stored_zero', type=_str2bool, default=True, help='demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零')
-    parser.add_argument('--zero_reference_path', type=str, default='./params/06B6_NeTi_v2_ftube_zero_reference.json', help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
+    parser.add_argument('--use_stored_zero', type=_str2bool, default=False, help='demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零')
+    parser.add_argument('--zero_reference_path', type=str, default=None, help='统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致')
     parser.add_argument('--wavelength_jump_guard_enabled', type=_str2bool, default=True,
                         help='启用逐 FBG 跨帧波长连续性检查（True/False；默认开启）')
     parser.add_argument('--wavelength_jump_threshold_pm', type=float, default=12000.0,

@@ -145,7 +145,15 @@ class Reconstructor(CurvatureModelMixin, Initialiser, ShapeIntegrationMixin, Ide
         slope = self.slopes[direct]
 
         interp_dist = None
-        rot_dir = self.rot_dir[self.calib_shapes.index(calib_shape)]
+        # 字典按实验方向角取值；旧列表仍按 calib_shapes 顺序取值。
+        if isinstance(self.rot_dir, dict):
+            rot_dir = self.rot_dir.get(direct, self.rot_dir.get(str(direct)))
+            if rot_dir is None:
+                raise ValueError(f"rot_dir 缺少方向 {direct} 的旋转符号")
+        elif np.isscalar(self.rot_dir):
+            rot_dir = self.rot_dir
+        else:
+            rot_dir = self.rot_dir[self.calib_shapes.index(calib_shape)]
         rot_matrix = self._get_rot_x(direct=direct, rot_dir=rot_dir)
 
         # ---------- 构造路径树 ----------
