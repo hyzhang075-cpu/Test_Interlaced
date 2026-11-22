@@ -85,7 +85,7 @@ calibration_regions:
 python main.py --config configs/09B7_NeTi.yaml --task init --multi_region_calib True
 ```
 
-批量任务分别使用各区域的 `folder_path`、分段和阈值。程序先检查所有目标区域，再读取标定 CSV。成功后终端会打印 `initialization.json` 的路径，文件按区域保存相位、各方向的权重、斜率和对应的采样布局。批量运行会直接保存绘图和 MP4。
+批量任务分别使用各区域的 `folder_path`、分段和阈值。程序先检查所有目标区域，再读取标定 CSV。09B7 会依次跑完 `full`、`end15cm`、`end5cm`，每个区域按 0°、120°、240° 逐一生成角度图、应变图及重构 MP4，共九组输出。视频包含重构曲线和对应的理论曲线，可在该次运行目录的 `outputs/<区域>/<方向>/` 中查看。所有区域完成后，终端会打印 `initialization.json` 的路径。该文件按区域保存相位、各方向的权重、斜率和对应的采样布局。
 
 单区域模式的以下命令分别使用各区域对应的静态数据、阈值和分段，保存独立的初始化快照：
 
@@ -183,6 +183,8 @@ Get-ChildItem "runs/my_sensor" -Directory | ForEach-Object {
 ## 5. 合并参数并发布 JSON
 
 ### 5.1 从成功的 optim run 合并
+
+导出脚本、`--runs` 和 `--output` 的相对路径均以 PowerShell 当前目录为基准。从仓库根目录操作时，请先执行 `Set-Location .\new_codebase`，再执行本节命令。
 
 批量优化完成后，用 0°、120° 和 240° 各自的成功 run 合并。三个方向都用了多区域模式时，这三个 run 已包含全部九组区域/方向结果。`my_sensor` 是配置中的 `sensor_id`，可以与 YAML 文件名不同。
 
@@ -376,4 +378,4 @@ python tools/build_zero_reference.py "实际零状态CSV目录" --sensor-id my_s
 
 `end5cm` 的三组权重对应 18–20、21、22 号点，分组索引为 `[0, 0, 0, 1, 2]`。当前布局的初值应由这套配置重新初始化生成。
 
-已在 `dc_ss` 使用真实 09B7 数据验证批量初始化、九组区域/方向的限迭代优化，以及从批量快照恢复 `end5cm` 的 240° 单区域初值。验收详情见 [数据契约清理台账](../docs/data-contract-cleanup.md)。
+已在 `dc_ss` 使用真实 09B7 数据完成批量初始化，三个区域各写出 6 张 PNG 和 3 段重构 MP4。也已验证九组区域/方向的限迭代优化，以及从批量快照恢复 `end5cm` 的 240° 单区域初值。优化验收详情见 [数据契约清理台账](../docs/data-contract-cleanup.md)。

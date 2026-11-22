@@ -24,7 +24,7 @@ end5cm_uncovered_weight_policy: interpolate_neutral_edges
 # optim_weights_only: 只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes
 optim_weights_only: false
 # multi_region_calib: True时init/optim/score遍历optimization_regions；False时仅选择optimization_region
-multi_region_calib: false
+multi_region_calib: true
 # optimization_region: init/recon/demo等单区域任务使用的数据区域
 optimization_region: full
 # optimization_regions: 区域模式下init/optim/score依次处理的区域列表

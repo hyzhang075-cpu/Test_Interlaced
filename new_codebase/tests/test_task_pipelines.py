@@ -135,12 +135,23 @@ def test_batch_initialization_seeds_every_region_and_direction(tmp_path, monkeyp
                   optimization_regions=regions, exp_directs=list(directions))
     d = deps(monkeypatch, artifact_root=tmp_path)
     monkeypatch.setattr(tasks, 'TaskSession', InitialSession)
-    displayed = []
+    plotted = []
     class BatchPlot(Vis):
+        def __init__(self, session, *, output_root):
+            """记录当前区域的独立绘图目录；单区域使用默认目录。"""
+            super().__init__(session)
+            self.output_root = output_root
+
+        def init_visualise(self, direct):
+            """记录为该区域和方向生成角度图的调用。"""
+            plotted.append(('angles', self.engine.region, direct, self.output_root))
+
         def show_reconstruction(self, direct, curves, distance, *, showanime, ideals):
-            """记录方向及是否弹出交互窗口，绘图本身由专门测试覆盖。"""
-            displayed.append((self.engine.region, direct, showanime))
-    monkeypatch.setattr(tasks, '_visualization', lambda session, **kwargs: BatchPlot(session))
+            """记录为该方向保存重构形状的调用，批量模式无需弹窗。"""
+            if self.output_root is not None:
+                assert not showanime
+            plotted.append(('reconstruction', self.engine.region, direct, self.output_root))
+    monkeypatch.setattr(tasks, '_visualization', BatchPlot)
 
     def prepare(ns, configure):
         """按区域返回已解析的分段和初值，模拟预检后的 job 列表。"""
@@ -153,8 +164,13 @@ def test_batch_initialization_seeds_every_region_and_direction(tmp_path, monkeyp
     d['prepare_jobs'] = prepare
     init = execute_task(args('init', calibration_regions=deepcopy(profiles), **common), **d)
     assert list(init['regions']) == regions
-    assert displayed == [(region, direct, False) for region in regions for direct in directions]
     source, = (tmp_path / 'S').glob('*-init')
+    assert plotted == [
+        (kind, region, direct, source / 'outputs' / region)
+        for region in regions
+        for direct in directions
+        for kind in ('angles', 'reconstruction')
+    ]
     snapshot = json.loads((source / 'initialization.json').read_text(encoding='utf-8'))
     assert 'global_phases_set' not in snapshot
     package = export_package([source], tmp_path / 'package.json')
