@@ -4,10 +4,10 @@ from .service import ReconstructionService
 
 
 class ShapeReconstructor:
-    """将旧任务上下文适配到独立重构任务会话。"""
+    """重构兼容入口，接受 TaskSession 或旧引擎上下文。"""
 
     def __init__(self, context):
-        """输入持有session的任务context，不访问旧大引擎。"""
+        """输入 TaskSession 或 LegacyContext，保存引用供旧签名转发。"""
         self.context = context
 
     def reconstruct_shapes(self, *args, **kwargs):
@@ -15,7 +15,7 @@ class ShapeReconstructor:
         from ..context import LegacyContext
         if isinstance(self.context, LegacyContext):
             return self.context.engine.reconstruct_shapes(*args, **kwargs)
-        return self.context.session.reconstruct_shapes(*args, **kwargs)
+        return self.context.reconstruct_shapes(*args, **kwargs)
 
     def integrate(self, cur_interp, ang_interp, interp_dist, init_T):
         """输入曲率(N,)1/m、方向rad、距离m与切向(3,)，输出旧位置/标架tuple。"""
@@ -23,7 +23,7 @@ class ShapeReconstructor:
         if isinstance(self.context, LegacyContext):
             return self.context.engine._reconstruct_from_interpolated_curvature(
                 cur_interp, ang_interp, interp_dist, init_T)
-        config = self.context.session.configuration.reconstruction
+        config = self.context.configuration.reconstruction
         return ShapeIntegrator(config.frame_rule, config.TNB_threshold,
                                config.rot_ang).integrate(cur_interp, ang_interp, interp_dist, init_T)
 

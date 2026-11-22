@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from pathlib import Path
 from shape_sensing.pipelines import tasks
-from shape_sensing.pipelines import build_context, execute_task
+from shape_sensing.pipelines import build_session, execute_task
 
 class Engine:
     def __init__(self, parameters=None, task='recon', region='full'):
@@ -40,20 +40,22 @@ def deps(monkeypatch, engine_factory=lambda **kw: Engine(), artifact_root=Path("
     def build_parameters(ns): return vars(ns)
     def configure(ns): return 'calibration'
     monkeypatch.setattr(tasks, 'TaskSession', lambda parameters, **options: Engine(parameters, **options))
-    monkeypatch.setattr(tasks, '_visualization', lambda session: Vis(session))
+    monkeypatch.setattr(tasks, '_visualization', lambda session, **kwargs: Vis(session))
     return dict(optimiser_factory=engine_factory,visualizer_factory=Vis,app_factory=lambda argv:None,
         configure_args=configure,parameter_builder=build_parameters,prepare_jobs=lambda ns,fn:[(args('optim',optimization_region='full',weights={0:[1.]},slopes={0:[[0.]]},global_phases_set=0.),{})],
         run_jobs=runner,compute_error_ang=lambda **kw:'init-result',optim_ang=lambda **kw:'ang-result',
         project_root=Path('project'),artifact_root=artifact_root)
 
-def test_build_context_creates_isolated_task_engine(tmp_path, monkeypatch):
+def test_build_session_creates_isolated_task_engine(tmp_path, monkeypatch):
+    """两次任务装配返回各自的会话和区域参数映射。"""
     engines=[]
     def factory(**kw):
         engine=Engine(); engines.append(engine); return engine
     d=deps(monkeypatch,factory,tmp_path)
-    one=build_context(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
-    two=build_context(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
-    assert one.session is not two.session
+    one=build_session(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
+    two=build_session(args('init'),parameter_builder=d['parameter_builder'],configure_args=d['configure_args'])
+    assert one is not two
+    assert one.parameters is not two.parameters
 
 def test_optim_and_score_use_batch_path(tmp_path,monkeypatch):
     d=deps(monkeypatch,artifact_root=tmp_path); assert execute_task(args('optim'),**d)=='batch-result'
@@ -106,3 +108,99 @@ def test_single_region_resume_requires_requested_direction(tmp_path,monkeypatch)
     ns=args('optim',sensor_id='S',direct=120,resume=str(run.path),optimization_region='full')
     with pytest.raises(ValueError,match='direct=120'):
         execute_task(ns,**deps(monkeypatch,artifact_root=tmp_path/'continued'))
+
+
+def test_batch_initialization_seeds_every_region_and_direction(tmp_path, monkeypatch):
+    """一次 init 保存各区权重和分段斜率，三个方向 optim 分别恢复匹配初值。"""
+    from copy import deepcopy
+    import json
+    import pytest
+    from shape_sensing.artifacts.packages import export_package
+
+    regions = ['full', 'end15cm', 'end5cm']
+    directions = (0, 120, 240)
+    profiles = {region: {'segmentation': [i + 1], 'weights': None, 'slopes': None}
+                for i, region in enumerate(regions)}
+
+    class InitialSession(Engine):
+        def initialize(self, verbose=False):
+            """生成不同区域、不同方向的可区分初值，模拟已完成的拟合。"""
+            i = regions.index(self.region)
+            self.dataset = SimpleNamespace(radii=directions)
+            self.weights = {d: [i + 1 + d / 120] for d in directions}
+            self.slopes = {d: [[i + 1 + d / 120] * (i + 1)] for d in directions}
+            self.global_phases_set = i / 10
+
+    common = dict(sensor_id='S', multi_region_calib=True, optimization_region='full',
+                  optimization_regions=regions, exp_directs=list(directions))
+    d = deps(monkeypatch, artifact_root=tmp_path)
+    monkeypatch.setattr(tasks, 'TaskSession', InitialSession)
+    displayed = []
+    class BatchPlot(Vis):
+        def show_reconstruction(self, direct, curves, distance, *, showanime, ideals):
+            """记录方向及是否弹出交互窗口，绘图本身由专门测试覆盖。"""
+            displayed.append((self.engine.region, direct, showanime))
+    monkeypatch.setattr(tasks, '_visualization', lambda session, **kwargs: BatchPlot(session))
+
+    def prepare(ns, configure):
+        """按区域返回已解析的分段和初值，模拟预检后的 job 列表。"""
+        if not ns.multi_region_calib:
+            ns.segmentation = ns.calibration_regions[ns.optimization_region]['segmentation']
+            return [(ns, {})]
+        return [(args(ns.task, optimization_region=region, direct=ns.direct, **ns.calibration_regions[region]), {})
+                for region in ns.optimization_regions]
+
+    d['prepare_jobs'] = prepare
+    init = execute_task(args('init', calibration_regions=deepcopy(profiles), **common), **d)
+    assert list(init['regions']) == regions
+    assert displayed == [(region, direct, False) for region in regions for direct in directions]
+    source, = (tmp_path / 'S').glob('*-init')
+    snapshot = json.loads((source / 'initialization.json').read_text(encoding='utf-8'))
+    assert 'global_phases_set' not in snapshot
+    package = export_package([source], tmp_path / 'package.json')
+    assert set(package['initialization']) == set(regions)
+
+    def run(jobs, **kwargs):
+        """校验优化真正收到的区域、方向和分段初值。"""
+        assert len(jobs) == 3
+        for i, (job, _) in enumerate(jobs):
+            assert job.optimization_region == regions[i]
+            expected = i + 1 + job.direct / 120
+            assert job.weights[job.direct] == [expected]
+            assert job.slopes[job.direct] == [[expected] * (i + 1)]
+            assert job.global_phases_set == i / 10
+
+    d['run_jobs'] = run
+    for direction in directions:
+        execute_task(args('optim', direct=direction, resume=str(source),
+                          calibration_regions=deepcopy(profiles), **common), **d)
+
+    wrong_profiles = deepcopy(profiles)
+    wrong_profiles['end5cm']['segmentation'] = [1, 2]
+    with pytest.raises(ValueError, match='end5cm.*segmentation'):
+        execute_task(args('optim', resume=str(source), calibration_regions=wrong_profiles, **common), **d)
+
+
+    def run_single(jobs, **kwargs):
+        """多区域快照可续算指定区域，不要求批量模式。"""
+        (job, _), = jobs
+        assert job.optimization_region == 'end15cm'
+        assert job.weights[240] == [4.]
+        assert job.slopes[240] == [[4., 4.]]
+        assert job.global_phases_set == .1
+
+    d['run_jobs'] = run_single
+    single = dict(common, multi_region_calib=False, optimization_region='end15cm')
+    execute_task(args('optim', direct=240, resume=str(source),
+                      calibration_regions=deepcopy(profiles), **single), **d)
+
+
+    d['artifact_root'] = tmp_path / 'single'
+    single_init = execute_task(args('init', calibration_regions=deepcopy(profiles), **single), **d)
+    assert 'regions' not in single_init and single_init['global_phases_set'] == .1
+    single_source, = (d['artifact_root'] / 'S').glob('*-init')
+    execute_task(args('optim', direct=240, resume=str(single_source),
+                      calibration_regions=deepcopy(profiles), **single), **d)
+    with pytest.raises(ValueError, match='单区域初始化快照'):
+        execute_task(args('optim', resume=str(single_source), calibration_regions=deepcopy(profiles),
+                          **dict(common, optimization_region='end15cm')), **d)

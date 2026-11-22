@@ -278,3 +278,18 @@ def test_groupwise_score_flag_requires_end5cm_independent_weights():
     ])
     context = main.configure_calibration_args(args)
     assert context['weight_score_mode'] == 'group_mean'
+
+
+def test_09b7_five_point_end5_preserves_distal_weight_groups():
+    """09B7 的末端 5 cm 使用 18–22，21 和 22 保留独立权重。"""
+    from pathlib import Path
+    from shape_sensing.cli import configure_calibration_args, parse_main_args
+
+    config = Path(__file__).resolve().parents[1] / 'configs' / '09B7_NeTi.yaml'
+    for task in ('init', 'optim'):
+        ns = parse_main_args(['--config', str(config), '--task', task,
+                              '--optimization_region', 'end5cm', '--multi_region_calib', 'False'])
+        context = configure_calibration_args(ns)
+        assert context['global_point_ids'] == [18, 19, 20, 21, 22]
+        assert context['segmentation'] == [2, 3]
+        assert context['weight_group_ids'] == [0, 0, 0, 1, 2]

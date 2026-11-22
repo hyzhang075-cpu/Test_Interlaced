@@ -1,4 +1,6 @@
 """严格 YAML 工作配置与参数目录。"""
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 import json, math

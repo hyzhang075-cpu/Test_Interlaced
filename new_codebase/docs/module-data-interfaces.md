@@ -1,6 +1,6 @@
 # 模块数据接口
 
-本文记录当前实现的接口，不是迁移计划。单位约定：长度 m（配置中以 `*_mm` 标出的除外）、曲率 1/m、算法角 rad、方向编号/direct 与旋转配置角度 deg、信号采用历史应变数值尺度。服务按各自说明复制输入并执行必要校验；结果 DTO 是冻结 dataclass，但其中的 NumPy 数组本身仍可写，调用方应视为只读。`P` 表示原始真实采样点，`Q` 表示补齐虚拟点后、插值前的点数，`N` 表示模块5积分网格点（虚拟点或插值可改变长度），`C` 表示通道数。
+本文记录当前实现的接口，不是迁移计划。单位约定：长度 m（配置中以 `*_mm` 标出的除外）、曲率 1/m、算法角 rad、方向编号/direct 与旋转配置角度 deg、信号采用历史应变数值尺度。服务按各自说明复制输入并执行必要校验；结果 DTO 是冻结 dataclass，但其中的 NumPy 数组通常仍可写，调用方应视为只读。`PreparedFrame.from_design` 返回设计距离和索引的只读视图。`P` 表示原始真实采样点，`Q` 表示补齐虚拟点后、插值前的点数，`N` 表示模块5积分网格点（虚拟点或插值可改变长度），`C` 表示通道数。
 
 ## 八模块使用的类与关系总览
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 输入与预处理（`input_preprocessing`） | `InputService`（定义于 `__init__.py`）；`InputKernel`、`WavelengthContinuityGuard` | 服务在方法内创建 `InputKernel`；连续性保护器用于采集质量处理。核对象不是跨模块数据 DTO。 |
 | 2 初始化（`initialization`） | `InitializationService`、`InitializationKernel`；依赖模块3的 `GeometryService` | 服务创建初始化核，核的 `geometry` 字段持有 `GeometryService`；通过服务调用物理几何计算，不继承模块1/3服务。 |
-| 3 真实点曲率（`curvature`） | `CurvatureService`、`CurvatureKernel`、`GeometryService`、`DirectionSelector`、`_ScoringKernel`；`CurvatureModelMixin`、`StrainGeometryMixin`、`SegmentGeometry` | `CurvatureKernel` 多继承三个上述 mixin/几何类；`_ScoringKernel` 继承 `CurvatureModelMixin`。服务按调用创建核；实时处理器组合 `DirectionSelector`，后者通过回调计算基础曲率。 |
+| 3 真实点曲率（`curvature`） | `CurvatureService`、`CurvatureKernel`、`GeometryService`、`DirectionSelector`、`_ScoringKernel`；`CurvatureModelMixin`、`StrainGeometryMixin`、`SegmentGeometry` | `CurvatureKernel` 多继承三个上述 mixin/几何类；`_ScoringKernel` 继承 `CurvatureModelMixin`。服务按调用创建核；实时处理器组合 `DirectionSelector`，后者接收同一真实点帧及上帧方向质量，通过回调计算基础曲率并返回混合参数和新质量。 |
 | 4 参数优化（`optimization`） | `OptimizationService`、`OptimizationKernel` | 服务继承本模块 `OptimizationKernel`；持有预测、评估、曲率、评分回调，依赖任务编排调用3/5/6，不继承重构器。 |
 | 5 重构（`reconstruction`） | `ReconstructionService`、`_ConfiguredPreparation`、`CurvaturePreparationKernel`、`ShapeIntegrator`、`ShapeIntegrationMixin`；状态类 `TemporalCurvatureState` | `_ConfiguredPreparation` 继承 `CurvaturePreparationKernel`；`ShapeIntegrator` 继承 `ShapeIntegrationMixin`。服务创建预处理核/积分器；时间滤波函数接收并返回状态，生产实时链由模块8持有它。 |
 | 6 评估（`evaluation`） | `EvaluationService`、`_EvaluationKernel`、`EvaluationMixin`、`IdealCurvatureMixin` | `_EvaluationKernel` 多继承两个 mixin；服务创建评估核，接收已有形状和显式参考，不继承模块5。 |
@@ -20,15 +20,17 @@
 | 模块 | 输入配置类 | 参与交接的数据类（方向详见下表） |
 |---|---|---|
 | 1 | `InputConfig` | 输出 `DesignGeometry`、`PreparedFrame`、`CalibrationDataset`；输入信号本身仍为 `ndarray`。 |
-| 2 | `InitializationConfig` | 输入 `CalibrationDataset`（含 `DesignGeometry`）；输出 `InitializationResult`（含 `CalibrationSeed`）。 |
+| 2 | `InitializationConfig` | 输入 `CalibrationDataset`（含 `DesignGeometry`）；输出 `InitializationResult`，直接提供单区域相位、方向分段斜率和拟合诊断。 |
 | 3 | `CurvatureConfig` | 输入 `PreparedFrame`、`DesignGeometry`、`CalibrationParameters`；输出 `CurvatureResult`；基础几何/评分接口还返回数组或元组。 |
 | 4 | `OptimizationConfig`、部分 `CurvatureConfig` | 输入 `CalibrationDataset`、`CalibrationParameters`；输出候选/最终 `CalibrationParameters`；回调还传数组、树形字典和 `EvaluationResult`，阶段报告是字典。 |
 | 5 | `ReconstructionConfig` | 输入 `CurvatureResult`、`DesignGeometry`、`ReconstructionState`；生成 `PreparedCurvature` 和 `ShapeResult`；返回下一帧 `ReconstructionState`，时间滤波另交接 `TemporalCurvatureState`。 |
 | 6 | `EvaluationConfig` | 输入 `ShapeResult`、`EvaluationReference`，批量入口可输入 `CalibrationDataset`；输出 `EvaluationResult`；理想曲率/曲线仍为数组或树。 |
 | 7 | `ViewConfig`（任务/demo用于窗口设置）；静态服务直接接收 `VisualizationInputs` | 输入 `VisualizationInputs`（含 `CalibrationDataset`/可选 `InitializationResult`）、`ShapeResult`、可选 `EvaluationResult`；旧动画入口仍接收曲线树和距离数组。 |
-| 8 | 装配时消费 `InputConfig`、`ReconstructionConfig`、`ViewConfig` 和 CLI 参数；`RuntimeConfig` 是通用配置契约 | 生产帧 `RuntimeFrame`（含 `ShapeResult`、`AnchorConstraintResult`）；会话状态 `SessionState`、处理器状态 `LiveProcessingState`（含重构/时间滤波状态）。`RuntimeState` 不是生产会话状态的替代类。 |
+| 8 | 装配时消费 `InputConfig`、`ReconstructionConfig`、`ViewConfig` 和 CLI 参数；`RuntimeConfig` 是通用配置契约 | 生产帧 `RuntimeFrame`（含 `ShapeResult`、`AnchorConstraintResult`）；会话状态 `SessionState`、处理器状态 `LiveProcessingState`（含重构/时间滤波状态）。 |
 
-`TaskSession`（`pipelines/session.py`）组合服务并持有任务数据；`TaskContext` 是任务上下文，`ModuleConfiguration` 组合八份模块配置。这些属于编排/契约设施，不是第9个算法模块；`LegacyContext` 属于旧引擎边界。`CurveInput`、`EvaluationSnapshot`、`OptimizationState` 等通用契约的定义不意味着当前生产调用都使用它们，实际交接如下。
+`TaskSession`（`pipelines/session.py`）组合服务并持有任务数据；任务直接传递会话，`ModuleConfiguration` 组合八份模块配置。这些属于编排/契约设施，不是第9个算法模块；`LegacyContext` 属于旧引擎边界。各模块的实际交接如下。
+
+多区域 `init` 复用优化任务的区域配置预检，为每个区域分别创建 `TaskSession`。一次运行的 `initialization.json` 以 `result.regions[region]` 保存 `parameters`、`errors`、`status` 和采样/分组 `layout`。相位单位 rad，分段斜率单位 rad/m，权重无量纲，方向键单位 deg。续算在读取优化 CSV 或启动搜索前，将各区域布局与配置逐项比较。单区域初始化继续写原扁平快照。09B7 的末端五点布局为真实点 18–22，对应三组权重索引 `[0,0,0,1,2]`。
 
 ## 跨模块数据交接表
 
@@ -37,10 +39,10 @@
 | 来源 → 接收方 | 实际传递的类/非 DTO 值 | 接收方实际使用与边界 |
 |---|---|---|
 | 1 → 2 | `CalibrationDataset`，内含 `DesignGeometry` | `fit` 消费 `data` 信号叶子、`radii`、`channel_ids` 与设计距离/半径/通道排布/虚拟端点等；通过 `GeometryService` 完成几何计算。 |
-| 1 → 3（几何也供5） | `PreparedFrame`、`DesignGeometry` | 3消费信号、距离、索引、通道数及设计几何；5另消费设计虚拟起止点。静态任务把 Dataset 的 `[P,C]` 叶子通过 `TaskSession.frame` 包为帧，不传输入核。 |
-| 1 → 7 | `CalibrationDataset`，装入 `VisualizationInputs.dataset` | 绘图读取 `design`、`channel_ids`、`data`、`plot_data`、`radii`；`VisualizationInputs` 是模块7定义的数据组合。 |
+| 1 → 3（几何也供5） | `PreparedFrame`、`DesignGeometry` | 3消费信号、距离、索引、通道数及设计几何；5另消费设计虚拟起止点。静态任务以 `TaskSession.frame` 封装 Dataset 的 `[P,C]` 叶子；动态模块 1 做完预处理后使用相同契约。两者复用设计坐标和真实点索引，方向融合直接复用当帧信号。 |
+| 1 → 7 | `CalibrationDataset`，装入 `VisualizationInputs.dataset` | 绘图按 `design.active_channels` 为 `plot_data` 标注物理列（含中心通道）；同时读取 `data` 和 `radii`；`VisualizationInputs` 是模块7定义的数据组合。 |
 | 1 → 4（经任务） | `CalibrationDataset` | 优化读取 `data`、`radii`、`design.sampling_distance_m/source_indices` 等构建本地搜索数据。 |
-| 2 → 任务 → 3/4 | `InitializationResult.seed: CalibrationSeed` → `CalibrationParameters` | `TaskSession.initialize` 取 `global_phases_set/slopes_init`，结合配置展开等级 weights/slopes 并保留显式已有初值；Seed 不直接交给曲率/优化服务。 |
+| 2 → 任务 → 3/4 | `InitializationResult` → `CalibrationParameters` | 任务层取拟合字段，按区域与方向展开等级及分组，显式 weights/slopes 优先。模块 3、4 和实时方向选择共用完整参数。 |
 | 2 → 7 | `InitializationResult`，装入 `VisualizationInputs.initialization` | 绘图消费 raw/unwrap 角诊断、全局/独立拟合结果；缺诊断时初始化绘图报错。 |
 | 3 → 5 | `CurvatureResult`，另传 `DesignGeometry` 和切向 `ndarray[3]` | 5消费 `distance_m/curvature_per_m/direction_rad/source_indices`；生成 `PreparedCurvature` 后在本模块积分。`PreparedCurvature` 不是3的输出。 |
 | 4 → 3/5/6（经任务回调） | 候选 `CalibrationParameters`；`predict_shapes/evaluate_shapes/compute_curvature/score_inputs` 回调 | 预测经3/5返回位置树与距离数组；曲率回调返回 `(curvature, direction)` 数组；评分回调传基础量/等级分数数组；评估返回 `EvaluationResult`。并非全部包装成 DTO。 |
@@ -55,11 +57,16 @@
 
 | 范围 | 旧类/适配类 | 与上表主链的关系 |
 |---|---|---|
-| 各包 `__init__.py` 的旧任务适配 | `InputPreprocessor`、`Initializer`、`CurvatureEstimator`、`ParameterOptimizer`、`ShapeReconstructor`、`Evaluator`、`Visualizer`、`RealtimeSystem` | 保留旧调用形式的适配入口：部分转发 `context.session`，部分仍支持旧 `context.engine`；不是跨模块数据类，不能据其存在推断生产链仍使用旧引擎。 |
+| 各包 `__init__.py` 的旧任务适配 | `InputPreprocessor`、`Initializer`、`CurvatureEstimator`、`ParameterOptimizer`、`ShapeReconstructor`、`Evaluator`、`Visualizer`、`RealtimeSystem` | 保留旧调用形式的适配入口：重构、评估、优化适配器可直接接收任务会话；旧引擎适配使用 `LegacyContext.engine`。 |
 | `compat.py` 历史引擎链 | `input_preprocessing.compat.Sensor`、`initialization.compat.Initialiser`、`reconstruction.compat.Reconstructor`、`optimization.compat.Optimiser`；`runtime.compat.Demonstrator/DataRecorder` | 历史跨模块继承和旧窗口/记录实现留在兼容边界；当前八模块服务不沿这条继承链运行。 |
 | `runtime/prototype.py` | `Demonstrator`、`DataRecorder` | 旧实验原型；当前 demo 的窗口、传输、记录器分别是 `RuntimeWindow`、`UdpTransport`、`runtime.protocol.DataRecorder`。 |
 
 ## 契约 DTO
+
+`PreparedFrame` 表达一帧的信号、真实点身份和物理通道列。
+`CalibrationDataset` 表达多形状、方向和半径的静态实验集合。
+模块 3 对静态与动态都消费 `PreparedFrame`；设计几何由会话或数据集持有，帧可同时公开距离和索引的只读视图。
+`CurvatureResult` 对应真实点，`PreparedCurvature` 对应可能包含虚拟点和插值的积分网格。
 
 以下每张小表按字段列出实际 Python 类型/数组形状、物理意义与单位（纯软件字段明确标注）。`P` 为真实点数，`Q` 为补虚拟点后插值前点数，`N` 为积分网格点数，`C` 为通道数。
 
@@ -88,25 +95,17 @@
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `distance_m` | `ndarray[P]` | 真实点轴向弧长坐标，m；必须严格递增。 |
-| `source_indices` | `ndarray[P,int]` | 软件索引：全局真实点 0-based 身份。 |
-| `signals` | `ndarray[P,C]` | 解调信号/应变数值矩阵；列对应 `channel_ids`，按输入历史尺度保存，不在 `prepare` 中换算。 |
+| `distance_m` | `ndarray[P]` | 真实点轴向弧长坐标，m；必须严格递增。会话生产帧为 DesignGeometry 的只读视图。 |
+| `source_indices` | `ndarray[P,int]` | 软件索引：全局真实点 0-based 身份。会话生产帧为 DesignGeometry 的只读视图。 |
+| `signals` | `ndarray[P,C]` | 解调信号/应变数值矩阵；列对应 `channel_ids`，按输入历史尺度保存，不在 `prepare` 中换算；信号由帧生产者交给当前帧。 |
 | `channel_ids` | `tuple[int,...]` | 软件标签：每一列对应的物理通道号；唯一且与 C 相同长度。 |
 
-### `CalibrationSeed`
+### 标定参数 block（`CalibrationParameters.parameters_by_region[region]`）
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `parameters_by_region` | `Mapping[str,Mapping[str,Any]]` | 软件索引/参数包：按区域名组织的初值。模块2目前写入 `global_phases_set` 与 `slopes_init`。 |
-| `source` | `str` | 软件来源标签，默认 `initialization`；无物理单位。 |
-
-### 标定参数 block（`CalibrationSeed.parameters_by_region[region]` / `CalibrationParameters.parameters_by_region[region]`）
-
-| 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
-|---|---|---|
-| `weights` | `Mapping[direct,ndarray]` | 无量纲曲率等级权重；每方向数组通常 `[level]` 或按独立组布局展开。 |
+| `weights` | `Mapping[direct,ndarray]` | 无量纲曲率等级权重。方向键为 deg。展平时按组优先，组内按等级排列，长度为组数 × 等级数。 |
 | `slopes` | `Mapping[direct,ndarray[level,segment]]` | 各曲率等级、空间分段的扭转/动态角斜率，rad/m；`direct` 为方向角 deg。 |
-| `slopes_init` | `Mapping[direct,ndarray[segment]]` 或实际拟合布局 | 模块2拟合得到的初始斜率，rad/m；模块2输出名，TaskSession.initialize 再展开成各等级 `slopes`。 |
 | `global_phases_set` | `float` | 全局通道相位偏置，rad。 |
 | `rot_ang` | `float` | 形状坐标绕 x 轴的安装/旋转角，配置约定 deg。 |
 | `multi_region_parameters` | `Mapping[str,Any]\|None` | 软件参数包：多区域传递相位/方向等配置；无单一物理单位，子字段由多区域包定义。 |
@@ -116,6 +115,7 @@
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
 | `parameters_by_region` | `Mapping[str,Mapping[str,Any]]` | 软件索引：region 名到标定 block。region 与 block 内 direct（实验方向 deg）是两级不同索引。TaskSession 持有；模块4返回独立参数副本。 |
+| `source` | `str` | 内存参数来源：`configured`（配置或恢复后的显式参数）、`initialization`、`optimization_candidate`、`optimization`。发布由任务结果、区域完成状态和产物清单判定。 |
 
 ### `CurvatureResult`
 
@@ -136,21 +136,33 @@
 | `direction_rad` | `ndarray[N]` | 积分网格曲率方向角，rad。 |
 | `tangent_seed` | `ndarray[3]` | 初始切向量，无量纲单位向量。 |
 | `source_indices` | `ndarray[N,int]` | 软件来源索引参考：由真实索引在距离网格插值并 `.astype(int)`；插值/虚拟点处不是原始点身份保证。 |
-| `diagnostics` | `Mapping[str,Any]` | 软件诊断包，含真实/调整后距离和处理中间量；字段详见调用实现。 |
-| `state` | `ReconstructionState\|None` | 跨帧方向展开状态；不是物理量。 |
+| `diagnostics` | `Mapping[str,Any]` | 真实点、空间处理、补点和可选的时间滤波前诊断，见下表。实际积分幅角由本对象的具名字段提供。 |
+| `state` | `ReconstructionState\|None` | 模块 5 返回的唯一方向展开状态，由模块 8 在有效帧后保存。 |
 
 ### `ShapeResult`
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `values` | `tuple[ndarray[N,3],...]` | 兼容旧布局 `(position,T,N,B)`；子数组意义见下列具名字段。 |
 | `frame_rule` | `str` | 软件配置标签：积分所用 `TNB` 或 `TNN` 标架规则。 |
-| `position_m` | `ndarray[N,3]` | 中心线三维坐标，m。 |
-| `tangent` | `ndarray[N,3]` | 切向单位向量 T，无量纲。 |
-| `normal` | `ndarray[N,3]` | TNB 下主法向 N；TNN 下平行移动标架 Y 轴；无量纲。 |
-| `binormal` | `ndarray[N,3]` | TNB 下副法向 B；TNN 下平行移动标架 Z 轴；无量纲。 |
-| `distance_m` | `ndarray[N]` | 积分点轴向弧长坐标，m。 |
-| `diagnostics` | `Mapping[str,Any]` | 软件诊断包，如插值曲率/方向；字段不是额外的 shape 坐标。 |
+| `position_m` | `ndarray[N,3]` | 中心线三维坐标，m。运行帧与锚定结果共用当前最终坐标。 |
+| `tangent` | `ndarray[N,3]\|None` | 切向单位向量 T，无量纲。 |
+| `normal` | `ndarray[N,3]\|None` | TNB 下主法向 N；TNN 下平行移动标架 Y 轴；无量纲。 |
+| `binormal` | `ndarray[N,3]\|None` | TNB 下副法向 B；TNN 下平行移动标架 Z 轴；无量纲。 |
+| `distance_m` | `ndarray[N]\|None` | 积分点轴向弧长坐标，m；仅位置的绘图输入可省略。 |
+| `diagnostics` | `Mapping[str,Any]` | 积分阶段沿用预处理诊断，增加实际参与积分的幅角。 |
+
+旧 `ShapeIntegrator.integrate`、`ShapeReconstructor.integrate` 及旧 `compat.py` 调用仍在各自边界返回位置和标架元组。生产服务读取具名字段。
+
+| 诊断键 | 形状、单位 | 所属阶段和来源 |
+|---|---|---|
+| `magnitude`、`angle` | [P]，1/m、rad | 模块 3 的真实点结果进入重构时的幅角。 |
+| `source_distance_m`、`adjusted_distance_m` | [P]、[Q]，m | 真实点弧长及补点后弧长。 |
+| `angle_prepared`、`angle_unwrap` | [Q]，rad | 补点网格上方向展开前和展开后结果。 |
+| `cur_kal`、`ang_filter` | [Q]，1/m、rad | 单帧空间处理的曲率、方向中间量，各插值模式的实际输入见模块 5。 |
+| `cur_interp_before_temporal`、`ang_interp_before_temporal` | [N]，1/m、rad | 启用时间滤波时保存的滤波前积分网格幅角。记录器写为既有回放字段 `cur_interp_raw`、`ang_interp_raw`。 |
+| `cur_interp`、`ang_interp` | [N]，1/m、rad | `ShapeResult` 中实际积分使用的幅角，供原 UDP 协议和记录器读取。 |
+
+运行帧的 `before_anchor_m` 是旋转及可选曲线时间均值后的位置，`shape.position_m` 是再施加入口锚定后供显示、记录、发送的最终位置。UDP 输出边界沿用坐标到 mm 的变换与原嵌套字段；记录器用 m 保存锚定前后坐标。
 
 ### `ReconstructionState`
 
@@ -158,15 +170,7 @@
 |---|---|---|
 | `previous_raw_angles_rad` | `ndarray[Q]\|None` | 上一帧、unwrap 前的曲率方向角，rad。 |
 | `previous_unwrapped_angles_rad` | `ndarray[Q]\|None` | 上一帧、unwrap 后用于对齐的方向角，rad。 |
-
-### `OptimizationState`
-
-| 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
-|---|---|---|
-| `iteration` | `int` | 软件计数：优化迭代轮次，无单位。 |
-| `best_objective` | `float\|None` | 最佳目标函数数值；复合损失尺度由优化配置/指标定义，不是单一 SI 物理量。 |
-| `best_parameters` | `CalibrationParameters\|None` | 当前最佳标定参数快照。 |
-| `history` | `tuple[Any,...]` | 软件历史记录；具体元素为优化实现报告，无固定物理单位。 |
+| `distance_m` | `ndarray[Q]\|None` | 前帧含虚拟点的弧长网格 m，新网格重启方向展开。 |
 
 ### `EvaluationReference`
 
@@ -188,16 +192,6 @@
 | `metrics` | `Mapping[str,Any]` | 软件指标映射；值可为标量或数组。`avg_point_err/avg_end_err/point_errors` 是归一化无量纲误差，`point_error_mean_m/end_error_m` 是绝对距离误差 m；具体键随评估入口而异。 |
 | `details` | `Mapping[str,Any]` | 软件诊断映射；可含理想曲线 `[M,3]` m、误差向量或距离数组，不是固定物理量。 |
 
-### `RuntimeState`（通用 contracts DTO，RuntimeService 不直接使用）
-
-| 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
-|---|---|---|
-| `frame_index` | `int` | 软件计数：帧序号，无单位。 |
-| `input_state` | `Any` | 软件状态槽：预处理状态；contracts 未限定具体结构。 |
-| `reconstruction_state` | `ReconstructionState\|None` | 模块5方向 unwrap 跨帧状态。 |
-| `frame_queue` | `tuple[Any,...]` | 软件队列快照；contracts 未限定元素类型。 |
-| `active` | `bool` | 软件生命周期标志：是否活动。 |
-
 ### `CalibrationDataset`
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
@@ -212,22 +206,13 @@
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `seed` | `CalibrationSeed` | 模块2拟合初值及来源。 |
+| `global_phases_set` | `float` | 模块 2 拟合或按显式配置采用的全局相位，rad。0 表示零相位。 |
+| `slopes_init` | `Mapping[int,list[float]]` | 模块 2 按实验方向（deg）索引的分段扭转斜率 [segment]，rad/m。任务层展开到等级。 |
 | `magnitude_results` | `dict` | 软件诊断树：各形状/方向曲率幅值拟合结果，曲率物理量单位 1/m。 |
 | `angle_results_raw` | `dict` | 软件诊断树：展开前方向角，rad。 |
 | `angle_results_unwrap` | `dict` | 软件诊断树：unwrap 后方向角，rad。 |
 | `global_fit_direct` | `dict` | 软件诊断树：各 direct 全局拟合结果，内部结构沿用拟合核。 |
 | `individual_fits_direct` | `dict` | 软件诊断树：各 direct 分段拟合结果；内部斜率单位 rad/m。 |
-
-### 辅助 DTO
-
-| DTO / 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
-|---|---|---|
-| `CurveInput.curvature` | 数组 `[P]` | 曲率，1/m。 |
-| `CurveInput.angle` | 数组 `[P]` | 曲率方向角，rad。 |
-| `CurveInput.distance_m` | 数组 `[P]` | 轴向距离，m。 |
-| `CurveInput.initial_tangent` | 数组 `[3]` | 初始切向量，无量纲。 |
-| `EvaluationSnapshot.metrics` | `dict` | 软件指标快照；内容及单位取决于评估调用。该 DTO 为兼容辅助结构，主服务返回 `EvaluationResult`。 |
 
 ### 标定 block 中多区域包的常见字段
 
@@ -267,10 +252,10 @@
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `reconstruction` | `ReconstructionState\|None` | 模块5真实方向状态，raw/unwrapped angle 数组 rad。 |
-| `temporal` | `TemporalCurvatureState\|None` | 模块8持有的曲率向量 Kalman 状态；`x` 为 `[N,2]` 1/m 分量，`p` 为同形协方差，量纲 `(1/m)^2`。 |
-| `direction` | `tuple\|None` | 方向选择器状态：方向质量向量（无量纲）、方向角 deg、一致性（无量纲）。 |
-| `last_signals` | `ndarray[P,C]\|None` | 上一有效采集帧信号，历史应变数值尺度；供无效行安全保持。 |
+| `reconstruction` | `ReconstructionState\|None` | 模块 5 在补点网格上的展开状态，包含展开前后方向 [Q] rad。 |
+| `temporal` | `TemporalCurvatureState\|None` | 运行服务保存的曲率向量 Kalman 状态；`x` 为 `[N,2]` 1/m 分量，`p` 为同形协方差，量纲 `(1/m)^2`。 |
+| `direction_masses` | `ndarray[3]\|None` | 0/120/240 deg 的无量纲方向质量。方向角和一致性在本帧计算，只有质量参与下一帧。 |
+| `last_signals` | `ndarray[P,C]\|None` | 上一有效、已修复的采集帧信号，历史应变数值尺度；只用于下一帧异常行修复。 |
 
 ### `AnchorConstraintResult`（运行时入口锚定输出）
 
@@ -303,18 +288,13 @@
 | `runtime` | `RuntimeConfig` | 模块8 demo/设备/方向融合/锚定配置投影。 |
 | `view` | `ViewConfig` | 模块7 viewer 显示配置投影。 |
 
-### `TaskContext`（pipeline 返回包装）
-
-| 字段 | 实际类型 | 物理含义/单位或软件用途 |
-|---|---|---|
-| `session` | `TaskSession` | 软件对象引用：当前任务的服务、配置、数据与区域参数所有者；无物理单位。 |
-
 ### `TemporalCurvatureState`（demo 向量 Kalman 状态）
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
 | `x` | `ndarray[N,2]\|None` | 每个积分网格点的曲率向量估计 `(kx,ky)`，分量 1/m；N 为模块5积分网格点数。 |
 | `p` | `ndarray[N,2]\|None` | 各点两曲率分量估计的对角协方差，单位 `(1/m)^2`；Kalman 内部状态量。 |
+| `distance_m` | `ndarray[N]\|None` | 前帧积分弧长网格 m，新网格重启时间滤波。 |
 
 ### `VisualizationInputs`（模块7输入 DTO）
 
@@ -325,22 +305,18 @@
 | `segmentation` | `tuple[int,...]` | 软件几何分区：每段真实点数，无单位。 |
 | `discont_rad` | `float` | 角度 unwrap 不连续阈值，rad。 |
 | `connect` | `bool` | 软件选项：初始化分段拟合时是否连接各段。 |
-| `zero_init` | `bool` | 软件几何选项：重构是否包含零点虚拟起点。 |
-| `straight_trim_m` | `float` | 被裁剪直段长度，m。 |
 | `rotation_deg` | `float` | 显示/重构的绕 x 安装旋转角，deg。 |
-| `ideal_length_m` | `float` | 传感器理想有效总长度，m。 |
-| `initial_weight` | `float` | 分级权重初始倍率，无量纲。 |
 
 ## 八模块服务与任务入口
 
-1. **输入与预处理** — `InputService(InputConfig)`。`prepare(signals, distance_m, source_indices, channel_ids=None) -> PreparedFrame` 只按物理通道挑列、校验 `(P,C)/(P,)/(P,)`、有限性及距离严格递增；不换算信号。`preprocess(signals, channel_ids=None, acquired=False)` 执行历史通道排序、交错光栅处理、裁剪、中心补偿和 reverse，返回真实帧；`load_data(folder_path=None) -> CalibrationDataset` 显式读静态 CSV，`design() -> DesignGeometry` 不读标定数据。设备协议读取由 `InputKernel`/`InterrogatorSource` 负责。设备波长差分在解包边界乘 `1e-6` 转历史信号尺度；中心纤维补偿由原 `_process_centreData` 执行，不应在下游再乘一次或补偿一次。`InputPreprocessor` 是 legacy context 适配器，不是新 DTO 接口。
-2. **初始化** — `InitializationService(InitializationConfig).fit(dataset, region='full', verbose=False) -> InitializationResult`。从 Dataset 的 `[P,C]` 叶子与 DesignGeometry 拟合 phase/slopes 初值；实际标定只在显式 `TaskSession.initialize()` 执行。它不做优化。
+1. **输入与预处理** — `InputService(InputConfig)`。`prepare(signals, distance_m, source_indices, channel_ids=None) -> PreparedFrame` 只按物理通道挑列、校验 `(P,C)/(P,)/(P,)`、有限性及距离严格递增；不换算信号。`preprocess(signals, channel_ids=None, acquired=False, design=None)` 执行历史通道排序、交错光栅处理、裁剪、中心补偿和 reverse，与可选设计校验后返回真实帧；`load_data(folder_path=None) -> CalibrationDataset` 显式读静态 CSV，`design() -> DesignGeometry` 不读标定数据。设备协议读取由 `InputKernel`/`InterrogatorSource` 负责。设备波长差分在解包边界乘 `1e-6` 转历史信号尺度；中心纤维补偿由原 `_process_centreData` 执行，不应在下游再乘一次或补偿一次。`InputPreprocessor` 是 legacy context 适配器，不是新 DTO 接口。
+2. **初始化** — `InitializationService(InitializationConfig).fit(dataset, verbose=False) -> InitializationResult`。从 Dataset 的 `[P,C]` 叶子与 DesignGeometry 拟合 phase/slopes 初值；实际标定只在显式 `TaskSession.initialize()` 执行。它不做优化。
 3. **真实点曲率物理模型** — `CurvatureService(CurvatureConfig).compute(frame, design, parameters, direct=0, region='full', shape_kind='circ', magnitude_ratio=1.0) -> CurvatureResult`；`base(frame, design, parameters, direct=0, region='full')` 返回基础模型结果。按 region 再按 direct 查 weights/slopes/phase；输入真实点全长不变。模块3只算真实点物理量，不做移动滤波、虚拟点或插值；评分平滑仅用于权重/等级评分，不平滑对外输出曲率。`GeometryService` 是模块内物理几何助手。
 4. **参数优化** — `OptimizationService(config, curvature_config, dataset, parameters, *, region, predict_shapes, evaluate_shapes, compute_curvature, score_inputs)`；`parameters() -> CalibrationParameters`、`optimize(verbose=True) -> (CalibrationParameters, report)`。输入必须含 region 的完整 weights/slopes，缺值 `ValueError`。候选通过显式回调走模块3/5预测与模块6评估；优化不隐式调用模块2。任务 pipeline 会在读数据/启动搜索前对所有 job seeds 做 preflight；缺初值应提示 init+resume 或显式传入 seed。
 5. **重构预处理与积分** — `ReconstructionService(ReconstructionConfig)`。`prepare(curvature, design, tangent_seed, state=None, ideal_curvature=None) -> PreparedCurvature` 校验输入真实曲率 `[P]`、方向/距离等长和 seed `[3]`；按 zero_init/end_point 添加显式物理虚拟点，然后执行方向 unwrap、可选平滑/向量滤波、曲率插值到 N 点网格。此处允许虚拟点、unwrap 与滤波，模块3真实曲率对象保持不变。`integrate(prepared) -> ShapeResult` 产生 T/N/B 与位置；`transform_shape(shape, *, direct, rot_dir, rot_ang)` 对位置和标架统一绕 x 变换。虚拟起点来自设计物理起点，与存储零波长参考是两个独立概念。`use_stored_zero` 只由 demo 可选启用，常规 reconstruction 不读取该文件。`tangent_seed` 是有限非零三维初始切向量，无量纲。
 6. **评估** — `EvaluationService(EvaluationConfig)`。`ideal_curvature(distance_m, reference)`、`ideal_shape(distance_m, reference)` 生成显式参考；`evaluate(shape, reference) -> EvaluationResult` 接收 ShapeResult；`evaluate_batch(interp_dist, results, radii, direct, sample_distance_m, curvature_per_m)` 和 `evaluate_dataset(dataset, direct, interp_dist, results, curvature_per_m)` 提供旧批量指标布局。距离 m，positions `[N,3]` m，曲率 `[N]` 1/m。指标沿用原归一化误差定义，不用 RMSE 替代。
-7. **可视化** — `VisualizationInputs(dataset, initialization=None, segmentation=(), discont_rad=pi, connect=True, zero_init=True, straight_trim_m=0, rotation_deg=0, ideal_length_m=1.35, initial_weight=1)` 将静态输入/诊断显式传入 `VisualizationService(inputs=None)`。`init_visualise(direct)` 画初始化诊断；`plot_shape(shape, ideal_position_m=None, evaluation=None, ax=None)` 返回 Figure；`show_reconstruction(direct, rs, interp_dist, showanime=False, ideals=None)` 展示旧曲线树。调用绘图方法才加载 matplotlib/VTK；动画入口必须显式传入模块6的 ideals。
-8. **运行时** — `RuntimeService(processor, source=None, recorder=None, publisher=None, moving_window=1, queue_size=100, direct=0, imu=False, anchor_enabled=False, anchor_translation_enabled=False, anchor_rotation_enabled=False, anchor_offset_m=.06, rotation_deg=0, reset_processor=None)`。实时/回放都走 `process_frame`；source 生命周期由 `open/read/close` 显式管理。`RuntimeFrame` 包含 timestamp、frame_index、ShapeResult、锚定前位置 `[N,3]` m、末端姿态 `[3,3]`、raw_signals `[P,C]`、anchor 结果和插入量 mm。实际会话状态是 RuntimeService 的 `SessionState(frame_index, processor_state, curve_history, imu_rotation, insert_value_mm, last_frame)`；生产处理器另有 `LiveProcessingState(reconstruction, temporal, direction, last_signals)`。contracts.RuntimeState 是通用 DTO，不是这两个运行状态。`run_demo(session,args,app_factory)` 才创建窗口/设备运行链；`create_demo` 只装配 runtime/window。
+7. **可视化** — `VisualizationInputs(dataset, initialization=None, segmentation=(), discont_rad=pi, connect=True, rotation_deg=0)` 将静态输入与诊断交给 `VisualizationService(inputs=None)`。首点和直段裁剪来自数据集设计，理想曲线由模块 6 提供。`init_visualise(direct)` 画初始化诊断；`plot_shape(shape, ideal_position_m=None, evaluation=None, ax=None)` 返回 Figure；`show_reconstruction(direct, rs, interp_dist, showanime=False, ideals=None)` 展示旧曲线树。调用绘图方法才加载 matplotlib/VTK；动画入口必须显式传入模块6的 ideals。
+8. **运行时** — `RuntimeService(processor, source=None, recorder=None, publisher=None, moving_window=1, queue_size=100, direct=0, imu=False, anchor_enabled=False, anchor_translation_enabled=False, anchor_rotation_enabled=False, anchor_offset_m=.06, rotation_deg=0, reset_processor=None)`。实时/回放都走 `process_frame`；source 生命周期由 `open/read/close` 显式管理。`RuntimeFrame` 包含 timestamp、frame_index、ShapeResult、锚定前位置 `[N,3]` m、末端姿态 `[3,3]`、raw_signals `[P,C]`、anchor 结果和插入量 mm。实际会话状态是 RuntimeService 的 `SessionState(frame_index, processor_state, curve_history, imu_rotation, insert_value_mm, last_frame)`；生产处理器返回 `LiveProcessingState(reconstruction, temporal, direction_masses, last_signals)`，由 RuntimeService 提交。`run_demo(session,args,app_factory)` 才创建窗口/设备运行链；`create_demo` 只装配 runtime/window。
 
 ## 配置 DTO 字段归属
 
@@ -501,7 +477,7 @@
 
 ## 真实调用与生命周期
 
-`TaskSession(parameters, task='recon', region='full', dataset=None)` 是组合入口：创建八模块配置和服务、持有 region 参数与 dataset。`task='init'` 创建时不拟合；调用 `initialize()` 才执行模块1读取和模块2拟合。非 init 的 recon/demo/ang/optim 在构造阶段校验该 region 的 `weights`、`slopes`、`global_phases_set`；缺任意项立即报错，禁止自动运行模块2。`load_data()` 显式加载静态 CSV；`process_frame(signals, state=None, direct=0, tangent_seed=None, temporal_filter=None, acquired=False, parameter_selector=None)` 编排模块1→3→5，返回 `(ShapeResult, ReconstructionState)`；`reconstruct_shapes(kind,direct,...)` 返回形状树和距离；`evaluate(...)` 委托模块6。`optim_coeff()` 创建模块4并返回搜索报告。`build_context(args, parameter_builder, configure_args)` 返回 `TaskContext(session)`；`execute_task(...)` 管理任务快照和状态，不把 legacy Optimiser 暴露为生产注入边界。
+`TaskSession(parameters, task='recon', region='full', dataset=None)` 是组合入口：创建八模块配置和服务、持有 region 参数与 dataset。`task='init'` 创建时不拟合；调用 `initialize()` 才执行模块1读取和模块2拟合。非 init 的 recon/demo/ang/optim 在构造阶段校验该 region 的 `weights`、`slopes`、`global_phases_set`；缺任意项立即报错，禁止自动运行模块2。`load_data()` 显式加载静态 CSV；`process_frame(signals, state=None, direct=0, tangent_seed=None, temporal_filter=None, acquired=False, parameter_selector=None)` 编排模块1→3→5，返回 `(ShapeResult, ReconstructionState)`；`reconstruct_shapes(kind,direct,...)` 返回形状树和距离；`evaluate(...)` 委托模块6。`optim_coeff()` 创建模块4并返回搜索报告。`build_session(args, parameter_builder=..., configure_args=...)` 返回 `TaskSession`；`execute_task(...)` 管理任务快照和状态，不把 legacy Optimiser 暴露为生产注入边界。
 
 ## 索引、错误与组合示例
 
@@ -555,7 +531,7 @@ shape, state = session.process_frame(signals, state=state, direct=120, acquired=
 | `set_imu_rotation(rotation)` / `set_insertion(value_mm)` | `(3,3)` 有限姿态矩阵 / 有限推进量 mm | 复制更新当前会话的姿态/推进量。 |
 | `configure_anchor(**settings)` | 锚定开关、offset m、reset 等命名参数 | 更新本会话锚点约束。 |
 
-`LiveProcessingState.reconstruction` 保存模块5的 Q 点展开状态；`temporal` 保存模块5向量 Kalman 的 x/p（积分网格 N 点、两曲率分量）；`direction` 保存三方向质量、方向角 deg、一致性；`last_signals` 是上一有效采集阶段帧。模块8是这些跨帧状态的所有者。设备数据在 channel reorder/设备裁剪后进入 `acquired=True` 路径，此时中心补偿尚未执行，仍由模块1处理。SessionState.curve_history 是最终时间均值计算所需的 `(N,3)` m 曲线历史，end_pose 为行排列的三根末端坐标轴。
+`LiveProcessingState.reconstruction` 保存模块5的 Q 点展开状态；`temporal` 保存模块5向量 Kalman 的 x/p（积分网格 N 点、两曲率分量）；`direction_masses` 保存三方向质量；`last_signals` 是上一有效的修复后信号。RuntimeService 的会话是跨帧状态的唯一所有者。通用处理器协议允许其他处理器返回自己的状态类型。异常帧不会提交状态；缺少可修复历史时实时与回放跳过该帧。补点/积分网格变化时重启相应的方向展开/Kalman 历史，曲线均值也按积分距离重置。锚定保留会话的物理参考，直到显式重置。关闭资源后可读取最后有效帧；`reset()` 清理帧、队列及历史。设备数据在 channel reorder/设备裁剪后进入 `acquired=True` 路径，此时中心补偿尚未执行，仍由模块1处理。SessionState.curve_history 是最终时间均值计算所需的 `(N,3)` m 曲线历史，end_pose 为行排列的三根末端坐标轴。
 
 ## 可直接运行的纯数值接口例子
 

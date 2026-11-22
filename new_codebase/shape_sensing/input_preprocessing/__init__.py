@@ -47,19 +47,18 @@ class InputService:
         columns = [available.index(channel) for channel in self.config.active_channels]
         return PreparedFrame(distance, indices, values[:, columns].copy(), tuple(self.config.active_channels))
 
-    def preprocess(self, signals, *, channel_ids=None, acquired=False):
+    def preprocess(self, signals, *, channel_ids=None, acquired=False, design=None):
         """统一静态/动态预处理：通道重排、交错插值、裁剪、中心补偿及反向。
 
         输入原始差分信号(Praw,C)，输出PreparedFrame(P,Couter)；保持历史尺度，
         不执行第二次1e-6换算。波长到该尺度的转换在读取/解包边界完成。
+        design 提供会话固定距离 [P] m 和真实点索引，校验后由帧以只读视图复用。
         """
         from dataclasses import asdict
         from ._kernel import InputKernel
         kernel = InputKernel(**asdict(self.config))
         values = np.array(signals, dtype=float, copy=True)
-        if acquired:
-            values = values.copy()
-        else:
+        if not acquired:
             available = tuple(channel_ids or sorted(self.config.active_channels))
             values = values[:, [available.index(channel) for channel in sorted(self.config.active_channels)]]
             kernel.Data = {'frame': values}
@@ -74,11 +73,15 @@ class InputService:
         if kernel.centre_fibre:
             values = kernel._process_centreData(values)[2]
             channels = channels[1:]
-        indices = np.arange(kernel.raw_trim_idx, kernel.raw_trim_idx + len(values))
         if kernel.reverse:
             values = values[::-1, :]
-            indices = indices[::-1]
-        return PreparedFrame(np.array(kernel.samp_dist, copy=True), indices.copy(), values.copy(), channels)
+        if design is None:
+            design = self._design(kernel)
+        elif (not np.array_equal(design.sampling_distance_m, kernel.samp_dist)
+              or not np.array_equal(design.source_indices, kernel.global_point_ids - 1)
+              or design.active_channels != tuple(self.config.active_channels)):
+            raise ValueError('预处理的采样点、顺序和物理通道必须与会话设计一致')
+        return PreparedFrame.from_design(design, np.ascontiguousarray(values), channels)
 
     def load_data(self, folder_path=None):
         """显式读CSV并返回CalibrationDataset；叶子(P,C)沿用旧1e-6信号尺度。"""

@@ -2,7 +2,6 @@
 from pathlib import Path
 import threading
 import sys
-from shape_sensing.context import TaskContext
 from .session import TaskSession, validate_seed
 
 def module_parameters(args, parameter_builder):
@@ -18,27 +17,83 @@ def module_parameters(args, parameter_builder):
     return values
 
 
-def build_context(args, *, parameter_builder, configure_args, optimiser_factory=None):
-    """解析区域并组合八个公开模块；构造不读取CSV、不执行拟合。"""
+def build_session(args, *, parameter_builder, configure_args):
+    """输入任务参数和配置回调，解析区域并返回无 CSV 读取或拟合的 TaskSession。"""
     region = configure_args(args)
     session = TaskSession(module_parameters(args, parameter_builder), task=args.task,
                           region=getattr(args, 'optimization_region', 'full'))
     session.calibration_context = region
-    return TaskContext(session)
+    return session
 
-def _visualization(session):
+def _visualization(session, output_root=None):
+    """将静态数据、rad 拟合诊断与分段设置交给绘图服务；几何由数据集提供。"""
     from shape_sensing.visualization.service import VisualizationService, VisualizationInputs
     config = session.config
     return VisualizationService(VisualizationInputs(
         session.load_data(), session.initialization_result,
-        tuple(config.initialization.segmentation), config.initialization.discont,
-        config.initialization.connect, config.reconstruction.zero_init,
-        config.input.straight_trim, config.reconstruction.rot_ang,
-        config.input.ideal_len, config.curvature.init_weight))
+        segmentation=tuple(config.initialization.segmentation),
+        discont_rad=config.initialization.discont, connect=config.initialization.connect,
+        rotation_deg=config.reconstruction.rot_ang, output_root=output_root))
+
+
+def _initialize_session(session, output_root=None):
+    """拟合单个区域并重构各方向，返回相位 rad、分段斜率 rad/m、权重与误差。"""
+    session.initialize(verbose=True)
+    visualizer = _visualization(session, output_root=output_root)
+    errors = {}
+    for direct in session.dataset.radii:
+        rs = {}
+        for kind in session.calib_shapes:
+            rs[kind], distance = session.reconstruct_shapes(kind, direct)
+        result = session.evaluate(distance, rs, direct)
+        errors[direct] = result.metrics['avg_point_err']['calib']
+        visualizer.init_visualise(direct)
+        visualizer.show_reconstruction(direct, rs, distance, showanime=output_root is None,
+                                        ideals=result.details.get('ideals'))
+    return {'errors': errors, 'weights': session.weights, 'slopes': session.slopes,
+            'global_phases_set': session.global_phases_set}
+
+
+def _restore_regional_initialization(args, regions, explicit):
+    """按任务所需区域恢复初值，返回所加载字段和待校验的采样布局。"""
+    if args.task not in ('optim', 'score'):
+        raise ValueError('多区域初始化快照用于 optim/score；重构或 demo 请使用导出的参数包')
+    batch = bool(getattr(args, 'multi_region_calib', False))
+    requested = args.optimization_regions if batch else [args.optimization_region]
+    fields, layouts = [], {}
+    for region in requested:
+        entry = regions.get(region, {})
+        params = entry.get('parameters')
+        if (entry.get('status') != 'complete' or not isinstance(entry.get('layout'), dict)
+                or not isinstance(params, dict)):
+            raise ValueError(f'resume 缺少完整初始化区域: {region}')
+        layouts[region] = entry['layout']
+        target = args.calibration_regions[region] if batch else vars(args)
+        for name in ('weights', 'slopes', 'global_phases_set'):
+            if name in explicit:
+                continue
+            value = params.get(name)
+            if value is None:
+                raise ValueError(f'resume {region} 缺少 {name}')
+            if name in ('weights', 'slopes'):
+                if not isinstance(value, dict):
+                    raise ValueError(f'resume {region} 的 {name} 必须按方向保存')
+                value = {int(key): item for key, item in value.items()}
+                if args.direct not in value:
+                    raise ValueError(f'resume {region} 的 {name} 缺少 direct={args.direct}')
+            target[name] = value
+            fields.append(f'{region}.{name}' if batch else name)
+    if batch:
+        for name in ('weights', 'slopes', 'global_phases_set'):
+            if name not in explicit:
+                setattr(args, name, None)
+    return fields, layouts
+
 
 def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs, run_jobs,
                        project_root, app_factory, optimiser_factory=None,
-                       visualizer_factory=None, compute_error_ang=None, optim_ang=None, system=None, session_observer=None):
+                       visualizer_factory=None, compute_error_ang=None, optim_ang=None, system=None, session_observer=None,
+                       initialization_output_root=None):
     """生产任务仅编排模块service；优化不会执行初始化模块2。"""
     if args.task != 'demo':
         args.use_stored_zero = False
@@ -46,11 +101,32 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         args.weights = None
     if args.slopes == 'None':
         args.slopes = None
+    if args.task == 'init' and getattr(args, 'multi_region_calib', False):
+        from shape_sensing.artifacts.runs import initialization_layout
+        jobs = prepare_jobs(args, configure_args)
+        regions = {}
+        for job, context in jobs:
+            region = job.optimization_region
+            session = TaskSession(module_parameters(job, parameter_builder), task='init', region=region)
+            session.calibration_context = context
+            output_root = initialization_output_root / region
+            parameters = _initialize_session(session, output_root)
+            errors = parameters.pop('errors')
+            regions[region] = {'status': 'complete', 'parameters': parameters, 'errors': errors,
+                               'layout': initialization_layout(job, context)}
+        return {'regions': regions}
     if args.task in ('optim', 'score'):
         jobs = prepare_jobs(args, configure_args)
         # Validate every region seed before loading any calibration CSV or
         # launching the first region's search.
-        for job_args, _ in jobs:
+        for job_args, context in jobs:
+            region = job_args.optimization_region
+            layout = getattr(args, '_resume_initialization_layouts', {}).get(region)
+            if layout is not None:
+                from shape_sensing.artifacts.runs import initialization_layout
+                for name, value in initialization_layout(job_args, context).items():
+                    if name not in layout or layout[name] != value:
+                        raise ValueError(f'resume 区域配置不兼容: {region}.{name}')
             validate_seed(module_parameters(job_args, parameter_builder), region=job_args.optimization_region)
         root = Path(args.calibration_output_dir)
         if not root.is_absolute():
@@ -63,27 +139,14 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
                 session_observer(session)
             return session
         return run_jobs(jobs, output_root=root, session_factory=factory)
-    context = build_context(args, parameter_builder=parameter_builder, configure_args=configure_args)
-    session = context.session
+    session = build_session(args, parameter_builder=parameter_builder, configure_args=configure_args)
     if session_observer is not None:
         session_observer(session)
     if args.task == 'demo':
         from shape_sensing.runtime.service import run_demo
         return run_demo(session, args, app_factory)
     if args.task == 'init':
-        session.initialize(verbose=True)
-        visualizer = _visualization(session)
-        errors = {}
-        for direct in session.dataset.radii:
-            rs = {}
-            for kind in session.calib_shapes:
-                rs[kind], distance = session.reconstruct_shapes(kind, direct)
-            result = session.evaluate(distance, rs, direct)
-            errors[direct] = result.metrics['avg_point_err']['calib']
-            visualizer.init_visualise(direct)
-            visualizer.show_reconstruction(direct, rs, distance, showanime=True, ideals=result.details.get('ideals'))
-        return {'errors': errors, 'weights': session.weights, 'slopes': session.slopes,
-                'global_phases_set': session.global_phases_set}
+        return _initialize_session(session)
     if args.task == 'ang':
         import numpy as np
         session.load_data()
@@ -136,7 +199,11 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
                 and isinstance(wrapped[1].get('regions'),dict) else None)
         explicit=set(getattr(args,'_explicit_cli_parameters',()))
         loaded_fields=[]
-        if report is not None:
+        if (values.get('task') == 'init' and isinstance(wrapped, dict)
+                and isinstance(wrapped.get('regions'), dict)):
+            loaded_fields, args._resume_initialization_layouts = _restore_regional_initialization(
+                args, wrapped['regions'], explicit)
+        elif report is not None:
             is_batch=bool(getattr(args,'multi_region_calib',False) and args.task in ('optim','score'))
             selected_regions=report.get('regions',{})
             if is_batch:
@@ -176,6 +243,10 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
                 if 'global_phases_set' not in explicit and 'global_phases_set' in params:
                     args.global_phases_set=params['global_phases_set']; loaded_fields.append('global_phases_set')
         else:
+            if (values.get('task') == 'init' and args.task in ('optim', 'score')
+                    and getattr(args, 'multi_region_calib', False)
+                    and len(getattr(args, 'optimization_regions', ())) > 1):
+                raise ValueError('单区域初始化快照只能用于单区域续算；请使用多区域 init 快照')
             for name in ('weights','slopes','global_phases_set'):
                 if name not in explicit and name in values:
                     setattr(args,name,values[name]); loaded_fields.append(name)
@@ -199,7 +270,8 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
         result=_execute_task_body(args,visualizer_factory=visualizer_factory,
             app_factory=app_factory,configure_args=configure_args,parameter_builder=parameter_builder,
             prepare_jobs=prepare_jobs,run_jobs=run_jobs,compute_error_ang=compute_error_ang,optim_ang=optim_ang,
-            project_root=project_root,system=system,session_observer=observe)
+            project_root=project_root,system=system,session_observer=observe,
+            initialization_output_root=run.path / 'outputs')
         payload={'task':args.task,'result':result}
         if args.task == 'init' and isinstance(result, dict):
             payload.update({key:result[key] for key in ('weights','slopes','global_phases_set') if key in result})
@@ -208,7 +280,10 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
             for field in ('global_phases','global_phases_set','weights','slopes','rot_ang','avg_point_err','avg_end_err','avg_pitch_err','avg_radius_err'):
                 if hasattr(engine,field): payload[field]=getattr(engine,field)
         stage='initialization' if args.task=='init' else 'optim' if args.task=='optim' else 'results'
-        run.write_result(payload,stage); run.finish('succeeded')
+        result_path = run.write_result(payload, stage)
+        run.finish('succeeded')
+        if args.task == 'init':
+            print(f'初始化快照: {result_path}')
         return result
     except BaseException as exc:
         run.finish('failed',error=exc)

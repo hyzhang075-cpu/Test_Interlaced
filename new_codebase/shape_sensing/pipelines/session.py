@@ -20,6 +20,35 @@ def validate_seed(parameters, *, region='full'):
                          + '；请先运行该区域init，再用--resume载入初值，或显式提供这些参数')
 
 
+def _initial_parameters(result, dataset, config, region, previous):
+    """由单区域拟合结果生成完整运行参数，并保留显式 weights/slopes 覆盖。
+
+    拟合相位为 rad，slopes_init 按方向（deg）与分段给出 rad/m。
+    输出各方向的无量纲 [组数×等级数] 权重及 [等级, 分段] 扭转斜率。
+    S 形布局复制拟合分段以覆盖两段；旧末端双组布局以单位权重开始。
+    """
+    levels = len(config.curvature.thresholds) + 1
+    groups = config.curvature.weight_group_ids
+    split_end = config.curvature.end_weights and groups is None
+    group_count = max(groups) + 1 if groups is not None else (2 if split_end else 1)
+    initial_weight = 1.0 if split_end else config.curvature.init_weight
+    block = {
+        'global_phases_set': result.global_phases_set,
+        'rot_ang': config.reconstruction.rot_ang,
+        'weights': {direct: initial_weight * np.ones(levels * group_count)
+                    for direct in dataset.radii},
+        'slopes': {},
+    }
+    shapes = dataset.radii[next(iter(dataset.radii))]
+    for direct, slopes in result.slopes_init.items():
+        segments = np.concatenate((slopes, slopes)) if 'S' in shapes else slopes
+        block['slopes'][direct] = np.array([segments for _ in range(levels)])
+    for name in ('weights', 'slopes'):
+        if previous.get(name) is not None:
+            block[name] = deepcopy(previous[name])
+    return CalibrationParameters({region: block}, source='initialization')
+
+
 class TaskSession:
     """一个任务的显式数据与服务所有者；初始化拟合仅在initialize调用发生。"""
     def __init__(self, parameters, *, task='recon', region='full', dataset=None):
@@ -63,44 +92,35 @@ class TaskSession:
         return self.dataset
 
     def initialize(self, verbose=False):
-        """模块1->2，展开原权重/slopes初值；不触发优化。"""
+        """拟合静态 [P,C] 信号并保存模块2诊断，展开本区域各方向的等级初值。"""
         dataset = self.load_data()
-        result = InitializationService(self.config.initialization).fit(dataset, region=self.region, verbose=verbose)
-        block = deepcopy(result.seed.parameters_by_region[self.region])
-        levels = len(self.config.curvature.thresholds) + 1
-        groups = self.config.curvature.weight_group_ids
-        count = levels * (max(groups) + 1 if groups is not None else (2 if self.config.curvature.end_weights else 1))
-        block['weights'] = {direct: self.config.curvature.init_weight * np.ones(count) for direct in dataset.radii}
-        if self.config.curvature.end_weights and groups is None:
-            block['weights'] = {direct: np.ones(count) for direct in dataset.radii}
-        block['slopes'] = {direct: np.array([np.concatenate((slopes, slopes)) if 'S' in self.calib_shapes else slopes
-                                            for _ in range(levels)]) for direct, slopes in block['slopes_init'].items()}
+        result = InitializationService(self.config.initialization).fit(dataset, verbose=verbose)
         previous = self.parameters.parameters_by_region[self.region]
-        for name in ('weights', 'slopes'):
-            if previous.get(name) is not None:
-                block[name] = deepcopy(previous[name])
-        block['rot_ang'] = self.config.reconstruction.rot_ang
-        self.parameters = CalibrationParameters({self.region: block})
+        self.parameters = _initial_parameters(result, dataset, self.config, self.region, previous)
         self.initialization_result = result
         return result
 
     def frame(self, values):
-        """将真实点信号叶子 values[P,C] 包装为 PreparedFrame，复制设计距离 m 与索引。"""
-        """静态已预处理(P,C)叶子包装，保留真实点及通道顺序。"""
-        channels = self.dataset.channel_ids if self.dataset is not None else tuple(self.design.active_channels)
-        return PreparedFrame(self.design.sampling_distance_m.copy(), self.design.source_indices.copy(),
-                             np.array(values, copy=True), channels)
+        """输入已预处理的静态信号 [P,C]，返回带物理通道及设计几何的真实点帧。
+
+        信号保持数据集的历史应变尺度。本帧拥有信号副本，距离 [P] m 和索引来自设计。
+        """
+        channels = self.dataset.channel_ids if self.dataset is not None else self.design.active_channels
+        return PreparedFrame.from_design(self.design, np.array(values, copy=True), channels)
 
     def process_frame(self, signals, state=None, direct=0, tangent_seed=None, temporal_filter=None, acquired=False, parameter_selector=None):
-        """动态与replay同帧入口：1预处理->3真实点物理模型->5重构，无窗口。"""
-        frame = self.input.preprocess(signals, acquired=acquired)
+        """输入动态或回放信号 [P,C]（历史差分尺度），沿模块 1→3→5 计算。
+
+        返回形状坐标 [N,3] m 和下帧的方向展开状态。模块 1 与模块 3 共用设计几何。
+        """
+        frame = self.input.preprocess(signals, acquired=acquired, design=self.design)
         parameters = self.parameters if parameter_selector is None else parameter_selector(frame, self.parameters)
         curvature = self.curvature.compute(frame, self.design, parameters, direct=direct, region=self.region)
         prepared = self.reconstruction.prepare(curvature, self.design, np.array([1., 0., 0.]) if tangent_seed is None else tangent_seed, state=state)
         if temporal_filter is not None:
             prepared = temporal_filter(prepared)
         shape = self.reconstruction.integrate(prepared)
-        return shape, prepared.diagnostics['state_out']
+        return shape, prepared.state
 
     def _predict_shapes(self, parameters, calib_shape, direct, force_ideal_magnitude=False):
         """按指定形状和方向遍历静态数据，返回位置 m 的曲线树及积分距离 m。"""

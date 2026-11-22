@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -27,7 +28,10 @@ VARIANTS = (
 
 
 def curvature_tail_metrics(x, magnitude, angle, *, tail_length_m=0.05):
-    """Return scalar and planar-vector curvature integrals over the final tail."""
+    """输入末段距离 [P] m、曲率 [P] 1/m、方向 [P] rad 和末段长度 m。
+
+    插值到末段边界后做梯形积分，返回标量与平面向量转角（deg）和峰值曲率（1/m）。
+    """
     x = np.asarray(x, dtype=float)
     magnitude = np.asarray(magnitude, dtype=float)
     angle = np.asarray(angle, dtype=float)
@@ -41,9 +45,9 @@ def curvature_tail_metrics(x, magnitude, angle, *, tail_length_m=0.05):
     xx = np.r_[lo, x[inside], hi]
     mm = np.interp(xx, x, magnitude)
     aa = np.interp(xx, x, np.unwrap(angle))
-    scalar_rad = float(np.trapezoid(mm, xx))
-    vector_x = float(np.trapezoid(mm * np.cos(aa), xx))
-    vector_y = float(np.trapezoid(mm * np.sin(aa), xx))
+    scalar_rad = float(trapezoid(mm, xx))
+    vector_x = float(trapezoid(mm * np.cos(aa), xx))
+    vector_y = float(trapezoid(mm * np.sin(aa), xx))
     return {
         'scalar_integral_deg': scalar_rad * 180.0 / np.pi,
         'vector_integral_deg': float(np.hypot(vector_x, vector_y) * 180.0 / np.pi),

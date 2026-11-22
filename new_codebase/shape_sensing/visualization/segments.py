@@ -3,13 +3,14 @@ import numpy as np
 
 class PlotSegments:
     def __init__(self, inputs):
-        """输入VisualizationInputs，输出只持有绘图距离(P,)m的分段器。"""
-        self.samp_dist = inputs.dataset.design.sampling_distance_m.copy()
+        """从绘图输入取得 [P] m 坐标和分段配置；几何决定首点是否保留。"""
+        design = inputs.dataset.design
+        self.samp_dist = design.sampling_distance_m
         self.segmentation = inputs.segmentation
         self.discont = inputs.discont_rad
         self.connect = inputs.connect
-        self.zero_init = inputs.zero_init
-        self.straight_trim = inputs.straight_trim_m
+        self.zero_init = design.physical_start_m is not None
+        self.straight_trim = design.straight_trim
 
     def _segment_data(self, angles):
         """

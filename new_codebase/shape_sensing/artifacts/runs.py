@@ -57,12 +57,20 @@ def create_run(sensor_id,task,resolved_config,output_root):
 
 _GEOMETRY_KEYS=('sensor_id','R','start_value','end_value','samp_dist_preset','samp_dist_preset_sub',
     'active_channels','channel_layout','active_angles','centre_fibre','interlaced_grating','interlaced_offset')
-_REGION_KEYS=('length_m','radii','thresholds','segmentation','end_weights','end_start')
+_REGION_LAYOUT_KEYS = ('radii', 'thresholds', 'segmentation', 'end_weights', 'end_start')
 def _layout(value):
     if isinstance(value,dict): return {str(k):_layout(v) for k,v in value.items()}
     if isinstance(value,(list,tuple)): return [_layout(v) for v in value]
     if isinstance(value,np.ndarray): return list(value.shape)
     return value
+
+def initialization_layout(args, context):
+    """返回单区域的 JSON 布局：分段及索引、距离 m、半径 mm、曲率等级 1/m。"""
+    layout = {key: getattr(args, key, None) for key in _REGION_LAYOUT_KEYS}
+    layout.update({key: context.get(key) for key in (
+        'global_point_ids', 'sample_dist_m', 'weight_group_ids', 'weight_score_mode')})
+    return _native(layout)
+
 
 def load_resume(path,resolved_config):
     """读取显式 run 结果并检查传感器、几何、区域及阈值布局兼容性。"""
@@ -79,6 +87,14 @@ def load_resume(path,resolved_config):
     for key in _GEOMETRY_KEYS:
         if key in prior and key in resolved_config and _layout(prior[key]) != _layout(resolved_config[key]):
             raise ValueError(f'resume 配置不兼容: {key}')
+    initialization = result.get('result')
+    if (result.get('task') == 'init' and isinstance(initialization, dict)
+            and isinstance(initialization.get('regions'), dict)):
+        manifest = json.loads((run_dir/'manifest.json').read_text(encoding='utf-8'))
+        if manifest.get('status') != 'succeeded':
+            raise ValueError('resume 需要已成功完成的多区域初始化运行')
+        # 已解析的布局随各区域保存，由任务层与实际选中的优化 job 比较。
+        return result
     old_region=prior.get('optimization_region','full'); new_region=resolved_config.get('optimization_region','full')
     if old_region != new_region: raise ValueError('resume 配置不兼容: optimization_region')
     old_profiles=prior.get('calibration_regions',{}); new_profiles=resolved_config.get('calibration_regions',{})

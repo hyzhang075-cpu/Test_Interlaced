@@ -39,16 +39,15 @@ class Visualisor:
         self._construct_ideals = recon._construct_ideals
 
     def _init_explicit_inputs(self, inputs):
-        """输入VisualizationInputs，输出None；复制显式绘图参数，不绑定引擎私有方法。"""
+        """输入数据集与拟合诊断，绑定 [P] m 绘图距离、通道和 rad 方向供绘图。"""
         from .segments import PlotSegments
+        self.output_root = inputs.output_root
         dataset = inputs.dataset
         diagnostics = inputs.initialization
         self.sensor_id = dataset.design.sensor_id
         # 绘图数据保留设计通道顺序（包括中心通道），映射值必须是对应列索引。
         self.active_channels = {channel: idx for idx, channel in enumerate(dataset.design.active_channels)}
-        self.samp_dist = dataset.design.sampling_distance_m.copy()
-        self.ad_samp_dist = self.samp_dist.copy()
-        self.ideal_len = inputs.ideal_length_m
+        self.samp_dist = dataset.design.sampling_distance_m
         self.rot_ang = inputs.rotation_deg
         self.calib_shapes = [
             shape for shape, directions in dataset.data.items()
@@ -57,13 +56,13 @@ class Visualisor:
         ]
         self.plot_Data = dataset.plot_data
         self.radii = dataset.radii
-        self.init_weight = inputs.initial_weight
         self.segmentation = inputs.segmentation
         self.angle_results_unwrap = {} if diagnostics is None else diagnostics.angle_results_unwrap
         self.angle_results_raw = {} if diagnostics is None else diagnostics.angle_results_raw
         self.global_fit_direct = {} if diagnostics is None else diagnostics.global_fit_direct
         self.individual_fits_direct = {} if diagnostics is None else diagnostics.individual_fits_direct
-        self.zero_init = inputs.zero_init
+        self.zero_init = dataset.design.physical_start_m is not None
+        self.straight_trim = dataset.design.straight_trim
         segments = PlotSegments(inputs)
         self._segment_data = segments._segment_data
         self._calculate_segments = segments._calculate_segments
@@ -107,8 +106,16 @@ class Visualisor:
     #     self._visualisation_engine(angle_data=self.angle_results_unwrap['circ'][direct], slope=fit_slope, intercept=fit_intercept, merged_x=combined_x, save_dir=init_dir) # 画角度曲线
     #     self._visualise_ensemble_fit(angle_data=self.angle_results_unwrap['circ'][direct], global_fit=self.global_fit_direct[direct], individual_fits=self.individual_fits_direct[direct], save_dir=init_dir) # 画曲线+拟合线
 
+    def _output_for_direction(self, direct):
+        """由方向角 deg 返回绘图目录。批量运行已按运行和区域分层。"""
+        output_root = getattr(self, 'output_root', None)
+        if output_root is not None:
+            return os.path.join(output_root, str(direct))
+        return os.path.join('outputs', self.sensor_id, str(self.active_channels.keys()),
+                            str(self.segmentation), str(direct))
+
     def init_visualise(self, direct):
-        init_dir = os.path.join("outputs", self.sensor_id, str(self.active_channels.keys()), str(self.segmentation), str(direct), "init_plots")
+        init_dir = os.path.join(self._output_for_direction(direct), "init_plots")
         os.makedirs(init_dir, exist_ok=True)
 
         for calib_shape in self.calib_shapes:
@@ -624,7 +631,7 @@ class Visualisor:
         - 副作用：
             - 在 self.sensor_id/.../recon_plots/... 目录下保存各形状的 mp4 动画文件
         """
-        base_save_dir = os.path.join("outputs", self.sensor_id, str(self.active_channels.keys()), str(self.segmentation), str(direct), "recon_plots", str(self.rot_ang))
+        base_save_dir = os.path.join(self._output_for_direction(direct), "recon_plots", str(self.rot_ang))
         os.makedirs(base_save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

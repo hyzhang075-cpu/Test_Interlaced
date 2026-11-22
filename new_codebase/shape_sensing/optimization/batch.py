@@ -131,7 +131,7 @@ def _save_report(path, report):
 
 
 def _report_relative_folder(value, calibration_data_root):
-    """Store a calibration folder relative to the configured data root."""
+    """返回标定目录的 POSIX 路径字符串；绝对路径优先相对数据根目录表示。"""
     if value is None:
         return None
     path = Path(value)
@@ -139,7 +139,7 @@ def _report_relative_folder(value, calibration_data_root):
     if not root.is_absolute():
         root = Path.cwd() / root
     if not path.is_absolute():
-        return path.as_posix().removeprefix('./')
+        return path.as_posix()
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:

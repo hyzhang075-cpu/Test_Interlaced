@@ -190,12 +190,13 @@ def test_parameter_shape_rejects_old_local_slopes_for_full_calibration():
                                         [.8, 1.2, 2, 3, 4], FULL_SEGMENTS, [0])
 
 
-@pytest.mark.parametrize('region,enabled,count,segments,last_radius', [
-    ('full', False, 21, [2, 4, 8, 3, 2, 2], 200),
-    ('end15cm', True, 7, [3, 2, 2], 30),
-    ('end5cm', True, 4, [2, 2], 15),
+@pytest.mark.parametrize('region,count,segments,last_radius', [
+    ('full', 21, [2, 4, 8, 3, 2, 2], 200),
+    ('end15cm', 7, [3, 2, 2], 30),
+    ('end5cm', 4, [2, 2], 15),
 ])
-def test_main_region_selection_reaches_optimizer(tmp_path, monkeypatch, region, enabled, count, segments, last_radius):
+def test_main_single_region_initialization_uses_selected_geometry(tmp_path, monkeypatch, region, count, segments, last_radius):
+    """检查单区域 init 接收所选区域的点数、分段及实验半径（mm）。"""
     import main
     args_root = tmp_path / 'dataset'
     defaults = main.parse_main_args(['--task', 'init'])
@@ -212,7 +213,7 @@ def test_main_region_selection_reaches_optimizer(tmp_path, monkeypatch, region, 
         raise ConfigReached
     install_session_capture(monkeypatch, capture)
     monkeypatch.setattr(sys, 'argv', ['main.py', '--task', 'init', '--calibration_data_root', str(args_root),
-                                    '--multi_region_calib', str(enabled),
+                                    '--multi_region_calib', 'False',
                                     '--optimization_region', region])
     with pytest.raises(ConfigReached):
         main.main()

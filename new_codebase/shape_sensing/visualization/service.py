@@ -1,6 +1,8 @@
 """模块7显式绘图输入与延迟绘图服务；不读取或绑定算法引擎。"""
-from dataclasses import dataclass, field
-from typing import Mapping
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
 import numpy as np
 from ..contracts import CalibrationDataset, InitializationResult, ShapeResult, EvaluationResult
 
@@ -12,11 +14,8 @@ class VisualizationInputs:
     segmentation: tuple[int, ...] = ()
     discont_rad: float = np.pi
     connect: bool = True
-    zero_init: bool = True
-    straight_trim_m: float = 0.0
     rotation_deg: float = 0.0
-    ideal_length_m: float = 1.35
-    initial_weight: float = 1.0
+    output_root: Path | None = None
 
 class VisualizationService:
     """接收DTO；只有绘图方法调用时加载matplotlib/VTK，不拟合、不重构。"""

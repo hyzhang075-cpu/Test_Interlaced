@@ -2,8 +2,8 @@ from pathlib import Path
 import numpy as np
 from shape_sensing.configuration import load_working_config
 from shape_sensing.contracts import (
-    CalibrationParameters, CalibrationSeed, DesignGeometry, ModuleConfiguration,
-    PreparedFrame, ReconstructionState, ShapeResult,
+    CalibrationParameters, DesignGeometry, ModuleConfiguration,
+    PreparedFrame, ReconstructionState,
 )
 
 
@@ -32,23 +32,21 @@ def test_09b7_config_projection_and_real_point_geometry():
 
 
 def test_region_direct_parameters_have_one_authoritative_mapping():
+    """从同一映射读取区域斜率 rad/m 和方向相位 rad。"""
     values = {
         "full": {"mode": "region", "slopes": [[1.0, 2.0], [3.0, 4.0]]},
         "direct": {"mode": "direct", "phases_by_direction_rad": {0: 0.1, 120: 0.2}},
     }
-    seed = CalibrationSeed(parameters_by_region=values)
     fitted = CalibrationParameters(parameters_by_region=values)
-    assert seed.parameters_by_region["full"]["slopes"][1] == [3.0, 4.0]
+    assert fitted.parameters_by_region["full"]["slopes"][1] == [3.0, 4.0]
     assert fitted.parameters_by_region["direct"]["phases_by_direction_rad"][120] == 0.2
     assert "direct_parameters" not in fitted.__dataclass_fields__
     assert "region_parameters" not in fitted.__dataclass_fields__
 
 
-def test_reconstruction_state_is_temporal_and_shape_result_keeps_compatibility():
+def test_reconstruction_state_holds_previous_angles():
+    """方向展开历史包含两组 [Q] 弧度数组，无标定参数。"""
     state = ReconstructionState(np.array([0.1, 0.2]), np.array([0.1, 6.48]))
     assert state.previous_raw_angles_rad.shape == (2,)
     assert state.previous_unwrapped_angles_rad.shape == (2,)
     assert "calibration_seed" not in state.__dataclass_fields__
-    old_values = (np.zeros((2, 3)), np.ones((2, 3)))
-    result = ShapeResult(values=old_values, frame_rule="TNB")
-    assert result.values is old_values and result.frame_rule == "TNB"

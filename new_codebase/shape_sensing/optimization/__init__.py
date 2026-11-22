@@ -7,8 +7,13 @@ def __getattr__(name):
 
 class ParameterOptimizer:
     """通过当前任务优化引擎执行系数优化。"""
-    def __init__(self, context): self.context = context
-    def optimize(self, verbose=True): return self.context.session.optim_coeff(verbose=verbose)
+    def __init__(self, session):
+        """输入 TaskSession，保存引用供兼容优化入口使用。"""
+        self.session = session
+
+    def optimize(self, verbose=True):
+        """用任务的方向、等级和分段参数运行优化，返回搜索报告。"""
+        return self.session.optim_coeff(verbose=verbose)
 
 __all__ = ["Optimiser", "ParameterOptimizer"]
 

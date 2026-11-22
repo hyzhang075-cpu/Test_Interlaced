@@ -5,10 +5,10 @@ from .service import EvaluationService
 
 
 class Evaluator:
-    """将旧任务context适配到新评估会话。"""
+    """评估兼容入口，接受 TaskSession 或旧引擎上下文。"""
 
     def __init__(self, context):
-        """保存持有session的显式任务上下文，无文件读取。"""
+        """输入 TaskSession 或 LegacyContext，保存引用供旧签名转发。"""
         self.context = context
 
     def ideal_shape(self, calib_shape, interp_dist, val_len, radius_m, idx_m, angle_deg=None):
@@ -18,7 +18,7 @@ class Evaluator:
             return self.context.engine._construct_ideal_shape(
                 calib_shape, interp_dist, val_len, radius_m, idx_m, angle_deg)
         from ..contracts import EvaluationReference
-        session = self.context.session
+        session = self.context
         reference = EvaluationReference(radius_m=radius_m, shape_kind=calib_shape,
             angle_deg=angle_deg, sample_coordinates_m=session.dataset.design.sampling_distance_m,
             metadata={'idx_m': idx_m})
@@ -35,7 +35,7 @@ class Evaluator:
                      'avg_end_err', 'rot0_pitch_errors', 'rot0_radius_errors',
                      'avg_pitch_err', 'avg_radius_err')
             return {name: deepcopy(getattr(engine, name)) for name in names if hasattr(engine, name)}
-        return self.context.session.evaluate(interp_dist, rs).metrics
+        return self.context.evaluate(interp_dist, rs).metrics
 
 
 __all__ = ['EvaluationMixin', 'IdealCurvatureMixin', 'Evaluator', 'EvaluationService']

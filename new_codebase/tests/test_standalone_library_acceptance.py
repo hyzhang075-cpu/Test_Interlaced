@@ -47,12 +47,12 @@ def test_numerical_implementations_live_in_their_responsible_modules():
            (Reconstructor._construct_ideal_magnitude_for_recon,'evaluation')]
     for function,owner in cases:
         path=Path(inspect.getsourcefile(function)).resolve()
-        assert path.is_relative_to(ROOT/'shape_sensing'/owner), (function,path,owner)
+        assert ROOT/'shape_sensing'/owner in path.parents, (function,path,owner)
     assert ShapeIntegrator.__module__.startswith('shape_sensing.reconstruction')
 
 
 def test_installed_wheel_computes_without_old_files(tmp_path):
-    """离线构建/安装到仅含wheel内容的目录，禁用所有旧模块后实际计算。"""
+    """离线构建并安装 wheel，禁用旧模块后实际计算，按 UTF-8 校验中文帮助。"""
     wheels=tmp_path/'wheels'; wheels.mkdir()
     build=subprocess.run([sys.executable,'-m','pip','wheel',str(ROOT),'--no-deps',
                           '--no-build-isolation','--wheel-dir',str(wheels)],
@@ -75,7 +75,7 @@ def test_installed_wheel_computes_without_old_files(tmp_path):
                            cwd=tmp_path,capture_output=True,text=True,timeout=120)
     assert install.returncode==0, install.stdout+'\n'+install.stderr
     script=r'''
-import sys, importlib.abc, importlib.resources, pathlib, runpy
+import sys, importlib.abc, pathlib, runpy
 from types import SimpleNamespace
 sys.path.insert(0,sys.argv[1])
 blocked={'sensor','initialiser','reconstructor','optimiser','visualisor','demonstrator',
@@ -106,16 +106,16 @@ assert np.linalg.norm(position[-1]-position[0])>0
 ideal=Optimiser.__new__(Optimiser)._construct_ideal_shape('circ',distance,.04,.05,0.)
 expected=np.column_stack((.05*np.sin(distance/.05),.05*(1-np.cos(distance/.05)),np.zeros(6)))
 np.testing.assert_allclose(ideal,expected,atol=1e-12)
-package=importlib.resources.files('shape_sensing')
-assert package.joinpath('resources/sensor_template.yaml').is_file()
-assert pathlib.Path(sys.modules['shape_sensing'].__file__).is_relative_to(pathlib.Path(sys.argv[1]))
+from shape_sensing.common.paths import resource_path
+assert resource_path('resources', 'sensor_template.yaml').is_file()
+assert pathlib.Path(sys.argv[1]) in pathlib.Path(sys.modules['shape_sensing'].__file__).parents
 print('INSTALLED_NUMERICAL_COMPUTATION_OK')
 sys.modules['PyQt5']=None; sys.modules['vtk']=None
 sys.argv=['shape_sensing','--help']
 runpy.run_module('shape_sensing',run_name='__main__')
 '''
-    run=subprocess.run([sys.executable,'-I','-c',script,str(installed)],cwd=tmp_path,
-                       capture_output=True,text=True,timeout=60)
+    run=subprocess.run([sys.executable,'-I','-X','utf8','-c',script,str(installed)],cwd=tmp_path,
+                       capture_output=True,encoding='utf-8',timeout=60)
     assert run.returncode==0,run.stdout+'\n'+run.stderr
     assert 'INSTALLED_NUMERICAL_COMPUTATION_OK' in run.stdout
     assert 'usage:' in run.stdout.lower()

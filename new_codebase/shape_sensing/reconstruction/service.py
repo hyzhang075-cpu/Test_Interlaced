@@ -1,4 +1,6 @@
 """模块5：曲率预处理与形状积分，不读取标定数据。"""
+from __future__ import annotations
+
 import numpy as np
 from .preparation import CurvaturePreparationKernel
 from .integration import ShapeIntegrator
@@ -39,7 +41,8 @@ class ReconstructionService:
         """输入真实曲率(P,)1/m、方向rad、几何m及初始切向(3,)，返回积分场(N,)和诊断。
 
         ideal_curvature是距离数组(m)->理论曲率数组(1/m)的显式回调，模块5不依赖模块6。
-        state存上一帧补点后的方向(Q,)rad；返回diagnostics['state_out']显式传给下一帧。
+        state 存上一帧补点后的网格 m 与方向 [Q] rad，网格变化时重启展开。
+        返回值的 state 由调用方传给下一帧。
         """
         distance = np.array(curvature.distance_m, dtype=float, copy=True)
         magnitude = np.array(curvature.curvature_per_m, dtype=float, copy=True)
@@ -62,35 +65,31 @@ class ReconstructionService:
                 raise ValueError('end_point需要design.physical_end_m显式提供虚拟末点')
             adjusted = np.append(adjusted, design.physical_end_m)
         kernel = _ConfiguredPreparation(self.config, distance, adjusted)
+        if state is not None and state.distance_m is not None and not np.array_equal(state.distance_m, adjusted):
+            state = None
         previous_raw = None if state is None else state.previous_raw_angles_rad
         previous_unwrapped = None if state is None else state.previous_unwrapped_angles_rad
         cur, ang, grid, diagnostics = kernel.prepare_arrays(
             magnitude, angle, previous_raw, previous_unwrapped, ideal_curvature)
         next_state = ReconstructionState(diagnostics['angle_prepared'].copy(),
-                                         diagnostics['angle_unwrap'].copy())
-        diagnostics.update({'angle_raw': diagnostics['angle'].copy(),
-                            'angle_filter': diagnostics['ang_filter'].copy(),
-                            'curvature_raw_per_m': diagnostics['magnitude'].copy(),
-                            'source_distance_m': distance.copy(),
-                            'adjusted_distance_m': adjusted.copy(),
-                            'state_out': next_state})
+                                         diagnostics['angle_unwrap'].copy(), adjusted.copy())
+        diagnostics.update({'source_distance_m': distance, 'adjusted_distance_m': adjusted})
         source = np.interp(grid, distance, curvature.source_indices).astype(int)
         return PreparedCurvature(grid.copy(), cur.copy(), ang.copy(), seed, source, diagnostics, state=next_state)
 
     def integrate(self, prepared: PreparedCurvature):
         """输入插值曲率(N,)1/m、方向rad、距离m；返回位置(N,3)m与原始单位标架。
 
-        两种标架均保持旧tuple布局(position,T,N或Y,B或Z)，named字段逐一对应。
+        将积分器的单位切向与法平面基向量映射到命名字段，保存实际用于积分的幅角。
         """
         integrator = ShapeIntegrator(self.config.frame_rule, self.config.TNB_threshold,
                                      self.config.rot_ang)
-        values = integrator.integrate(prepared.curvature_per_m, prepared.direction_rad,
-                                      prepared.distance_m, prepared.tangent_seed)
-        position, tangent, normal, binormal = values
+        position, tangent, normal, binormal = integrator.integrate(
+            prepared.curvature_per_m, prepared.direction_rad, prepared.distance_m, prepared.tangent_seed)
         diagnostics = dict(prepared.diagnostics)
         diagnostics.update({'cur_interp': np.array(prepared.curvature_per_m, copy=True),
                             'ang_interp': np.array(prepared.direction_rad, copy=True)})
-        return ShapeResult(values, self.config.frame_rule, position, tangent, normal,
+        return ShapeResult(self.config.frame_rule, position, tangent, normal,
                            binormal, np.array(prepared.distance_m, copy=True), diagnostics)
 
     def transform_shape(self, shape, *, direct, rot_dir, rot_ang):
@@ -106,4 +105,4 @@ class ReconstructionService:
         normal = None if shape.normal is None else np.array(shape.normal, copy=True) @ matrix.T
         binormal = None if shape.binormal is None else np.array(shape.binormal, copy=True) @ matrix.T
         return replace(shape, position_m=position, tangent=tangent, normal=normal,
-                       binormal=binormal, values=(position, tangent, normal, binormal))
+                       binormal=binormal)

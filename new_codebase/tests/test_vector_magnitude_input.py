@@ -35,7 +35,7 @@ def test_vector_bypasses_kalman_but_scalar_keeps_it(mode, virtual_points):
         _Kalman_filter=lambda **kw: kw['data'] * .5,
         kalman_params={'magnitude': {'Rk': .0001, 'Bk': .01}},
         curvature_interp=mode, nonnegative_curvature=False,
-        _vector_curvature_method=lambda mode: mode.removeprefix('vector_'),
+        _vector_curvature_method=lambda mode: mode.split('_', 1)[1],
         _interpolate_curvature_vector=vector,
         _interpolate_curvature=scalar,
         _KT_Hermit_interp_tang=lambda data: (data, np.arange(len(data), dtype=float)),

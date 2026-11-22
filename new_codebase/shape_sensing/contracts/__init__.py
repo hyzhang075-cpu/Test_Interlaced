@@ -3,34 +3,22 @@
 距离均以 m 表示，曲率以 1/m 表示，角度以 rad 表示。数组字段均为 NumPy
 数组；生产者不得原地修改调用方传入的数据。旧契约类保留供兼容适配层使用。
 """
+from __future__ import annotations
+
 from dataclasses import dataclass, field, fields
 from typing import Any, Mapping
 import numpy as np
 
 @dataclass(frozen=True)
-class CurveInput:
-    """插值曲线输入：curvature/angle/distance 均为一维 N 数组，单位 1/m、rad、m。"""
-    curvature: Any
-    angle: Any
-    distance_m: Any
-    initial_tangent: Any
-
-@dataclass(frozen=True)
 class ShapeResult:
-    """旧标架积分输出；position 与 tangent/frame 行数为 N，空间坐标单位 m。"""
-    values: tuple
+    """积分输出；位置和标架为 [N,3]，位置 m，三个标架向量无量纲。"""
     frame_rule: str
-    position_m: Any = None
-    tangent: Any = None
-    normal: Any = None
-    binormal: Any = None
-    distance_m: Any = None
+    position_m: np.ndarray
+    tangent: np.ndarray | None = None
+    normal: np.ndarray | None = None
+    binormal: np.ndarray | None = None
+    distance_m: np.ndarray | None = None
     diagnostics: Mapping[str, Any] = field(default_factory=dict)
-
-@dataclass(frozen=True)
-class EvaluationSnapshot:
-    """误差评估的一次深拷贝快照，不与 Optimiser 后续状态共享容器。"""
-    metrics: dict
 
 @dataclass(frozen=True)
 class DesignGeometry:
@@ -61,16 +49,36 @@ class PreparedFrame:
     signals: np.ndarray
     channel_ids: tuple[int, ...]
 
-@dataclass(frozen=True)
-class CalibrationSeed:
-    """模块2初值，按region区分direct与region方案；slopes档位×分段，direct相位按方向角索引。"""
-    parameters_by_region: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
-    source: str = "initialization"
+    @classmethod
+    def from_design(cls, design: DesignGeometry, signals: np.ndarray,
+                    channel_ids: tuple[int, ...]) -> "PreparedFrame":
+        """绑定静态设计与已预处理的 [P,C] 信号，保留其历史量纲。
+
+        校验点数及物理通道列，帧拥有生产者交入的信号数组。距离 [P] m 与
+        真实点全局索引 [P] 来自设计，帧只持有其只读视图。
+        """
+        distance = design.sampling_distance_m.view()
+        indices = design.source_indices.view()
+        if distance.ndim != 1 or indices.shape != distance.shape:
+            raise ValueError('设计距离与真实点索引必须是等长 [P] 数组')
+        if signals.shape != (distance.size, len(channel_ids)) or len(channel_ids) != len(set(channel_ids)):
+            raise ValueError('预处理信号必须为 [P,C]，通道列标签必须唯一且与列数一致')
+        distance.flags.writeable = False
+        indices.flags.writeable = False
+        return cls(distance, indices, signals, channel_ids)
+
 
 @dataclass(frozen=True)
 class CalibrationParameters:
-    """模块4结果，统一region->参数布局；direct/region互斥保存在各region值内。slopes按档位×分段，direct相位按方向角索引。"""
+    """模块3、4和实时方向选择共用的区域参数。
+
+    region块内以实验方向（deg）索引 weights 和 slopes。
+    weights 按组优先、组内曲率等级排列（无量纲），slopes 为 [等级, 分段] rad/m。
+    source 表示内存中这组参数的来源，发布状态仍由任务报告和产物清单决定。
+    """
     parameters_by_region: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    source: str = "configured"
+
 
 @dataclass(frozen=True)
 class CurvatureResult:
@@ -109,29 +117,13 @@ class ReconstructionState:
     """模块5跨帧展开状态；raw/unwrapped各按含虚拟点的重构点顺序(Q,) rad，不存标定参数。"""
     previous_raw_angles_rad: np.ndarray | None = None
     previous_unwrapped_angles_rad: np.ndarray | None = None
-
-@dataclass(frozen=True)
-class OptimizationState:
-    """模块4迭代状态；初值另由CalibrationSeed显式传入。"""
-    iteration: int = 0
-    best_objective: float | None = None
-    best_parameters: CalibrationParameters | None = None
-    history: tuple[Any, ...] = ()
+    distance_m: np.ndarray | None = None
 
 @dataclass(frozen=True)
 class EvaluationResult:
     """模块6评估值；metrics键为指标名，值为标量或逐点数组。"""
     metrics: Mapping[str, Any]
     details: Mapping[str, Any] = field(default_factory=dict)
-
-@dataclass(frozen=True)
-class RuntimeState:
-    """模块8会话状态；模块1/5状态分槽显式传递，队列和生命周期由runtime持有。"""
-    frame_index: int = 0
-    input_state: Any = None
-    reconstruction_state: ReconstructionState | None = None
-    frame_queue: tuple[Any, ...] = ()
-    active: bool = False
 
 # Explicit module configuration projections. Fields retain the external YAML names.
 @dataclass(frozen=True)
@@ -313,7 +305,8 @@ class CalibrationDataset:
 @dataclass(frozen=True)
 class InitializationResult:
     """模块2输出初值及拟合诊断；所有诊断容器属于此次fit调用。"""
-    seed: CalibrationSeed
+    global_phases_set: float
+    slopes_init: Mapping[int, list[float]]
     magnitude_results: dict
     angle_results_raw: dict
     angle_results_unwrap: dict

@@ -1,9 +1,14 @@
+import sys
+
+if sys.version_info < (3, 8):
+    version = '.'.join(map(str, sys.version_info[:3]))
+    raise SystemExit(f'shape_sensing 需要 Python 3.8 或更高版本，当前为 {version}。请切换 Python 环境后重试。')
+
 import argparse
 import ast
 from copy import deepcopy
 from email import parser
 import time
-import sys
 import threading
 import numpy as np
 from pathlib import Path
@@ -212,11 +217,12 @@ def configure_calibration_args(args):
         args, 'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
     context['weight_group_ids'] = None
     if independent:
-        if context['global_point_ids'] != [19,20,21,22] or args.reverse:
-            raise ValueError('end5cm三组weights目前要求正向真实点19–22')
+        points = context['global_point_ids']
+        if points not in ([19, 20, 21, 22], [18, 19, 20, 21, 22]) or args.reverse:
+            raise ValueError('end5cm三组weights要求正向真实点19–22或18–22')
         if not args.end_weights:
             raise ValueError('end5cm三组weights需要该区域end_weights=True')
-        context['weight_group_ids'] = [0,0,1,2]
+        context['weight_group_ids'] = [0] * (len(points) - 2) + [1, 2]
     configured_mode = selected.get('weight_score_mode')
     if 'end5cm_independent_weight_score' in explicit_cli:
         configured_mode = 'group_mean' if groupwise and independent else 'spatial_window'
@@ -419,11 +425,11 @@ def build_argument_parser():
     parser.add_argument('--optim_weights_only', type=_str2bool, default=False,
                         help='只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes')
     parser.add_argument('--multi_region_calib', type=_str2bool, default=False,
-                        help='True时optim/score遍历optimization_regions；False时仅全长')
+                        help='True时init/optim/score遍历optimization_regions；False时仅选择optimization_region')
     parser.add_argument('--optimization_region', type=str, default='full',
                         help='init/recon/demo等单区域任务使用的数据区域')
     parser.add_argument('--optimization_regions', type=ast.literal_eval, default=['full', 'end15cm', 'end5cm'],
-                        help='区域模式下optim/score依次处理的区域列表')
+                        help='区域模式下init/optim/score依次处理的区域列表')
     parser.add_argument('--full_segmentation', type=ast.literal_eval, action=_StoreFullSegmentation,
                         default=[3, 4, 8, 3, 2, 2],
                         help='全长真实点分段列表；局部区域必须由其完整空间段组成')

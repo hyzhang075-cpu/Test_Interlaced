@@ -1,19 +1,25 @@
 # 传感器算法使用说明
 
-本文对应当前 `shape_sensing` 源码，覆盖准备配置、初始化、优化、合并参数、发布、离线回放和动态使用。示例使用 PowerShell，从仓库根目录执行。
+本文对应当前 `shape_sensing` 源码，覆盖准备配置、初始化、优化、合并参数、发布、离线回放和动态使用。示例使用 PowerShell，从 `new_codebase` 目录执行。
 
 ## 1. 安装与入口
 
-激活实际运行算法的 Python 环境，例如 `conda activate dc_Shape`。在仓库根目录安装所需依赖：
+先激活形状感知环境 `conda activate dc_ss`。新库支持 Python 3.8 或更高版本。若需要安装，使用该环境的 Python 在 `new_codebase` 目录执行以下命令。
 
 ```powershell
 python -m pip install -e ".[gui,runtime]"
 python main.py --help
 ```
 
+开发时可在[模块数据接口](../docs/module-data-interfaces.md)查阅实际交接类型。曲线结果、误差和实时状态分别由重构、评估和运行服务显式返回。
+
 基础数值功能可以用 `python -m pip install -e .` 安装。`gui` 包含 Matplotlib、PyQt5、VTK，初始化绘图、离线回放和 demo 会使用它们；`runtime` 包含串口依赖。YAML 的安装包名称是 `PyYAML`，导入名是 `yaml`。
 
-`python main.py ...` 与 `python -m shape_sensing ...` 使用同一个任务入口。单独安装 wheel 后，可以使用 `python -m shape_sensing ...` 或 `shape-sensing ...`。下文的 `tools/*.py` 位于源码仓库，wheel 使用者可调用第 5 节给出的导出 API。
+`python main.py ...` 与 `python -m shape_sensing ...` 使用同一个任务入口。从仓库根目录也可以将下文的 `python main.py` 换成 `python .\new_codebase\shape_sensing\main.py`。源码脚本会把工作目录切换到 `new_codebase`。单独安装 wheel 后，可以使用 `python -m shape_sensing ...` 或 `shape-sensing ...`。下文的 `tools/*.py` 位于源码仓库，wheel 使用者可调用第 5 节给出的导出 API。
+
+静态重构和实时/回放共享 `PreparedFrame`，保留单帧的物理通道列和真实点身份。固定距离和索引由设计提供。模块 3 对真实点计算曲率，模块 5 处理积分所需的网格，并返回 `ShapeResult` 的具名位置与标架字段。旧积分入口继续返回元组。
+
+实时与回放使用同一处理路径。会话在有效帧后更新方向展开、曲率时间滤波及显示均值历史。记录、UDP 与窗口使用同一最终帧。记录中 `cur_interp` 是实际积分使用的曲率，启用时间滤波时 `cur_interp_raw` 保存同一网格上的滤波前曲率。
 
 ## 2. 每根传感器准备一份工作配置
 
@@ -53,6 +59,8 @@ imu: false
 
 工作 YAML 中的 `calibration_data_root` 相对 **该 YAML 所在目录**；区域 `folder_path` 相对数据根目录。`calibration_output_dir` 和 YAML 中的 `zero_reference_path` 相对该 YAML 所在目录。
 
+当前 `configs/09B7_NeTi.yaml` 的数据根为 `../../09B7数据`。批量运行前，确认 `calibration_regions` 中每个目标区域的目录都存在。若数据放在其他位置，请调整 YAML 的数据根和各区域目录。单区域运行可用 `--folder_path` 覆盖所选区域的数据目录。
+
 例如配置保存在 `configs/my-sensor.yaml`，数据保存在仓库根目录的 `my-data/`，可填写：
 
 ```yaml
@@ -69,58 +77,68 @@ calibration_regions:
 
 ## 3. 初始化与优化
 
-### 3.1 每个区域显式初始化
+### 3.1 选择批量或单区域初始化
 
-以下命令分别使用各区域对应的静态数据、阈值和分段，保存独立的初始化快照：
+`--multi_region_calib True` 按 `optimization_regions` 的顺序初始化各区域。09B7 默认依次为 `full`、`end15cm`、`end5cm`，每个区域都拟合 `exp_directs` 中的方向。
 
 ```powershell
-python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region full
-python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region end15cm
-python main.py --config configs/my-sensor.yaml --task init --multi_region_calib False --optimization_region end5cm
+python main.py --config configs/09B7_NeTi.yaml --task init --multi_region_calib True
 ```
 
-只使用全长单区域时，执行第一条即可。初始化对 `exp_directs` 中的方向拟合相位及分段扭转初值，再重构、评估并绘图；每次保存 `runs/<sensor_id>/<run_id>/initialization.json`。各区域的点数和分段不同，不能将 full 初值直接用于 end15cm/end5cm。
+批量任务分别使用各区域的 `folder_path`、分段和阈值。程序先检查所有目标区域，再读取标定 CSV。成功后终端会打印 `initialization.json` 的路径，文件按区域保存相位、各方向的权重、斜率和对应的采样布局。批量运行会直接保存绘图和 MP4。
+
+单区域模式的以下命令分别使用各区域对应的静态数据、阈值和分段，保存独立的初始化快照：
+
+```powershell
+python main.py --config configs/09B7_NeTi.yaml --task init --multi_region_calib False --optimization_region end5cm
+```
+
+将 `end5cm` 换成 `full` 或 `end15cm` 即可选择其他区域。单区域和多区域初始化快照均位于 `runs/<sensor_id>/<run_id>-init/initialization.json`。
+
+模块 2 返回区域相位 `global_phases_set` 和按方向存放的分段斜率 `slopes_init`。任务层生成各等级的 `weights` 和 `slopes`，优先使用显式值。优化通过 `--resume` 读取相位和初值，无需把相位抄到 YAML。
 
 绘图会保存图像和 MP4，MP4 导出需要可用的 FFmpeg。`init` 关闭存储零点，沿用静态数据预处理流程。要重新拟合，请运行新的 `init`；`--weights None --slopes None` 不会使优化任务执行初始化。
 
 ### 3.2 从匹配初值优化三个方向
 
-将下列三个目录替换成刚完成的对应区域 init run。默认的独立区域工作流保持 `use_full_transported_phase: false`；已有上游相位传递流程见第 3.3 节。
+批量初始化后，将 `$initRun` 设置为终端打印的初始化快照路径或该文件的上一级目录。三个方向都用这同一个快照，每次优化一个方向。
 
 ```powershell
-$initFull = "runs/my_sensor/实际full-init目录"
-$initEnd15 = "runs/my_sensor/实际end15cm-init目录"
-$initEnd5 = "runs/my_sensor/实际end5cm-init目录"
-$initializations = @{ full = $initFull; end15cm = $initEnd15; end5cm = $initEnd5 }
-
-foreach ($region in @("full", "end15cm", "end5cm")) {
-    $seedRun = $initializations[$region]
-    foreach ($direct in @(0, 120, 240)) {
-        python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib False --optimization_region $region --direct $direct --resume "$seedRun"
-        if ($LASTEXITCODE -ne 0) { throw "优化失败：$region / $direct" }
-    }
+$initRun = "<粘贴终端打印的 initialization.json 完整路径>"
+foreach ($direct in @(0, 120, 240)) {
+    python main.py --config configs/09B7_NeTi.yaml --task optim --multi_region_calib True --direct $direct --resume $initRun
+    if ($LASTEXITCODE -ne 0) { throw "优化失败：$direct" }
 }
 ```
 
-这会产生九个 optim run，每个区域/方向各一个。只优化全长时，将区域循环改为 `@("full")`，只需 `$initFull`。**每次 optim 只优化 `--direct` 指定的方向。** `exp_directs` 说明可加载的数据方向，不会代替三次方向优化。
+只优化一个区域时，可使用该区域的单区域快照，也可从多区域快照中选取该区域。以下示例只优化 `end5cm` 的 240°：
 
-续算会检查传感器、几何、区域、阈值和参数布局。显式命令行种子优先于续算参数；若显式设置 `None` 导致缺少必要初值，任务会在读取标定 CSV 前报错并指导运行 `init` 和 `--resume`。正常的零相位 `0` 不会触发重新拟合。
+```powershell
+python main.py --config configs/09B7_NeTi.yaml --task optim --multi_region_calib False --optimization_region end5cm --direct 240 --resume $initRun
+```
+
+批量优化三个方向会产生 **三个 optim run**，每个 run 含该方向的所有目标区域。按区域和方向分别优化时，三区域、三方向共产生 **九个 optim run**。每次 `optim` 只优化 `--direct` 指定的方向。
+
+续算会检查传感器、采样点、分段、曲率等级、权重分组及目标方向的初值。应使用与初始化匹配的配置。批量续算所用的快照须覆盖所有目标区域。单区域模式下显式给出的初值优先于续算值。相位 `0` 是有效初值。
 
 ### 3.3 已有完整初值时的批量任务
 
-只有 `calibration_regions` 的每个区域都已有匹配的 `weights`、`slopes`、`global_phases_set`，或恢复包含所有目标区域结果的优化报告时，才能使用 `--multi_region_calib True`。系统会先检查全部区域初值，再开始读取和优化；顶层 full 初值不会盲填到局部区域。
-
-若已具备这些条件，可按方向执行：
-
-```powershell
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib True --optimization_regions "['full','end15cm','end5cm']" --direct 0
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib True --optimization_regions "['full','end15cm','end5cm']" --direct 120
-python main.py --config configs/my-sensor.yaml --task optim --multi_region_calib True --optimization_regions "['full','end15cm','end5cm']" --direct 240
-```
+批量 `optim` 或 `score` 可从多区域初始化快照、已有多区域优化报告或 YAML 中各区域的完整初值读取参数。使用 YAML 初值时，请在 `calibration_regions` 的每个目标区域分别配置 `weights`、`slopes` 和 `global_phases_set`，并省略 `--resume`。
 
 批量任务的半径、阈值、分段和初值写在各自区域中。若启用 `use_full_transported_phase`，必须已有完整初值，并按 `full → end15cm → end5cm` 记录上游相位引用；单独重做局部区域还需要匹配的来源参数包。该开关不会允许优化调用模块2。
 
 ## 4. 判断任务完成并找到对应结果
+
+初始化结束后，查看快照目录的 `manifest.json`，其中 `status` 应为 `succeeded`。产物分布如下：
+
+| 内容 | 路径 |
+|---|---|
+| 初值和重构误差 | `runs/<sensor_id>/<run_id>-init/initialization.json` |
+| 多区域角度图和应变图 | 初始化快照目录下的 `outputs/<区域>/<方向>/init_plots/` |
+| 多区域重构视频 | 初始化快照目录下的 `outputs/<区域>/<方向>/recon_plots/<旋转角>/<形状>/*.mp4` |
+| 单区域绘图和视频 | `outputs/<sensor_id>/<通道>/<分段>/<方向>/`，分别位于 `init_plots/` 和 `recon_plots/` |
+
+初始化快照保存误差与标定初值。三维重构曲线绘入 MP4，逐点 XYZ 坐标当前没有单独的导出文件。
 
 每次 optim 会产生两类目录：
 
@@ -164,9 +182,9 @@ Get-ChildItem "runs/my_sensor" -Directory | ForEach-Object {
 
 ## 5. 合并参数并发布 JSON
 
-### 5.1 从三个成功的 run 合并
+### 5.1 从成功的 optim run 合并
 
-将下面三个占位目录替换成实际的成功目录。`my_sensor` 是配置中的 `sensor_id`，可以与 YAML 文件名不同。
+批量优化完成后，用 0°、120° 和 240° 各自的成功 run 合并。三个方向都用了多区域模式时，这三个 run 已包含全部九组区域/方向结果。`my_sensor` 是配置中的 `sensor_id`，可以与 YAML 文件名不同。
 
 ```powershell
 $run0 = "runs/my_sensor/实际0方向optim目录"
@@ -178,7 +196,7 @@ python tools/export_algorithm_package.py --runs "$run0" "$run120" "$run240" --ou
 
 `--runs` 接收包含 `manifest.json`、`config_resolved.json`、`optim.json` 的目录。直接把 `calibration_results/.../results.json` 传给该选项，会因缺少快照配套文件而失败。
 
-按第 3.2 节分别优化三个区域时，用九个成功 run 导出完整发布包：
+逐区域单独优化时，用九个成功 run 导出完整发布包：
 
 ```powershell
 $optimRuns = @(
@@ -197,7 +215,7 @@ python tools/export_algorithm_package.py --runs @optimRuns --output "packages/my
 
 每个 **区域/方向** 组合选定一份结果，重复组合会报错。重新优化某一方向后，重新选择所需的成功快照并导出新的包。
 
-导出工具检查 sensor_id、传感器设计、区域布局、标定模式及参数完成状态，并按区域和方向组织结果。init 快照导出的是初值包，`final_calibration` 为 false；最终标定发布应选择 optim 快照。
+导出工具检查 sensor_id、传感器设计、区域布局、标定模式及参数完成状态，并按区域和方向组织结果。导出 init 快照时，初值记录的 `final_calibration` 为 false。发布时选择成功的 optim 快照，demo 通过 `--sensor_params` 从导出的包读取相位、权重和斜率。
 
 只有 wheel 或想从 Python 发布时，可使用相同 API：
 
@@ -332,6 +350,7 @@ python tools/build_zero_reference.py "实际零状态CSV目录" --sensor-id my_s
 |---|---|
 | `No module named yaml` | 在当前 Python 环境运行 `python -m pip install PyYAML` |
 | 初始化要求零点文件 | 当前代码默认关闭零点并接受 `null`，检查是否运行了旧源码或旧 wheel |
+| 多区域续算提示初值或布局不匹配 | 确认使用了本次多区域 init 快照，并核对 YAML、目标区域和方向。旧版单区域快照可用于原区域的单区域续算 |
 | 数据目录被定位到 `configs/` 下 | 工作 YAML 的相对根路径以 YAML 目录为基准，指向仓库根目录数据时通常需要 `../` |
 | `sensing_ranges` 字符串通道键 | YAML 加载器会将数字键转为整数；FBG 不依赖 LUNA 区间 |
 | `rot_dir` 方向查找失败 | 字典按方向角读，列表按标定形状读，检查实际需要的方向是否有配置 |
@@ -347,6 +366,14 @@ python tools/build_zero_reference.py "实际零状态CSV目录" --sensor-id my_s
 修改源码后使用可编辑安装可直接使用工作树代码；已分发的 wheel 是构建时快照，需要重新构建、安装才能包含后续修复。
 
 
-## 9. 当前示例传感器的局部配置说明
+## 9. 09B7 的区域配置
 
-`configs/09B7_NeTi.yaml` 的 full 配置可用于前述全长流程。当前原有 end5cm 配置的几何覆盖5个真实点（18–22），但局部分段为 `[2,2]`，并启用了限定4点（19–22）的独立权重模式，不能直接执行该区域的初始化/优化。需要先根据实际实验确定一致的点位、区域和分段，再重新初始化，不能沿用不同布局的参数。本次切分没有替使用者更改这些设计值。具体核查和临时验收条件见 [八模块切分验收记录](../docs/module-split-acceptance.md)。
+| 区域 | 相对数据根的目录 | 全局真实点 | 分段 |
+|---|---|---|---|
+| `full` | `全段测试` | 1–22 | `[2, 5, 2, 4, 2, 2, 2, 3]` |
+| `end15cm` | `末端测试/15cm` | 16–22 | `[2, 2, 3]` |
+| `end5cm` | `末端测试/5cm` | 18–22 | `[2, 3]` |
+
+`end5cm` 的三组权重对应 18–20、21、22 号点，分组索引为 `[0, 0, 0, 1, 2]`。当前布局的初值应由这套配置重新初始化生成。
+
+已在 `dc_ss` 使用真实 09B7 数据验证批量初始化、九组区域/方向的限迭代优化，以及从批量快照恢复 `end5cm` 的 240° 单区域初值。验收详情见 [数据契约清理台账](../docs/data-contract-cleanup.md)。

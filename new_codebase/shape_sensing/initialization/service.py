@@ -2,14 +2,14 @@
 from copy import deepcopy
 from ._kernel import InitializationKernel
 from ..curvature.service import GeometryService
-from ..contracts import CalibrationSeed, InitializationResult
+from ..contracts import InitializationResult
 
 class InitializationService:
     def __init__(self, config):
         """只保存初始化配置，不读文件、不做拟合。"""
         self.config = config
 
-    def fit(self, dataset, *, region='full', verbose=False):
+    def fit(self, dataset, *, verbose=False):
         """输入模块1的(P,C)静态数据；输出相位rad、slopes rad/m及诊断。
 
         使用原分段拟合正文；数据、几何及诊断容器均不与调用方共享可写数组。
@@ -40,8 +40,7 @@ class InitializationService:
         if self.config.global_phases_set is None:
             kernel.rot_seg_fit(verbose=False, update_phase=True)
         kernel.rot_seg_fit(verbose=verbose, update_phase=False)
-        seed = CalibrationSeed({region: {'global_phases_set': kernel.global_phases_set,
-                                        'slopes_init': deepcopy(kernel.slopes_init)}})
-        return InitializationResult(seed, deepcopy(kernel.magnitude_results),
-            deepcopy(kernel.angle_results_raw), deepcopy(kernel.angle_results_unwrap),
-            deepcopy(kernel.global_fit_direct), deepcopy(kernel.individual_fits_direct))
+        return InitializationResult(kernel.global_phases_set, deepcopy(kernel.slopes_init),
+            deepcopy(kernel.magnitude_results), deepcopy(kernel.angle_results_raw),
+            deepcopy(kernel.angle_results_unwrap), deepcopy(kernel.global_fit_direct),
+            deepcopy(kernel.individual_fits_direct))

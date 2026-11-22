@@ -1,6 +1,9 @@
 """包资源与用户相对路径的统一解析。"""
 from pathlib import Path
-from importlib.resources import files
+try:
+    from importlib.resources import files
+except ImportError:  # Python 3.8
+    from importlib_resources import files
 
 def working_root():
     """返回命令调用目录；配置文件中的相对路径由配置加载器单独解析。"""

@@ -75,11 +75,12 @@ def test_real_inputs_all_preparation_branches(frame_rule, mode, vector_filter, v
                                  (prepared.diagnostics['angle_unwrap'],reference[1]),
                                  (prepared.curvature_per_m,reference[2]), (prepared.distance_m,reference[3])]:
             np.testing.assert_allclose(actual, expected, rtol=0, atol=0)
-        for actual, expected in zip(shape.values, reference[4:8]):
+        for actual, expected in zip((shape.position_m, shape.tangent, shape.normal, shape.binormal), reference[4:8]):
             np.testing.assert_allclose(actual, expected, rtol=0, atol=0)
         for key in reference[8]:
-            np.testing.assert_allclose(prepared.diagnostics[key], reference[8][key], rtol=0, atol=0)
-        state = prepared.diagnostics['state_out']
+            np.testing.assert_allclose(shape.diagnostics[key], reference[8][key], rtol=0, atol=0)
+        state = prepared.state
+        assert state is not None and 'state_out' not in shape.diagnostics
     for actual, expected in zip((cur.distance_m, cur.curvature_per_m, cur.direction_rad), before):
         np.testing.assert_array_equal(actual, expected)
 
@@ -96,7 +97,7 @@ def test_saved_real_baseline_all_frames():
         prepared = service.prepare(cur, design, [1.,0.,0.])
         shape = service.integrate(prepared)
         arrays = (prepared.diagnostics['angle_prepared'], prepared.diagnostics['angle_unwrap'],
-                  prepared.curvature_per_m, prepared.distance_m, *shape.values)
+                  prepared.curvature_per_m, prepared.distance_m, shape.position_m, shape.tangent, shape.normal, shape.binormal)
         for i, actual in enumerate(arrays):
             np.testing.assert_allclose(actual, z[f'{prefix}_frame_{i}'], rtol=1e-13, atol=1e-13)
 
@@ -178,7 +179,7 @@ def test_rot0_original_segment_and_normalized_error_definitions():
     service=EvaluationService(EvaluationConfig())
     ideal=service.ideal_shape(distance,reference)
     cur=np.where((distance>=.08)&(distance<=.08+2*np.pi*.05),20.,0.)
-    shape=ShapeResult((ideal,), 'TNN',position_m=ideal,distance_m=distance)
+    shape=ShapeResult('TNN', position_m=ideal, distance_m=distance)
     ref=replace(reference,metadata={'idx_m':.08,'curvature_per_m':cur})
     report=service.evaluate(shape,ref)
     old=SimpleNamespace(interp_num=120,straight_threshold=2.,rot_threshold=4.)
@@ -216,7 +217,11 @@ def test_temporal_vector_filter_matches_original_and_keeps_inputs():
         np.testing.assert_array_equal(state.p,obj.kalman_p)
         np.testing.assert_array_equal(prepared.curvature_per_m,magnitude)
         np.testing.assert_array_equal(prepared.direction_rad,angle)
-        np.testing.assert_array_equal(result.diagnostics['cur_interp'],expected[0])
+        shape = ReconstructionService(ReconstructionConfig()).integrate(result)
+        np.testing.assert_array_equal(shape.diagnostics['cur_interp'], expected[0])
+        np.testing.assert_array_equal(shape.diagnostics['ang_interp'], expected[1])
+        np.testing.assert_array_equal(shape.diagnostics['cur_interp_before_temporal'], magnitude)
+        np.testing.assert_array_equal(shape.diagnostics['ang_interp_before_temporal'], angle)
     history=()
     frames=[np.full((10,3),float(i)) for i in range(5)]
     for i,frame in enumerate(frames):

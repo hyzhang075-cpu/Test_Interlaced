@@ -7,7 +7,8 @@ from shape_sensing.visualization.service import VisualizationInputs, Visualizati
 
 
 def inputs():
-    design=DesignGeometry('visual-test',.0002,np.array([.1,.2,.3]),(1,3,4),{})
+    """构造三点静态数据和 m 单位的虚拟起点，供图形测试使用。"""
+    design=DesignGeometry('visual-test',.0002,np.array([.1,.2,.3]),(1,3,4),{}, physical_start_m=0.)
     dataset=CalibrationDataset({'circ':{0:{1000:np.zeros((3,3))}}},{0:{'circ':[1000]}},design,(1,3,4))
     return VisualizationInputs(dataset, segmentation=(3,))
 
@@ -36,11 +37,12 @@ def test_visualization_saves_original_mp4_with_explicit_ideal_overlay(monkeypatc
 
 
 def test_shape_plot_reads_explicit_evaluation_without_mutating_arrays():
+    """绘图读取位置 [N,3] m 和误差 m，输入数组保持原值。"""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     position=np.array([[0.,0.,0.],[1.,1.,1.]])
-    result=ShapeResult((),'TNB',position_m=position)
+    result=ShapeResult('TNB', position_m=position)
     figure=VisualizationService().plot_shape(result,ideal_position_m=position*.9,evaluation=EvaluationResult({'error_m':.1}))
     assert len(figure.axes[0].lines)==2
     assert 'error_m' in figure.axes[0].get_title()
@@ -65,10 +67,11 @@ def test_plot_segments_consume_explicit_configuration_only():
 @pytest.mark.parametrize('shape', ['circ', 'end'])
 def test_init_plots_preserve_plot_columns_and_physical_labels(
         monkeypatch, tmp_path, channels, signal_channels, shape):
+    """从 [P,C] 绘图叶子保存 PNG，并校验物理通道标签与信号列。"""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from shape_sensing.contracts import CalibrationSeed, InitializationResult
+    from shape_sensing.contracts import InitializationResult
 
     # 绘图信号保留中心通道列，拟合信号则移除该列。
     plot_signals = (np.arange(3)[:, None] * 10 +
@@ -82,7 +85,7 @@ def test_init_plots_preserve_plot_columns_and_physical_labels(
     dataset = CalibrationDataset(tree(signals), {0: {shape: [1000]}}, design,
                                  signal_channels, plot_data=tree(plot_signals))
     angles = {shape: {0: {1000: np.array([.1, .2, .3])}}}
-    diagnostics = InitializationResult(CalibrationSeed(), {}, {}, angles, {}, {})
+    diagnostics = InitializationResult(0.0, {}, {}, {}, angles, {}, {})
     service = VisualizationService(VisualizationInputs(dataset, diagnostics, segmentation=(3,)))
     saved = {}
     savefig = plt.savefig

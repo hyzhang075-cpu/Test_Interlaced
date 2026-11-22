@@ -9,16 +9,18 @@ from shape_sensing.runtime.service import RuntimeService
 
 
 def processor(signals, state=None, direct=0, tangent_seed=None):
+    """模拟处理输入信号 [P,C]，返回五点曲线 m、单位标架和帧计数。"""
     offset = float(signals[0, 0])
     points = np.column_stack((np.linspace(0., 1., 5), np.full(5, offset), np.zeros(5)))
     tangent = np.tile([1., 0., 0.], (5, 1))
     normal = np.tile([0., 1., 0.], (5, 1))
     binormal = np.tile([0., 0., 1.], (5, 1))
-    shape = ShapeResult((points,tangent,normal,binormal), 'TNB', points,tangent,normal,binormal,np.linspace(0.,1.,5))
+    shape = ShapeResult('TNB', points, tangent, normal, binormal, np.linspace(0.,1.,5))
     return shape, (state or 0) + 1
 
 
 def test_runtime_final_anchor_result_is_shared_by_record_publish_and_render():
+    """记录、通信和显示共享同一 [N,3] m 锚定结果。"""
     recorded, published = [], []
     runtime = RuntimeService(processor, recorder=recorded.append, publisher=published.append,
         moving_window=2, anchor_enabled=True, anchor_offset_m=.2)
@@ -31,7 +33,7 @@ def test_runtime_final_anchor_result_is_shared_by_record_publish_and_render():
     final = runtime.poll()
     assert final is recorded[-1] is published[-1] is runtime.state.last_frame
     np.testing.assert_allclose(final.shape.position_m, first.shape.position_m)
-    np.testing.assert_array_equal(final.shape.values[0], final.shape.position_m)
+    assert final.anchor.curve_m is final.shape.position_m
     np.testing.assert_array_equal(raw, original)
     assert runtime.state.processor_state == 2
     assert runtime.poll() is None
@@ -82,6 +84,19 @@ def test_processing_failure_keeps_prior_session_state_and_does_not_record():
     assert runtime.state.frame_index == 1 and len(recorded) == 1
 
 
+def test_runtime_restarts_curve_average_when_grid_coordinates_change():
+    """同样点数的弧长网格若发生变化，当前帧不混入旧网格坐标。"""
+    def changing_grid(signals, **kwargs):
+        """返回五个采样位置（m），其弧长受输入控制。"""
+        shape, state = processor(signals, **kwargs)
+        return replace(shape, distance_m=shape.distance_m + signals[0, 0]), state
+
+    runtime = RuntimeService(changing_grid, moving_window=2)
+    runtime.process_frame(np.zeros((2, 2)))
+    current = runtime.process_frame(np.ones((2, 2)))
+    np.testing.assert_array_equal(current.shape.position_m[:, 1], np.ones(5))
+
+
 def test_udp_commands_update_runtime_anchor_and_insertion_without_qt():
     from shape_sensing.runtime.transport import UdpTransport
     runtime=RuntimeService(processor)
@@ -91,6 +106,53 @@ def test_udp_commands_update_runtime_anchor_and_insertion_without_qt():
     response=transport._handle_udp_datagram(b'{"cmd":"anchor_configure","data":{"enabled":true,"entrance_offset_m":0.08}}')
     assert response['ok'] and runtime.anchor.enabled and runtime.anchor.entrance_offset_m == .08
     assert not transport._handle_udp_datagram(b'{"cmd":"insert_dis","data":"bad"}')['ok']
+
+
+def test_final_udp_and_recording_preserve_distinct_curvature_stages(tmp_path, monkeypatch):
+    """最终坐标、真实点曲率、积分曲率和时间滤波前曲率分别传入原有输出字段。"""
+    import json
+    import pickle
+    from pathlib import Path
+    from shape_sensing.runtime.protocol import DataRecorder
+    from shape_sensing.runtime.transport import UdpTransport
+
+    def with_diagnostics(signals, **kwargs):
+        """为 [N,3] m 形状附上不同处理阶段的 1/m 曲率和 rad 方向。"""
+        shape, state = processor(signals, **kwargs)
+        return replace(shape, diagnostics={
+            'magnitude': np.array([1., 2.]), 'angle': np.zeros(2),
+            'cur_kal': np.full(3, 3.), 'ang_filter': np.zeros(3),
+            'cur_interp_before_temporal': np.full(5, 4.), 'ang_interp_before_temporal': np.ones(5),
+            'cur_interp': np.full(5, 5.), 'ang_interp': np.full(5, 2.),
+        }), state
+
+    monkeypatch.chdir(tmp_path)
+    runtime = RuntimeService(with_diagnostics, anchor_enabled=True, anchor_offset_m=.2)
+    packets = []
+    transport = UdpTransport(runtime)
+    transport.socket = SimpleNamespace(sendto=lambda data, address: packets.append(json.loads(data)))
+    runtime.publisher = transport.publish
+    recorder = DataRecorder()
+    try:
+        def record(frame):
+            """将最终帧位置 m、姿态及各网格诊断交给真实记录器。"""
+            recorder.save(frame.timestamp, frame.shape.position_m, frame.end_pose,
+                          frame.shape.diagnostics['cur_interp'], frame.raw_signals, frame.shape.diagnostics,
+                          r_results_before_anchor=frame.before_anchor_m)
+        runtime.recorder = record
+        frame = runtime.process_frame(np.zeros((2, 2)), timestamp=1.)
+    finally:
+        recorder.stop()
+    with Path(recorder.filename).open('rb') as source:
+        recorded = pickle.load(source)
+    np.testing.assert_array_equal(recorded['r_results'], frame.shape.position_m)
+    np.testing.assert_array_equal(packets[0]['data'], frame.shape.position_m * 1000)
+    np.testing.assert_array_equal(packets[0]['end_pose'], recorded['end_pose'])
+    assert packets[0]['intermediates']['magnitude'] == recorded['magnitude'] == [1., 2.]
+    assert packets[0]['intermediates']['cur_kal'] == recorded['cur_kal'] == [3.] * 3
+    assert packets[0]['cur_interp'] == packets[0]['intermediates']['cur_interp'] == recorded['cur_interp'] == [5.] * 5
+    assert recorded['cur_interp_raw'] == [4.] * 5
+    assert recorded['ang_interp_raw'] == [1.] * 5
 
 
 def test_window_callback_only_renders_final_runtime_frame(monkeypatch):

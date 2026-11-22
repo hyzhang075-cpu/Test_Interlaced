@@ -74,6 +74,10 @@ def test_true_point_curvature_and_reconstruction_match_real_baseline(baseline, m
             label = f'{direction}_circ_{radius}'
             values = dataset.data['circ'][direction][radius]
             raw_frame = session.frame(values)
+            assert np.shares_memory(raw_frame.distance_m, dataset.design.sampling_distance_m)
+            assert np.shares_memory(raw_frame.source_indices, dataset.design.source_indices)
+            assert not raw_frame.distance_m.flags.writeable
+            assert not raw_frame.source_indices.flags.writeable
             computed = session.curvature.compute(raw_frame, session.design, session.parameters, direct=direction)
             np.testing.assert_array_equal(computed.distance_m, raw_frame.distance_m)
             np.testing.assert_array_equal(computed.source_indices, raw_frame.source_indices)
@@ -143,3 +147,30 @@ print('PRODUCTION_IMPORT_GRAPH_OK')
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'PRODUCTION_IMPORT_GRAPH_OK' in result.stdout
+
+
+def test_end5_coverage_uses_production_scoring_configuration(baseline, monkeypatch):
+    """五个真实点的覆盖率预检使用模块3的阈值、窗口和三组权重。"""
+    parameters, dataset, _, metadata = baseline
+    parameters.update(segmentation=(2, 3), weight_group_ids=(0, 0, 0, 1, 2),
+        end5cm_point_calib=True, end5cm_independent_weight_score=True,
+        end5cm_coverage_aware_weights=True, min_consecutive=1, max_iter=1,
+        weights={d: np.ones(18) for d in dataset.radii},
+        slopes={d: np.zeros((6, 2)) for d in dataset.radii},
+        global_phases_set=metadata['global_phases_set'])
+    design = replace(dataset.design, sampling_distance_m=dataset.design.sampling_distance_m[-5:],
+                     source_indices=dataset.design.source_indices[-5:])
+    data = {name: {d: {radius: values[-5:] for radius, values in cases.items()}
+                   for d, cases in by_direct.items()} for name, by_direct in dataset.data.items()}
+    local = replace(dataset, data=data, design=design)
+
+    def one_candidate(fun, x0, *args, **kwargs):
+        """以当前候选向量实际评估目标函数，避免整轮搜索。"""
+        return OptimizeResult(x=x0, fun=fun(x0), success=True, nit=1, message='acceptance candidate')
+
+    import shape_sensing.optimization._kernel as search
+    monkeypatch.setattr(search, 'minimize', one_candidate)
+    session = TaskSession(parameters, task='optim', region='end5cm', dataset=local)
+    session.optim_coeff(verbose=False)
+    assert session.weights[0].shape == (18,)
+    assert set(session.optimization._coverage_support_map['groups']) == {'0', '1', '2'}

@@ -8,9 +8,9 @@ use_full_transported_phase: false
 end15cm_point_calib: True
 # end5cm_point_calib: 仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化
 end5cm_point_calib: True
-# end5cm_independent_weights: 仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变
+# end5cm_independent_weights: 仅end5cm：18–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变
 end5cm_independent_weights: True
-# end5cm_independent_weight_score: 仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名
+# end5cm_independent_weight_score: 仅end5cm独立三组weights：18–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名
 end5cm_independent_weight_score: True
 # end5cm_coverage_aware_weights: 仅end5cm真实点+独立组均值评分：只优化有实测覆盖的weight档位，其他档位由相邻自由档位对数插值
 end5cm_coverage_aware_weights: True
@@ -23,11 +23,11 @@ end5cm_min_weight_max_mass: 0.05
 end5cm_uncovered_weight_policy: interpolate_neutral_edges
 # optim_weights_only: 只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes
 optim_weights_only: false
-# multi_region_calib: True时optim/score遍历optimization_regions；False时仅全长
+# multi_region_calib: True时init/optim/score遍历optimization_regions；False时仅选择optimization_region
 multi_region_calib: false
 # optimization_region: init/recon/demo等单区域任务使用的数据区域
 optimization_region: full
-# optimization_regions: 区域模式下optim/score依次处理的区域列表
+# optimization_regions: 区域模式下init/optim/score依次处理的区域列表
 optimization_regions:
 - full
 - end15cm
@@ -43,7 +43,7 @@ full_segmentation:
 - 2
 - 3
 # calibration_data_root: 定标数据根目录；相对路径以main.py所在目录为基准
-calibration_data_root: ../data/1016-09B7-自研（1+3）22点86cmFBG+镍钛管全末段定标测试
+calibration_data_root: ../../09B7数据
 # calibration_regions: 各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布
 calibration_regions:
   full:

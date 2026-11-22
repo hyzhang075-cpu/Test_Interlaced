@@ -90,12 +90,13 @@ def _build_send_obj(
     anchor_point_mm=None,
 ):
     """
-    构造发送给软件端的 JSON 对象。
+    将最终曲线 [N,3] mm、末端标架和同帧诊断映射为软件端 JSON 字典。
 
     `r_results_postrot` 和 `anchor_point_mm` 必须已经转换到同一个软件端毫米
     坐标系。`anchor_point_mm` 为 None 时仍保留字段并输出 null，便于接收端
     使用固定的数据结构判断当前帧是否有有效入口点。
     """
+    interpolated = intermediates['cur_interp'].tolist()
     return {
         'end_pose': end_pose.tolist() if end_pose is not None else [0.0, 0.0, 0.0],
         'data': r_results_postrot.tolist(),
@@ -108,10 +109,10 @@ def _build_send_obj(
             'angle': intermediates['angle'],
             'cur_kal': intermediates['cur_kal'].tolist(),
             'ang_filter': intermediates['ang_filter'].tolist(),
-            'cur_interp': intermediates['cur_interp'].tolist(),
+            'cur_interp': interpolated,
             'ang_interp': intermediates['ang_interp'].tolist(),
         },
-        'cur_interp': intermediates['cur_interp'].tolist(),
+        'cur_interp': interpolated,
     }
 
 
@@ -172,7 +173,8 @@ class DataRecorder:
         - r_results_before_anchor: 当前帧入口锚定前的重构三维轨迹结果
         - anchor_point_m: 软件坐标转换前、单位为 m 的入口点/旋转中心
         - end_pose: 当前帧末端姿态
-        - cur_interp: 当前帧插值后的曲率序列
+        - cur_interp: 兼容调用参数；记录以 intermediates 中实际用于积分的曲率 [N] 1/m 为准
+        - intermediates: 真实点、空间处理、插值及可选时间滤波前的曲率（1/m）与方向（rad）
 
         输出：
         - 无显式返回
@@ -181,10 +183,21 @@ class DataRecorder:
 
         说明：
         - 当前实现使用 queue.Queue 的非阻塞 put，因此写入失败不会阻塞前台渲染线程
-        - cur_interp 会被转换为 list；若其为 None，则保存为空列表
+        - 时间滤波前的积分网格数据以旧回放约定的 cur_interp_raw、ang_interp_raw 持久化
         """
         if not self.running:
             return
+        before_temporal = {}
+        if 'cur_interp_before_temporal' in intermediates:
+            before_temporal = {
+                'cur_interp_raw': intermediates['cur_interp_before_temporal'].tolist(),
+                'ang_interp_raw': intermediates['ang_interp_before_temporal'].tolist(),
+            }
+        elif 'cur_interp_raw' in intermediates:
+            before_temporal = {
+                'cur_interp_raw': intermediates['cur_interp_raw'].tolist(),
+                'ang_interp_raw': intermediates['ang_interp_raw'].tolist(),
+            }
         try:
             data_packet = {
                 'timestamp': timestamp,
@@ -211,10 +224,7 @@ class DataRecorder:
                 'cur_kal': intermediates['cur_kal'].tolist(),
                 'ang_filter': intermediates['ang_filter'].tolist(),
                 'ang_interp': intermediates['ang_interp'].tolist(),
-                **({
-                    'cur_interp_raw': intermediates['cur_interp_raw'].tolist(),
-                    'ang_interp_raw': intermediates['ang_interp_raw'].tolist(),
-                } if 'cur_interp_raw' in intermediates else {}),
+                **before_temporal,
                 'insert_value':insert_value.copy() if hasattr(insert_value, 'copy') else insert_value
             }
             # 非阻塞放入，保证渲染实时性

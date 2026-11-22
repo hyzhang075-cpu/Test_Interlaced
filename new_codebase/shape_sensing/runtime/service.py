@@ -106,7 +106,7 @@ class RuntimeService:
         """输入signals(P,C)原量纲及可选秒时间戳，输出最终RuntimeFrame。
 
         顺序为模块1/3/5处理、时间曲线均值、入口锚定，然后向记录/通讯发送同一结果。
-        任何上游失败均不提交处理器状态、帧号或曲线历史；不修改调用方输入数组。
+        积分弧长网格变化时重新累积均值；失败不提交处理器状态、帧号或历史。
         """
         raw = np.array(signals, dtype=float, copy=True)
         if raw.ndim != 2:
@@ -126,7 +126,11 @@ class RuntimeService:
                     for axis in (shape.tangent, shape.normal, shape.binormal)]
             if curve.ndim != 2 or curve.shape[1] != 3 or not np.isfinite(curve).all():
                 raise ValueError('processor must return finite position_m(N,3)')
-            smoothed, history = average_curve(curve, self.state.curve_history, self.moving_window)
+            previous = self.state.last_frame
+            history = self.state.curve_history
+            if previous is not None and not np.array_equal(shape.distance_m, previous.shape.distance_m):
+                history = ()
+            smoothed, history = average_curve(curve, history, self.moving_window)
             anchored = self.anchor.apply(smoothed, self.state.insert_value_mm,
                 *axes)
             transformed = [None if axis is None else np.asarray(axis) @ anchored.rotation_matrix.T for axis in axes]
@@ -135,7 +139,7 @@ class RuntimeService:
                     shape.binormal, rotation, self.rotation_deg) @ anchored.rotation_matrix.T
             else:
                 end_pose = np.eye(3)
-            result_shape = replace(shape, values=(anchored.curve_m.copy(), *transformed), position_m=anchored.curve_m.copy(),
+            result_shape = replace(shape, position_m=anchored.curve_m,
                 tangent=transformed[0], normal=transformed[1], binormal=transformed[2])
             frame = RuntimeFrame(time.time() if timestamp is None else float(timestamp),
                 self.state.frame_index, result_shape, smoothed.copy(), end_pose,
@@ -228,7 +232,10 @@ class RuntimeService:
                     break
 
     def close(self):
-        """输入无，输出None；尽力清理全部资源，最后抛出首个清理错误，重复关闭安全。"""
+        """输入无，输出 None；停止采集并关闭资源，保留最后有效帧供回放检查。
+
+        reset 可显式清空帧与历史。若清理失败，释放其他资源后再抛出首个错误。
+        """
         self.stop_event.set()
         errors = []
         try:

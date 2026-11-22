@@ -27,7 +27,7 @@ python -m shape_sensing --sensor_params packages/<algorithm-package>.json --task
 python -m shape_sensing --sensor_params packages/<algorithm-package>.json --task demo
 ```
 
-多区域标定时，先按区域分别初始化：在 `init` 命令中指定 `--optimization_region full`、`end15cm` 或 `end5cm`，并保持 `--multi_region_calib False`。随后每个区域分别用对应的初始化 run 执行三个方向的 `optim --direct 0/120/240 --resume <该区域init-run>`，最后合并九次成功优化的 run。各区域采样点和分段不同，全长初始化的参数不能直接用于局部区域。只有 `calibration_regions` 中每个区域都已提供匹配的初始 `weights`、`slopes`、`global_phases_set`，或从完整的多区域优化报告恢复时，才可直接运行批量多区域优化；系统会在读取标定 CSV 前校验全部区域初值。
+多区域标定时，运行 `init --multi_region_calib True`，一次按 `optimization_regions` 初始化配置中的区域。将同一个 init run 通过 `--resume` 传给三次 `optim --multi_region_calib True --direct 0/120/240`，每次优化一个方向的全部目标区域。单区域标定继续使用 `--multi_region_calib False --optimization_region <区域>`，可从单区域快照或多区域快照中恢复。详见[初始化与优化](shape_sensing/README.md#3-初始化与优化)。
 
 `optim`、`score`、`recon`、`demo` 不会隐式拟合初值。缺少 `weights`、`slopes` 或 `global_phases_set` 时会在任务开始报错；可通过 `--resume` 恢复匹配的初始化/优化快照，也可显式提供参数。实时演示只需设计参数、最终标定参数和实时数据流，不读取标定 CSV；零点参考仍为可选项，只有启用 `--use_stored_zero` 时才在启动数据源时读取。
 

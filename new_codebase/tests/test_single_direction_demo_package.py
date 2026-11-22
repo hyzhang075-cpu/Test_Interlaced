@@ -156,6 +156,7 @@ def test_published_algorithm_demo_loads_all_available_directions_without_calibra
 
 
 def test_algorithm_demo_blend_requires_three_parameter_directions(tmp_path):
+    """单方向 demo 仍需三套标定参数，无弯曲时保留参考方向质量 [3]。"""
     from shape_sensing.cli import parse_main_args, configure_calibration_args
     package = json.loads((ROOT/'packages/09B7_NeTi.json').read_text(encoding='utf-8'))
     path = tmp_path/'demo-blend.json'
@@ -173,7 +174,8 @@ def test_algorithm_demo_blend_requires_three_parameter_directions(tmp_path):
     raw = np.zeros((len(session.design.sampling_distance_m), len(args.active_channels)))
     shape, state = processor(raw, direct=args.direction_reference_direct)
     assert shape.position_m.shape == (args.interp_num, 3)
-    assert state.direction is not None
+    assert args.direction_reference_direct == 240
+    np.testing.assert_array_equal(state.direction_masses, [0., 0., 1.])
     del package['calibration']['full']['120']
     path.write_text(json.dumps(package), encoding='utf-8')
     with pytest.raises(ValueError, match='120'):

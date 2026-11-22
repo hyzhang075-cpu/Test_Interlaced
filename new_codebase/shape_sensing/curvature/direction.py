@@ -21,14 +21,20 @@ class DirectionSelector:
         self.direction_consistency_threshold = consistency_threshold
         self.direction_smooth_alpha = smooth_alpha
         self._validate_direction_blend_config()
-        self.direction_masses_prev = self._one_hot_direction_masses(reference_direct)
-        self.current_direction_masses = self.direction_masses_prev.copy()
-        self.current_direction_angle_deg = float(reference_direct)
-        self.current_direction_consistency = 1.0
 
-    def select(self, signals):
-        """输入真实预处理signals(P,C)，输出混合weights/slopes；状态仅更新当前会话质量。"""
-        return self._get_dynamic_parameters(signals)
+    def select(self, frame, previous_masses=None):
+        """输入真实点预处理帧 [P,C] 及上一帧三方向质量 [3]，输出权重、斜率和新质量。
+
+        权重及质量无量纲，斜率为 [等级, 分段] rad/m。首帧从参考方向开始。
+        """
+        direct = self.direction_reference_direct
+        if not self.direction_blend_enabled:
+            return self.weights[direct], self.slopes[direct], self._one_hot_direction_masses(direct)
+        if previous_masses is None:
+            previous_masses = self._one_hot_direction_masses(direct)
+        masses = self._estimate_direction_masses(frame, previous_masses)
+        weights, slopes = self._blend_direction_parameters(masses)
+        return weights, slopes, masses
 
     def _validate_direction_blend_config(self):
         """校验仅供动态展示使用的三方向参数混合配置。"""
@@ -114,34 +120,26 @@ class DirectionSelector:
             return np.arange(start, len(valid), dtype=int)
         return None
 
-    def _estimate_direction_masses(self, calib_Data):
+    def _estimate_direction_masses(self, frame, previous_masses):
         """
         用指定的最佳方向参数做第一遍粗计算，并估计当前帧的方向质量。
 
+        输入携带历史尺度信号 [P,C] 的帧和无量纲质量 [3]，输出新质量 [3]。
         只使用近端第一个稳定弯曲区。区域内采用曲率加权圆周平均；低曲率、
         无稳定弯曲区或方向一致性不足时冻结上一帧质量。有效的新质量再进行
         指数平滑，以减少跨帧边界抖动。
         """
-        reference_slope = np.asarray(
-            self.slopes[self.direction_reference_direct][0],
-            dtype=float,
-        )
-        _, magnitude, angle, _ = self.base_curvature(
-            keys=None,
-            calib_Data=calib_Data,
-            base_slopes=reference_slope,
-            verbose=False,
-        )
+        _, magnitude, angle, _ = self.base_curvature(frame)
 
         region = self._find_first_stable_bending_region(magnitude)
         if region is None:
-            return self.direction_masses_prev.copy()
+            return previous_masses.copy()
 
         region_magnitude = np.asarray(magnitude, dtype=float)[region]
         region_angle = np.asarray(angle, dtype=float)[region]
         finite = np.isfinite(region_magnitude) & np.isfinite(region_angle)
         if not np.any(finite):
-            return self.direction_masses_prev.copy()
+            return previous_masses.copy()
 
         region_magnitude = region_magnitude[finite]
         # 与现有注释中的方向判断保持同一角度约定：方向角加 rot_ang 后再映射到
@@ -150,25 +148,21 @@ class DirectionSelector:
 
         magnitude_sum = float(np.sum(region_magnitude))
         if magnitude_sum <= 0.0:
-            return self.direction_masses_prev.copy()
+            return previous_masses.copy()
 
         resultant = np.sum(region_magnitude * np.exp(1j * region_angle))
         consistency = float(np.abs(resultant) / magnitude_sum)
-        self.current_direction_consistency = consistency
         if consistency < self.direction_consistency_threshold:
-            return self.direction_masses_prev.copy()
+            return previous_masses.copy()
 
         angle_deg = float(np.rad2deg(np.angle(resultant)) % 360.0)
         print(f"detected bending angle is {angle_deg}")
         raw_masses = self._half_cosine_direction_masses(angle_deg)
 
         alpha = self.direction_smooth_alpha
-        smoothed_masses = (1.0 - alpha) * self.direction_masses_prev + alpha * raw_masses
+        smoothed_masses = (1.0 - alpha) * previous_masses + alpha * raw_masses
         smoothed_masses /= np.sum(smoothed_masses)
 
-        self.direction_masses_prev = smoothed_masses
-        self.current_direction_masses = smoothed_masses.copy()
-        self.current_direction_angle_deg = angle_deg
         return smoothed_masses
 
     def _blend_direction_parameters(self, direction_masses):
@@ -186,16 +180,3 @@ class DirectionSelector:
             blended_slopes += mass * np.asarray(self.slopes[direct], dtype=float)
 
         return blended_weights, blended_slopes
-
-    def _get_dynamic_parameters(self, calib_Data):
-        """返回当前帧参数；关闭软过渡时始终使用指定的最佳方向参数。"""
-        if not self.direction_blend_enabled:
-            direct = self.direction_reference_direct
-            masses = self._one_hot_direction_masses(direct)
-            self.current_direction_masses = masses
-            self.current_direction_angle_deg = float(direct)
-            return self.weights[direct], self.slopes[direct]
-
-        masses = self._estimate_direction_masses(calib_Data=calib_Data)
-        return self._blend_direction_parameters(direction_masses=masses)
-

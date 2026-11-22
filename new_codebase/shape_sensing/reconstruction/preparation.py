@@ -33,7 +33,7 @@ class CurvaturePreparationKernel:
 
     def prepare_arrays(self, magnitude, angle, angle_prev=None, angle_unwrap_prev=None,
                        ideal_curvature=None, calib_shape=None, keys=None):
-        """输入真实曲率(P,)1/m、方向(P,)rad及显式历史，返回插值曲率/角度(N,)与诊断。
+        """输入真实曲率 [P] 1/m、方向 [P] rad 及显式历史，返回插值曲率、角度、距离 [N] 与空间诊断。
 
         ideal_curvature为显式传入的距离(m)->曲率(1/m)函数；全部输入先复制。
         """
@@ -118,7 +118,6 @@ class CurvaturePreparationKernel:
         diagnostics = {
             'magnitude': magnitude_raw.copy(), 'angle': angle_raw.copy(),
             'cur_kal': cur_kal.copy(), 'ang_filter': ang_filter.copy(),
-            'cur_interp': cur_interp.copy(), 'ang_interp': ang_interp.copy(),
             'angle_prepared': angle.copy(), 'angle_unwrap': angle_unwrap.copy(),
         }
         return cur_interp, ang_interp, interp_dist, diagnostics

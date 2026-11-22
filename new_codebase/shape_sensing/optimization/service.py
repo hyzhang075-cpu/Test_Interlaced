@@ -1,6 +1,6 @@
 """模块4候选参数搜索；预测和评估通过显式回调提供。"""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import numpy as np
 from ._kernel import OptimizationKernel
 from ..contracts import CalibrationParameters
@@ -9,7 +9,7 @@ class OptimizationService(OptimizationKernel):
     """只继承本模块搜索核，不继承重构器；候选不污染输入seed或最优结果。"""
     def __init__(self, config, curvature_config, dataset, parameters, *, region,
                  predict_shapes, evaluate_shapes, compute_curvature, score_inputs):
-        """显式接收标定初值和3+5预测、6评估回调；构造不拟合、不读文件。"""
+        """接收区域初值（相位 rad、斜率 rad/m）及预测、评分、评估回调，构造独立搜索。"""
         for name, value in asdict(config).items():
             setattr(self, name, deepcopy(value))
         block = deepcopy(parameters.parameters_by_region[region])
@@ -30,6 +30,9 @@ class OptimizationService(OptimizationKernel):
         self.end_start = curvature_config.end_start
         self.weight_group_ids = curvature_config.weight_group_ids
         self.init_weight = curvature_config.init_weight
+        self.soft = curvature_config.soft
+        self.sharpness = curvature_config.sharpness
+        self.min_consecutive = curvature_config.min_consecutive
         self.thresholds = curvature_config.thresholds
         self.num_levels = len(self.thresholds) + 1
         self.end5cm_independent_weight_score = curvature_config.end5cm_independent_weight_score
@@ -45,10 +48,11 @@ class OptimizationService(OptimizationKernel):
         self._get_freeze_idx()
 
     def parameters(self):
-        """返回独立region->direct参数副本，角度rad、斜率rad/m、权重无量纲。"""
+        """返回独立的区域和方向候选参数，斜率 rad/m、权重无量纲、安装角 deg。"""
         return CalibrationParameters({self.region: {
             'weights': deepcopy(self.weights), 'slopes': deepcopy(self.slopes),
-            'global_phases_set': self.global_phases_set, 'rot_ang': self.rot_ang}})
+            'global_phases_set': self.global_phases_set, 'rot_ang': self.rot_ang}},
+            source='optimization_candidate')
 
     def reconstruct_shapes(self, calib_shape, direct, verbose=False, force_ideal_magnitude=False):
         """用当前 region/direct 参数调用预测器；返回形状树及其距离数组（m）。"""
@@ -89,9 +93,9 @@ class OptimizationService(OptimizationKernel):
         print(f"逐点误差: {self.avg_point_err}; 末端误差: {self.avg_end_err}")
 
     def optimize(self, verbose=True):
-        """运行原两阶段搜索/回滚规则，返回参数契约和阶段报告。"""
+        """运行原两阶段搜索与回滚，返回优化参数（相位 rad、斜率 rad/m）及报告。"""
         report = self.optim_coeff(verbose=verbose)
-        return self.parameters(), report
+        return replace(self.parameters(), source='optimization'), report
 
 
 def validate_dataset(dataset, direct):

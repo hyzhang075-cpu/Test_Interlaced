@@ -26,10 +26,19 @@ def export_package(run_paths,output):
             if key in base and key in config and base[key]!=config[key]: raise ValueError(f'不同 run 传感器设计不兼容: {key}')
         provenance.append(str(root)); code_sources.append({'run_path':str(root),'code':manifest.get('code',{'commit':'unknown','branch':'unknown','working_tree_dirty':None})}); result=payload.get('result',payload)
         if task=='init':
-            initialization[str(config.get('optimization_region','full'))]={
-                'weights':payload.get('weights'),'slopes':payload.get('slopes'),
-                'global_phases_set':payload.get('global_phases_set'),'run_path':str(root)}
-            scope.append({'task':'init','region':config.get('optimization_region','full'),'final_calibration':False})
+            regional = result.get('regions')
+            if isinstance(regional, dict):
+                seeds = {}
+                for region, entry in regional.items():
+                    if entry.get('status') != 'complete' or not isinstance(entry.get('parameters'), dict):
+                        raise ValueError(f'初始化区域未完成: {region}')
+                    seeds[region] = entry['parameters']
+            else:
+                seeds = {str(config.get('optimization_region', 'full')): payload}
+            for region, seed in seeds.items():
+                initialization[region] = {key: seed.get(key) for key in ('weights', 'slopes', 'global_phases_set')}
+                initialization[region]['run_path'] = str(root)
+                scope.append({'task':'init','region':region,'final_calibration':False})
             continue
         if task!='optim': raise ValueError(f'仅支持 optim 最终结果或 init 初值包，收到 task={task!r}')
         report=None
