@@ -14,12 +14,17 @@ def module_parameters(args, parameter_builder):
         for item in fields(kind)}
     values = {key: value for key, value in vars(args).items() if key in names}
     values.update(parameter_builder(args))
+    if getattr(args, 'core_position_calib', False):
+        values['core_position_parameters'] = getattr(args, 'core_position_parameters', {})
     return values
 
 
 def build_session(args, *, parameter_builder, configure_args):
     """输入任务参数和配置回调，解析区域并返回无 CSV 读取或拟合的 TaskSession。"""
-    region = configure_args(args)
+    return _configured_session(args, configure_args(args), parameter_builder)
+
+
+def _configured_session(args, region, parameter_builder):
     session = TaskSession(module_parameters(args, parameter_builder), task=args.task,
                           region=getattr(args, 'optimization_region', 'full'))
     session.calibration_context = region
@@ -36,9 +41,11 @@ def _visualization(session, output_root=None):
         rotation_deg=config.reconstruction.rot_ang, output_root=output_root))
 
 
-def _initialize_session(session, output_root=None):
+def _initialize_session(session, output_root=None, *, core_mode=False):
     """拟合单个区域并重构各方向，返回相位 rad、分段斜率 rad/m、权重与误差。"""
     session.initialize(verbose=True)
+    if core_mode:
+        return session.parameters.parameters_by_region[session.region]
     visualizer = _visualization(session, output_root=output_root)
     errors = {}
     for direct in session.dataset.radii:
@@ -95,6 +102,7 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
                        visualizer_factory=None, compute_error_ang=None, optim_ang=None, system=None, session_observer=None,
                        initialization_output_root=None):
     """生产任务仅编排模块service；优化不会执行初始化模块2。"""
+    core_mode = getattr(args, 'core_position_calib', False)
     if args.task != 'demo':
         args.use_stored_zero = False
     if args.weights == 'None':
@@ -107,16 +115,24 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         regions = {}
         for job, context in jobs:
             region = job.optimization_region
-            session = TaskSession(module_parameters(job, parameter_builder), task='init', region=region)
-            session.calibration_context = context
+            session = _configured_session(job, context, parameter_builder)
             output_root = initialization_output_root / region
-            parameters = _initialize_session(session, output_root)
+            parameters = _initialize_session(session, output_root, core_mode=core_mode)
+            if core_mode:
+                regions[region] = parameters
+                continue
             errors = parameters.pop('errors')
             regions[region] = {'status': 'complete', 'parameters': parameters, 'errors': errors,
                                'layout': initialization_layout(job, context)}
-        return {'regions': regions}
+        return {'core_position_parameters': regions, 'reports': {}} if core_mode else {'regions': regions}
     if args.task in ('optim', 'score'):
         jobs = prepare_jobs(args, configure_args)
+        if core_mode:
+            sessions = [_configured_session(job, context, parameter_builder) for job, context in jobs]
+            reports = {session.region: session.optim_coeff() for session in sessions}
+            return {'core_position_parameters': {
+                session.region: session.parameters.parameters_by_region[session.region]
+                for session in sessions}, 'reports': reports}
         # Validate every region seed before loading any calibration CSV or
         # launching the first region's search.
         for job_args, context in jobs:
@@ -146,7 +162,10 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         from shape_sensing.runtime.service import run_demo
         return run_demo(session, args, app_factory)
     if args.task == 'init':
-        return _initialize_session(session)
+        parameters = _initialize_session(session, core_mode=core_mode)
+        if core_mode:
+            return {'core_position_parameters': {session.region: parameters}, 'reports': {}}
+        return parameters
     if args.task == 'ang':
         import numpy as np
         session.load_data()
@@ -177,6 +196,11 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         for kind in session.calib_shapes:
             rs[kind], distance = session.reconstruct_shapes(kind, args.direct)
         result = session.evaluate(distance, rs, args.direct)
+        if core_mode:
+            report = dict(metrics=result.metrics, distance_m=distance, curves_m=rs['circ'],
+                point_curvature={str(path[0]): values for path, values in session.point_curvature.items()})
+            return {'core_position_parameters': dict(session.parameters.parameters_by_region),
+                    'reports': {session.region: report}}
         _visualization(session).show_reconstruction(args.direct, rs, distance, showanime=True, ideals=result.details.get('ideals'))
         return result.metrics
     raise ValueError(f'未知task: {args.task!r}')
@@ -187,10 +211,16 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
                  compute_error_ang, optim_ang, project_root, system=None, artifact_root=None):
     """创建运行快照，执行任务并记录结果/失败状态。"""
     from shape_sensing.artifacts.runs import create_run
+    core_mode = getattr(args, 'core_position_calib', False)
     resolved=dict(vars(args))
     for key in list(resolved):
         if key.startswith('_'): resolved.pop(key,None)
-    if getattr(args,'resume',None):
+    if getattr(args, 'resume', None) and core_mode:
+        from shape_sensing.artifacts.runs import load_resume
+        resumed = load_resume(args.resume, resolved)
+        args.core_position_parameters = resumed['core_position_parameters']
+        args._resume_provenance = {'source': str(args.resume), 'fields': ['core_position_parameters']}
+    elif getattr(args,'resume',None):
         from shape_sensing.artifacts.runs import load_resume
         resumed=load_resume(args.resume,resolved)
         values=resumed if isinstance(resumed,dict) else {}
@@ -256,7 +286,8 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
         args._resume_provenance={'source':str(args.resume),'fields':loaded_fields}
         resolved['resume_provenance']=args._resume_provenance
     # Snapshot the fully merged Namespace (parser defaults < YAML < CLI), not the source YAML.
-    resolved={k:v for k,v in vars(args).items() if not k.startswith('_') and k not in ('config',)}
+    resolved={k:v for k,v in vars(args).items()
+              if not k.startswith('_') and k not in ('config', 'core_position_parameters')}
     resolved['provenance']={'config_path':getattr(args,'_working_config',{}).get('_config_path') if getattr(args,'_working_config',None) else None,
         'cli_parameters':list(getattr(args,'_explicit_cli_parameters',())),
         'config_parameters':list(getattr(args,'_explicit_config_parameters',())),
@@ -276,13 +307,16 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
         if args.task == 'init' and isinstance(result, dict):
             payload.update({key:result[key] for key in ('weights','slopes','global_phases_set') if key in result})
         engine=state.get('session')
-        if engine is not None and not (args.task in ('optim','score') and getattr(args,'multi_region_calib',False)):
+        if engine is not None and not core_mode and not (
+                args.task in ('optim','score') and getattr(args,'multi_region_calib',False)):
             for field in ('global_phases','global_phases_set','weights','slopes','rot_ang','avg_point_err','avg_end_err','avg_pitch_err','avg_radius_err'):
                 if hasattr(engine,field): payload[field]=getattr(engine,field)
         stage='initialization' if args.task=='init' else 'optim' if args.task=='optim' else 'results'
         result_path = run.write_result(payload, stage)
         run.finish('succeeded')
-        if args.task == 'init':
+        if core_mode:
+            print(f'{args.task} 运行快照: {result_path}')
+        elif args.task == 'init':
             print(f'初始化快照: {result_path}')
         return result
     except BaseException as exc:

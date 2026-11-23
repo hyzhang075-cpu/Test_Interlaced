@@ -84,9 +84,23 @@ def load_resume(path,resolved_config):
     config_path=run_dir/'config_resolved.json'
     if not config_path.exists(): raise ValueError('resume 缺少 config_resolved.json，无法验证来源配置')
     prior=json.loads(config_path.read_text(encoding='utf-8'))
+    core_mode = resolved_config.get('core_position_calib', False)
+    if prior.get('core_position_calib', False) != core_mode:
+        raise ValueError('resume 配置不兼容: core_position_calib')
     for key in _GEOMETRY_KEYS:
         if key in prior and key in resolved_config and _layout(prior[key]) != _layout(resolved_config[key]):
             raise ValueError(f'resume 配置不兼容: {key}')
+    if core_mode:
+        manifest = json.loads((run_dir/'manifest.json').read_text(encoding='utf-8'))
+        if manifest.get('status') != 'succeeded' or result.get('task') not in ('init', 'optim'):
+            raise ValueError('四芯 resume 需要已成功完成的 init 或 optim 快照')
+        blocks = result.get('result', {}).get('core_position_parameters')
+        if not isinstance(blocks, dict) or not blocks:
+            raise ValueError('resume 缺少四芯芯位参数')
+        for key in ('core_diameter_um', 'core_radius_um', 'core_sensitivity_pm_per_ue', 'core_bend_offset_deg'):
+            if prior.get(key) != resolved_config.get(key):
+                raise ValueError(f'resume 配置不兼容: {key}')
+        return {'core_position_parameters': blocks}
     initialization = result.get('result')
     if (result.get('task') == 'init' and isinstance(initialization, dict)
             and isinstance(initialization.get('regions'), dict)):

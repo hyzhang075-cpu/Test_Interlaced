@@ -6,6 +6,7 @@
 
 from copy import deepcopy
 import warnings
+from pathlib import Path
 
 import numpy as np
 
@@ -182,6 +183,61 @@ def resolve_calibration_region(*, start_value, end_value, samp_dist_preset,
         reconstruction_length_m=ideal_len if optimization_region == 'full' else float(length),
     )
     return profile
+
+
+def configure_core_position_region(args):
+    """Resolve the same sampling geometry without a slope-segment partition."""
+    if args.task not in ('init', 'optim', 'recon', 'demo'):
+        raise ValueError('core_position_calib 支持 init、optim、recon、demo')
+    if not args.centre_fibre or args.interrogator not in ('FiberTecc', 'Hippo'):
+        raise ValueError('core_position_calib 需要有中心芯的 FiberTecc/Hippo FBG')
+    if args.reverse:
+        raise ValueError('core_position_calib 需要按夹具校准的正向 WL 顺序')
+    if args.task == 'demo' and args.interlaced_grating:
+        raise ValueError('四芯交错实时采集尚未接入，请使用静态 recon')
+    if args.task != 'demo':
+        args.use_stored_zero = False
+    elif args.use_stored_zero and not args.zero_reference_path:
+        raise ValueError('demo 启用 use_stored_zero 时必须提供 zero_reference_path')
+    region = args.optimization_region
+    if region not in args.calibration_regions:
+        raise ValueError(f'未知 optimization_region={region!r}')
+    profile = args.calibration_regions[region]
+    preset = args.samp_dist_preset
+    if args.interlaced_grating:
+        if args.samp_dist_preset_sub is None:
+            raise ValueError('交错刻栅需要 samp_dist_preset_sub')
+        preset = sorted([*preset, *args.samp_dist_preset_sub])
+    length, positions = compute_fbg_geometry(args.start_value, args.end_value, preset)
+    region_length = length if region == 'full' else profile['length_m']
+    if region_length is None or not np.isfinite(region_length) or not 0 < region_length <= length:
+        raise ValueError(f'{region} 的 length_m 必须在 (0, {length}] m 内')
+    origin = length - region_length
+    indices = np.flatnonzero(positions >= origin - 1e-12)
+    if indices.size < 2:
+        raise ValueError(f'{region} 至少需要两个真实采样点')
+    trim = 0.0 if region == 'full' else -float(region_length)
+    for key, expected in [('ideal_len', length), ('straight_trim', trim)]:
+        actual = getattr(args, key)
+        if actual is not None and not np.isclose(actual, expected, rtol=0, atol=1e-12):
+            raise ValueError(f'{key}={actual} 与区域几何 {expected} 不一致')
+        setattr(args, key, expected)
+    folder = Path(args.folder_path or profile['folder_path'])
+    args.folder_path = str(Path(args.calibration_data_root) / folder)
+    radii = args.radii if args.radii is not None else profile['radii']
+    if not isinstance(radii, dict) or not radii.get('circ'):
+        raise ValueError('四芯校准需要 radii.circ 圆弧半径')
+    args.radii = {'circ': radii['circ']}
+    if args.task in ('init', 'optim'):
+        if sorted(args.exp_directs) != [0, 120, 240]:
+            raise ValueError('四芯标定需要 0、120、240 三个实验方向')
+    elif args.task == 'recon':
+        args.exp_directs = [args.direct]
+    return dict(optimization_region=region, global_point_ids=(indices+1).tolist(),
+                global_sample_dist_m=positions[indices].tolist(),
+                sample_dist_m=(positions[indices]-origin).tolist(),
+                crop_origin_m=origin, reconstruction_length_m=region_length,
+                ideal_len=length, straight_trim=trim, folder_path=args.folder_path)
 
 
 def validate_calibration_parameters(weights, slopes, thresholds, segmentation,

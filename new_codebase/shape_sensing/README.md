@@ -79,15 +79,17 @@ calibration_regions:
 
 ### 四芯共同项芯位校准
 
-`orthocal` 使用已经按直态归零的波长变化 CSV。输入目录包含三组方向 `0`、`120`、`240`，且每组提供相同的非零实验半径。工况目录命名为 `方向-半径`（如 `120-100`），每个激活物理通道在各目录提供一个 `Channel_<通道号>_*.csv` 文件，列名为原始 `WL_<编号>`，数值单位为 pm。程序对各列取算术平均，保留四芯原始变化量，在逐 WL 拟合中显式求出每个工况的共同响应 `b`。芯位校准使用单位权重，无需旧版中心芯扣除或二次归零。
+在传感器 YAML 中设置 `core_position_calib: true`，并将 `active_channels` 按中心芯、三个外芯的顺序配置。标定使用模块 1 的常规 FBG 数据目录、清洗、通道排序与空间裁剪，保留中心芯和外芯的四路差分响应。输入是已按直态归零的波长变化 CSV，单位 pm。用于 `init` 和 `optim` 的圆弧数据需要 0°、120°、240° 三个方向以及相同的非零半径。
 
 ```powershell
-python -m shape_sensing orthocal --data-dir data/end15cm --geometry-json params/hardware.json --output-json params/my-end15cm-cores.json --region end15cm --active-channels 1 2 3 4
+python -m shape_sensing --config configs/my_sensor.yaml --task init
+python -m shape_sensing --config configs/my_sensor.yaml --task optim --resume <init运行目录>
+python -m shape_sensing --config configs/my_sensor.yaml --task recon --resume <optim运行目录> --direct 0
 ```
 
-几何文件提供 `start_value`、`end_value` 和 `samp_dist_preset`（毫米），也可使用包含 `hardware_geometry` 的已有芯位参数 JSON。区域可选 `full`、`end15cm`、`end5cm`，默认 `full`。使用 `--radii-mm` 可指定半径子集，`--boundary-margin-mm` 可在末段区域起点处排除额外的边界点。七通道交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。
+`init` 的运行快照保存各区域的 schema 6 芯位及共同响应。可直接用 `init` 快照执行单位增益重建，也可用 `optim` 快照执行逐 WL、逐芯增益重建。`optim` 固定芯位，仅拟合正值增益。 `recon` 在运行快照中保存轨迹、误差和逐 WL 曲率诊断。区域仍通过 `optimization_region` 或 `optimization_regions` 配置，静态重建选用 `optimization_region`。
 
-结果为 schema 6 JSON，包含全局 WL 编号、实际距离、逐截面四芯的半径和角度，以及拟合与物理约束诊断。完整选项可通过 `python -m shape_sensing orthocal --help` 查看。
+七通道静态交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。默认 `core_position_calib: false` 使用已有的分段 slope/weight 参数。
 
 ### 3.1 选择批量或单区域初始化
 

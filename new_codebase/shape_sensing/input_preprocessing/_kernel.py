@@ -88,7 +88,8 @@ class InputKernel:
                 ss=2.6e-3, N=100, sensing_ranges={1: (583, 1048), 3: (678, 1146), 4: (749, 1215)}, smoothing_params={'window_length': 21,'polyorder': 3},
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
                 use_stored_zero=False, zero_reference_path=None,
-                wavelength_jump_threshold_pm=12000.0, wavelength_jump_guard_enabled=True):
+                wavelength_jump_threshold_pm=12000.0, wavelength_jump_guard_enabled=True,
+                core_position_calib=False):
 
         # 实验参数
         self.exp_directs = exp_directs
@@ -112,6 +113,7 @@ class InputKernel:
         self.reverse = reverse
         self.rot_dir = rot_dir  # 标定实验时旋转传感器的方向，1对应逆时针，-1对应顺时针
         self.centre_fibre = centre_fibre
+        self.core_position_calib = core_position_calib
 
         # LUNA参数
         self.ss = ss
@@ -166,8 +168,28 @@ class InputKernel:
         self.samp_dist_preset_sub = samp_dist_preset_sub
         self.interlaced_offset = interlaced_offset # 确保这个也保存了
 
+    def core_calibration_channel_ids(self):
+        """Return the effective output IDs in center-first calibration order."""
+        channels = tuple(self.active_channels)
+        expected = 7 if self.interlaced_grating else 4
+        if (self.num_channels != expected or len(channels) != expected
+                or any(isinstance(ch, bool) or not isinstance(ch, (int, np.integer))
+                       or ch < 1 for ch in channels)):
+            raise ValueError(f"core_position_calib requires {expected} distinct positive active_channels")
+        if self.interrogator not in ('FiberTecc', 'Hippo'):
+            raise ValueError('core_position_calib requires FBG input (FiberTecc or Hippo)')
+        if self.channel_change and self.channel_layout:
+            channels = tuple(self.channel_layout[0][1])
+            if (len(channels) != expected or set(channels) != set(self.active_channels)
+                    or any(tuple(order) != channels for _, order in self.channel_layout)
+                    or sum(rows for rows, _ in self.channel_layout) != len(self.samp_dist_preset)):
+                raise ValueError('core_position_calib requires the same physical channel order at every WL')
+        return channels[:1] + channels[1::2] if self.interlaced_grating else channels
+
     def load_data(self, folder_path):
         """显式读取并预处理实验数据；构造几何本身不访问文件。"""
+        if self.core_position_calib:
+            self.num_channels_recon = len(self.core_calibration_channel_ids())
         self._configure_zero_reference(self.use_stored_zero, self.zero_reference_path)
         samp_dist_preset = self.samp_dist_preset
         samp_dist_preset_sub = self.samp_dist_preset_sub
@@ -197,7 +219,7 @@ class InputKernel:
             self.Data = dict_recur_extract(self.Data, lambda data: data[self.raw_trim_idx:, :])
 
             # 5. 中心光纤补偿
-            if self.centre_fibre:
+            if self.centre_fibre and not self.core_position_calib:
                 self.centreData, self.outerData, self.processed_Data, self.plot_Data = self._process_centreData(data=self.Data)
                 self.num_channels_recon = self.num_channels - 1
                 if self.interlaced_grating:
@@ -442,6 +464,16 @@ class InputKernel:
         expected_data_cols = len(samp_dist_preset)
         expected_cols = expected_data_cols + 2
         col_start, col_end = 2, expected_cols
+        file_channels = range(max(self.active_channels) + 1)
+        calibration_wl_columns = None
+        selected_circle_states = None
+        if self.core_position_calib:
+            calibration_wl_columns = [f'WL_{i}' for i in range(1, expected_data_cols + 1)]
+            offset = 1 if self.interrogator == 'Hippo' else 0
+            file_channels = sorted(channel - offset for channel in self.active_channels)
+            selected_circle_states = {(direction, radius)
+                                      for direction, shapes in self.radii.items()
+                                      for radius in shapes.get('circ', ())}
 
         for subfolder in os.listdir(folder_path):
             subfolder_path = os.path.join(folder_path, subfolder)
@@ -451,6 +483,9 @@ class InputKernel:
             x, y, z, folder_type = self._classify_folder(subfolder=subfolder)
             if folder_type is None:
                 continue
+            if selected_circle_states is not None and (
+                    folder_type != 'circ' or (x, y) not in selected_circle_states):
+                continue
 
             channel_data = {}
             valid_subfolder = True
@@ -458,7 +493,7 @@ class InputKernel:
             # 记录被清洗到全空的 channel，便于最后解释为什么 subfolder 被删
             clean_empty_channels = {}
 
-            for channel in range(max(self.active_channels) + 1):
+            for channel in file_channels:
                 if self.interrogator == 'FiberTecc':
                     # 兼容 Windows / Linux 下大小写差异
                     patterns = [
@@ -515,8 +550,14 @@ class InputKernel:
                     break
 
                 # -------------------- 清洗 NaN / outlier --------------------
-                fbg_cols = list(enumerate(df.columns[col_start:col_end]))
-                fbg_col_names = [col for _, col in fbg_cols]
+                fbg_col_names = list(df.columns[col_start:col_end])
+                if calibration_wl_columns is not None:
+                    if set(fbg_col_names) != set(calibration_wl_columns):
+                        logging.error(f"CSV {file_path} must contain each WL_1 through WL_{expected_data_cols}")
+                        valid_subfolder = False
+                        break
+                    fbg_col_names = calibration_wl_columns
+                fbg_cols = list(enumerate(fbg_col_names))
 
                 numeric_fbg = df[fbg_col_names].apply(pd.to_numeric, errors="coerce")
 
@@ -578,7 +619,7 @@ class InputKernel:
                     )
                     continue
 
-                data_slice = cleaned_df.iloc[:, col_start:col_end].apply(pd.to_numeric, errors="coerce")
+                data_slice = cleaned_df[fbg_col_names].apply(pd.to_numeric, errors="coerce")
                 channel_avg = data_slice.mean(axis=0).to_numpy()
 
                 if not np.all(np.isfinite(channel_avg)):
@@ -604,8 +645,9 @@ class InputKernel:
                         f"可能是没有匹配文件、文件为空、读取失败或列数问题。"
                     )
 
-                logging.error(f"subfolder {subfolder} 将被跳过，并从 self.radii 中撤销对应项。")
-                self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                if selected_circle_states is None:
+                    logging.error(f"subfolder {subfolder} 将被跳过，并从 self.radii 中撤销对应项。")
+                    self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
             # 根据 active_channels 构造“必需 channel 列表”
@@ -625,7 +667,7 @@ class InputKernel:
             if missing_channels:
                 logging.error(
                     f"严重错误：subfolder {subfolder} 缺少构建 data_matrix 所需的必需通道 "
-                    f"{missing_display_channels}，当前 subfolder 将被跳过，并从 self.radii 中撤销对应项。"
+                    f"{missing_display_channels}，当前 subfolder 将被跳过。"
                 )
 
                 clean_missing = {ch: clean_empty_channels[ch] for ch in missing_channels if ch in clean_empty_channels}
@@ -637,7 +679,8 @@ class InputKernel:
                 else:
                     logging.error(f"当前已成功读取的 channel 为：{sorted(channel_data.keys())}")
 
-                self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
+                if selected_circle_states is None:
+                    self._edit_radii(folder_type=folder_type, x=x, y=y, z=z)
                 continue
 
             # 当前新版设计：read_data_FBG 只输出“按物理通道升序”的矩阵；
@@ -652,6 +695,20 @@ class InputKernel:
                 self.Data[folder_type].setdefault(x, {})
                 self.Data[folder_type][x].setdefault(y, {})
                 self.Data[folder_type][x][y][z] = data_matrix
+
+        if selected_circle_states is not None:
+            loaded_circle_states = {(direction, radius)
+                                    for direction, radii in self.Data['circ'].items()
+                                    for radius in radii}
+            missing_bends = []
+            for direction, radius in sorted(selected_circle_states - loaded_circle_states):
+                if radius == 0:
+                    self._edit_radii('circ', direction, radius, None)
+                else:
+                    missing_bends.append(f'{direction}-{radius}')
+            if missing_bends:
+                missing = ', '.join(missing_bends)
+                raise ValueError(f'四芯标定输入 {folder_path} 中缺少有效的圆弧状态（方向-半径）: {missing}')
 
         # 排序逻辑保持不变
         for shape in ["circ", "S"]:
@@ -973,6 +1030,7 @@ class InputKernel:
             if suffix == "S":
                 folder_type = "S"
             else:
+                folder_type = None
                 print(f"Unsupported suffix in subfolder: {subfolder}")
 
         elif m_end:

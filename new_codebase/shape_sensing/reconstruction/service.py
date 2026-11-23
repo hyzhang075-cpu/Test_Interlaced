@@ -71,6 +71,8 @@ class ReconstructionService:
         previous_unwrapped = None if state is None else state.previous_unwrapped_angles_rad
         cur, ang, grid, diagnostics = kernel.prepare_arrays(
             magnitude, angle, previous_raw, previous_unwrapped, ideal_curvature)
+        if 'common_response_b_strain' in curvature.diagnostics:
+            diagnostics.update(curvature.diagnostics)
         next_state = ReconstructionState(diagnostics['angle_prepared'].copy(),
                                          diagnostics['angle_unwrap'].copy(), adjusted.copy())
         diagnostics.update({'source_distance_m': distance, 'adjusted_distance_m': adjusted})

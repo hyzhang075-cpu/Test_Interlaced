@@ -13,9 +13,12 @@ def _config(tmp_path, extra=None):
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return path
 
-def test_catalog_and_template_cover_all_110_main_parameters():
+def test_catalog_and_template_cover_main_parameters():
+    from shape_sensing.cli import build_argument_parser
+
     catalog = parameter_catalog()
-    assert len(catalog) == 110
+    parser_parameters = {action.dest for action in build_argument_parser()._actions}
+    assert set(catalog) == parser_parameters - {'help', 'config', 'resume'}
     assert sum(bool(item["choices"]) for item in catalog.values()) == 9
     template = (Path(__file__).parents[1] / "configs" / "sensor_template.yaml").read_text(encoding="utf-8")
     for key, spec in catalog.items():

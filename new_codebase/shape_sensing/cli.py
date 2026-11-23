@@ -52,6 +52,9 @@ def configure_calibration_args(args):
 数据与参数，但不能用不一致的 ideal_len/straight_trim 绕过几何校验。
 返回的上下文保留全局点位映射；不把配置控制字段传给 Sensor 构造器。
 """
+    if getattr(args, 'core_position_calib', False):
+        from .configuration.regions import configure_core_position_region
+        return configure_core_position_region(args)
     # 存储零点只在 demo 阶段显式启用，定标任务无需提前准备零点文件。
     if args.task != 'demo':
         args.use_stored_zero = False
@@ -482,6 +485,13 @@ def build_argument_parser():
     # parser.add_argument('--samp_dist_preset', type=list, default=[510, 521, 532, 543, 554, 579, 604, 629, 654, 696, 738, 780, 822, 864, 906, 948, 990, 1032, 1074, 1116, 1158, 1200], help='FBG传感点位置, 单位为mm')# 22点支气管镜，69cm
     parser.add_argument('--samp_dist_preset_sub', type=ast.literal_eval, default=[120, 160, 200, 295, 445, 595, 745, 895], help='FBG传感点位置(B组), 单位为mm')
     parser.add_argument('--centre_fibre', type=bool, default=True, help='是否为1+x构型')
+    parser.add_argument('--core_position_calib', type=_str2bool, default=False,
+                        help='使用逐 WL 四芯共同响应模型')
+    parser.add_argument('--core_diameter_um', type=float, default=350.0)
+    parser.add_argument('--core_radius_um', type=float, default=50.0)
+    parser.add_argument('--core_sensitivity_pm_per_ue', type=float, default=1.0)
+    parser.add_argument('--core_bend_offset_deg', type=float, default=-90.0)
+    parser.add_argument('--core_gain_max_nfev', type=int, default=100)
     parser.add_argument('--interlaced_grating', type=bool, default=False, help='栅区是否交错排列')
     parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为rad')
     # parser.add_argument('--global_phases_set', type=float, default=-0.20541970186130923, help='全局相位，初始值为None') #全段相位
@@ -894,18 +904,16 @@ def _application_factory(*args, **kwargs):
 def main():
     """解析参数并通过包内 pipeline 分派原有任务。"""
     from .pipelines import execute_task
-    if sys.argv[1:2] == ["orthocal"]:
-        from .pipelines.orthocal import run_orthocal
-        run_orthocal(sys.argv[2:])
-        return
     args = parse_main_args()
-    return execute_task(
+    result = execute_task(
         args, optimiser_factory=None, visualizer_factory=_visualizer_factory,
         app_factory=_application_factory, configure_args=configure_calibration_args,
         parameter_builder=optimizer_parameters, prepare_jobs=prepare_calibration_jobs,
         run_jobs=run_calibration_jobs, compute_error_ang=compute_error_ang,
         optim_ang=optim_ang, project_root=Path.cwd(), system=sys,
     )
+    if not getattr(args, 'core_position_calib', False):
+        return result
 
 
 if __name__ == '__main__':

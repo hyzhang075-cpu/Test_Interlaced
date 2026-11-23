@@ -73,7 +73,11 @@ PARSER_GROUPS = {
 }
 
 SPECIAL_DESTINATIONS = ('sensor_id', 'calibration_regions', 'global_phases_set', 'rot_ang')
-TRANSIENT_DESTINATIONS = ('optim_weights_only', 'config', 'resume')
+TRANSIENT_DESTINATIONS = (
+    'optim_weights_only', 'config', 'resume',
+    'core_position_calib', 'core_diameter_um', 'core_radius_um',
+    'core_sensitivity_pm_per_ue', 'core_bend_offset_deg', 'core_gain_max_nfev',
+)
 PATH_PARAMETER_DESTINATIONS = (
     'sensor_params', 'zero_reference_path', 'calibration_data_root',
     'calibration_output_dir',

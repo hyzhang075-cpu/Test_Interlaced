@@ -6,7 +6,25 @@ from itertools import combinations
 import numpy as np
 from scipy.optimize import minimize
 
-from ..input_preprocessing.four_core import DIRECTIONS
+DIRECTIONS = (0, 120, 240)
+
+
+@dataclass(frozen=True)
+class FourCoreFitData:
+    """Calibration states by physical core by global WL, in pm."""
+
+    responses_pm: np.ndarray
+    states: tuple
+    channels: tuple
+    wl_ids: tuple
+
+    @property
+    def radii_mm(self):
+        return [radius for direction, radius in self.states if direction == DIRECTIONS[0]]
+
+    @property
+    def csv_file_count(self):
+        return len(self.states) * len(self.channels)
 
 
 @dataclass(frozen=True)

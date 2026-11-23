@@ -134,6 +134,7 @@ class InputConfig:
     end_value: float = None
     folder_path: str | None = None
     centre_fibre: bool = True
+    core_position_calib: bool = False
     active_channels: list[int] = field(default_factory=lambda: [1, 3, 4])
     rot_dir: int | list[int] | dict[int, int] = -1
     exp_directs: list[int] = field(default_factory=lambda: [0, 120, 240])
@@ -170,6 +171,11 @@ class InitializationConfig:
     connect: bool = True
     global_phases_set: float | None = None
     interlaced_offset: float = 0.0
+    core_position_calib: bool = False
+    core_diameter_um: float = 350.0
+    core_radius_um: float = 50.0
+    core_sensitivity_pm_per_ue: float = 1.0
+    core_bend_offset_deg: float = -90.0
 
 @dataclass(frozen=True)
 class CurvatureConfig:
@@ -230,6 +236,7 @@ class OptimizationConfig:
     end5cm_min_weight_max_mass: float = 0.05
     end5cm_uncovered_weight_policy: str = 'interpolate_neutral_edges'
     source_sensor_params: str | None = None
+    core_gain_max_nfev: int = 100
 
 @dataclass(frozen=True)
 class EvaluationConfig:

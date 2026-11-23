@@ -33,6 +33,9 @@ CONTROL_KEYS = {
     'direction_smooth_alpha', 'demo_kalman_enabled', 'demo_kalman_Rk', 'demo_kalman_Bk',
     'anchor_constraint_enabled', 'anchor_translation_enabled', 'anchor_rotation_enabled',
     'anchor_offset_m',
+    'core_position_calib', 'core_diameter_um', 'core_radius_um',
+    'core_sensitivity_pm_per_ue', 'core_bend_offset_deg', 'core_gain_max_nfev',
+    'core_position_parameters',
 }
 
 
@@ -72,12 +75,16 @@ def prepare_calibration_jobs(args, configure):
     if (not isinstance(regions, list) or not regions or
             any(not isinstance(region, str) for region in regions) or len(set(regions)) != len(regions)):
         raise ValueError('optimization_regions 必须是非空、无重复的区域名称列表')
+    core_mode = getattr(args, 'core_position_calib', False)
     if len(regions) > 1:
-        for key in ('folder_path', 'radii', 'thresholds', 'segmentation', 'straight_trim', 'weights', 'slopes', 'end_weights', 'end_start'):
+        shared = ('folder_path', 'radii', 'straight_trim')
+        if not core_mode:
+            shared += ('thresholds', 'segmentation', 'weights', 'slopes', 'end_weights', 'end_start')
+        for key in shared:
             if getattr(args, key) is not None:
                 raise ValueError(f'批量任务不能共用单个 {key} 覆盖值；请写入 calibration_regions 各区域配置')
     jobs = []
-    phase_enabled = bool(getattr(args, 'use_full_transported_phase', False))
+    phase_enabled = not core_mode and bool(getattr(args, 'use_full_transported_phase', False))
     if phase_enabled and args.task == 'optim':
         if args.reverse:
             raise ValueError('固定上游相位模式目前仅支持正向传感器点位')

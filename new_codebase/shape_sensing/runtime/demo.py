@@ -24,7 +24,7 @@ class LiveFrameProcessor:
         self.session = session
         self.args = args
         self.selector = None
-        if args.direction_blend_enabled:
+        if args.direction_blend_enabled and not session.config.input.core_position_calib:
             from ..curvature.direction import DirectionSelector
             block = session.parameters.parameters_by_region[session.region]
             self.selector = DirectionSelector(block['weights'], block['slopes'], self._base_curvature,

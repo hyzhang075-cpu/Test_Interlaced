@@ -50,13 +50,16 @@ class InputService:
     def preprocess(self, signals, *, channel_ids=None, acquired=False, design=None):
         """统一静态/动态预处理：通道重排、交错插值、裁剪、中心补偿及反向。
 
-        输入原始差分信号(Praw,C)，输出PreparedFrame(P,Couter)；保持历史尺度，
+        输入原始差分信号(Praw,C)，输出PreparedFrame(P,Couter)，四芯模式保留中心列；保持历史尺度，
         不执行第二次1e-6换算。波长到该尺度的转换在读取/解包边界完成。
         design 提供会话固定距离 [P] m 和真实点索引，校验后由帧以只读视图复用。
         """
         from dataclasses import asdict
         from ._kernel import InputKernel
         kernel = InputKernel(**asdict(self.config))
+        channels = tuple(self.config.active_channels)
+        if kernel.core_position_calib:
+            channels = kernel.core_calibration_channel_ids()
         values = np.array(signals, dtype=float, copy=True)
         if not acquired:
             available = tuple(channel_ids or sorted(self.config.active_channels))
@@ -69,8 +72,12 @@ class InputService:
             if kernel.interlaced_grating:
                 kernel._apply_interlaced_grating(kernel.samp_dist_preset, kernel.samp_dist_preset_sub)
             values = kernel.Data['frame'][kernel.raw_trim_idx:, :]
-        channels = tuple(self.config.active_channels)
-        if kernel.centre_fibre:
+        elif kernel.core_position_calib:
+            available = tuple(channel_ids) if channel_ids is not None else (
+                channels if kernel.interlaced_grating else tuple(self.config.active_channels)
+            )
+            values = values[:, [available.index(channel) for channel in channels]]
+        if kernel.centre_fibre and not kernel.core_position_calib:
             values = kernel._process_centreData(values)[2]
             channels = channels[1:]
         if kernel.reverse:
@@ -93,7 +100,9 @@ class InputService:
         kernel = InputKernel(**values)
         kernel.load_data(folder_path if folder_path is not None else self.config.folder_path)
         channels = tuple(self.config.active_channels)
-        if self.config.centre_fibre:
+        if self.config.core_position_calib:
+            channels = kernel.core_calibration_channel_ids()
+        elif self.config.centre_fibre:
             channels = channels[1:]
         return CalibrationDataset(deepcopy(kernel.processed_Data), deepcopy(kernel.radii),
                                   self._design(kernel), channels, deepcopy(kernel.plot_Data))

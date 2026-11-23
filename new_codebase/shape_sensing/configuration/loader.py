@@ -22,7 +22,7 @@ SCHEMA_VERSION = 1
 _REQUIRED_DESIGN = {'sensor_id', 'R', 'samp_dist_preset'}
 
 def parameter_catalog():
-    """返回 main 原 parser 的110项参数目录，包含类型、解释、choices 和默认值。"""
+    """返回 main 参数目录，包含类型、说明、选项和默认值。"""
     return json.loads(json.dumps(_CATALOG))
 
 def _type_ok(value, kind, name=None):

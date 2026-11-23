@@ -165,6 +165,13 @@ samp_dist_preset_sub:
 - 895
 # centre_fibre: 是否为1+x构型
 centre_fibre: true
+# 使用逐 WL 四芯共同响应模型。保留中心芯响应，沿用 init / optim / recon 任务。
+core_position_calib: false
+core_diameter_um: 350.0
+core_radius_um: 50.0
+core_sensitivity_pm_per_ue: 1.0
+core_bend_offset_deg: -90.0
+core_gain_max_nfev: 100
 # interlaced_grating: 栅区是否交错排列
 interlaced_grating: false
 # interlaced_offset: 交错排列时的角度偏移，单位为rad（弧度）

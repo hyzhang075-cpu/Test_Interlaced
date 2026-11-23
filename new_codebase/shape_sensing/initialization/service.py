@@ -1,5 +1,6 @@
 """模块2显式标定拟合入口。"""
 from copy import deepcopy
+import numpy as np
 from ._kernel import InitializationKernel
 from ..curvature.service import GeometryService
 from ..contracts import InitializationResult
@@ -45,32 +46,52 @@ class InitializationService:
             deepcopy(kernel.angle_results_unwrap), deepcopy(kernel.global_fit_direct),
             deepcopy(kernel.individual_fits_direct))
 
-    @staticmethod
-    def fit_four_core(dataset, *, diameter_um=350.0, core_radius_um=50.0,
-                      sensitivity_pm_per_ue=1.0, bend_offset_deg=-90.0,
-                      size_constraint_mode="both", envelope_center_mode="free",
-                      center_order_reference="envelope_center"):
-        """Fit a module 1 raw four-core dataset and return a schema 6 parameter dict."""
-        from .four_core import FourCoreFitSettings, fit_four_cores
+    def fit_four_core(self, dataset, input_config, region):
+        """Fit schema 6 from the standard module 1 CalibrationDataset."""
+        from .four_core import DIRECTIONS, FourCoreFitData, FourCoreFitSettings, fit_four_cores
 
+        circle = dataset.data.get('circ', {})
+        by_direction = [{radius for radius in circle.get(direction, {}) if radius > 0}
+                        for direction in DIRECTIONS]
+        if not by_direction[0] or any(radii != by_direction[0] for radii in by_direction[1:]):
+            raise ValueError('四芯标定需要 0、120、240 方向具有相同的非零圆弧半径')
+        states = tuple((direction, radius) for direction in DIRECTIONS
+                       for radius in sorted(by_direction[0]))
+        design = dataset.design
+        wl_ids = tuple((design.source_indices + 1).tolist())
+        channels = tuple(dataset.channel_ids)
+        response = np.asarray([circle[direction][radius] for direction, radius in states])
+        if response.shape != (len(states), len(wl_ids), 4) or len(channels) != 4:
+            raise ValueError('四芯标定需要每个真实 WL 的四路预处理响应')
+        data = FourCoreFitData(response.transpose(0, 2, 1) * 1e6, states, channels, wl_ids)
         settings = FourCoreFitSettings(
-            fiber_diameter_um=diameter_um,
-            core_radius_um=core_radius_um,
-            k_pm_per_ue=sensitivity_pm_per_ue,
-            bend_side_offset_deg=bend_offset_deg,
-            size_constraint_mode=size_constraint_mode,
-            envelope_center_mode=envelope_center_mode,
-            center_order_reference=center_order_reference,
+            fiber_diameter_um=self.config.core_diameter_um,
+            core_radius_um=self.config.core_radius_um,
+            k_pm_per_ue=self.config.core_sensitivity_pm_per_ue,
+            bend_side_offset_deg=self.config.core_bend_offset_deg,
         )
-        result = fit_four_cores(dataset, settings)
-        result["hardware_geometry"] = deepcopy(dataset.hardware_geometry)
-        result["scope"] = deepcopy(dataset.scope)
+        result = fit_four_cores(data, settings)
+        length = input_config.ideal_len
+        trim = input_config.straight_trim
+        origin = length + trim if trim < 0 else trim
+        distances = design.sampling_distance_m
+        result['hardware_geometry'] = {key: deepcopy(getattr(input_config, key)) for key in (
+            'sensor_id', 'start_value', 'end_value', 'samp_dist_preset',
+            'samp_dist_preset_sub', 'interlaced_grating', 'interlaced_offset')}
+        result['scope'] = dict(name=region, length_m=length-origin, full_length_m=length,
+            crop_origin_m=origin, boundary_margin_mm=0.0, global_wl_ids=list(wl_ids),
+            global_sample_dist_m=(distances + origin).tolist(),
+            local_sample_dist_m=distances.tolist(), source_data_dir=input_config.folder_path)
         for section in result["sections"]:
-            section["source_region"] = dataset.scope["name"]
-        if dataset.interlaced_sources:
-            result["acquisition_channels"] = list(dataset.acquisition_channels)
+            section["source_region"] = region
+        if input_config.interlaced_grating:
+            a = np.asarray(input_config.samp_dist_preset)
+            positions = np.sort(np.r_[a, input_config.samp_dist_preset_sub])
+            result["acquisition_channels"] = list(input_config.active_channels)
             result["interlaced_response_mapping"] = dict(
                 center_interpolation="CubicSpline", extrapolate=True,
-                section_sources=dataset.interlaced_sources.copy(),
+                section_sources={str(wl): ('measured' if positions[wl-1] in a else
+                    'extrapolated' if not a.min() <= positions[wl-1] <= a.max() else 'interpolated')
+                    for wl in wl_ids},
             )
         return result

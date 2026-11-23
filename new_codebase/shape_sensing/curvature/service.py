@@ -67,6 +67,10 @@ class CurvatureService:
         block = parameters.parameters_by_region.get(region)
         if block is None:
             raise ValueError(f'缺少区域标定参数: {region}')
+        if 'core_calibration' in block:
+            from .four_core import compute_four_core
+            return compute_four_core(frame, design, block['core_calibration'],
+                                     block.get('strain_gains'), magnitude_ratio)
         def direction_value(name):
             """取当前 region/direct 的标定数组副本；slopes 为 [level,segment]。"""
             mapping = block.get(name)
