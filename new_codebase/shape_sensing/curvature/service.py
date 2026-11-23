@@ -1,6 +1,6 @@
 """模块3真实点物理模型；不读取文件、不执行初始化拟合或重构滤波。"""
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import replace
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 from .model import CurvatureModelMixin
@@ -67,10 +67,6 @@ class CurvatureService:
         block = parameters.parameters_by_region.get(region)
         if block is None:
             raise ValueError(f'缺少区域标定参数: {region}')
-        if 'core_calibration' in block:
-            from .four_core import compute_four_core
-            return compute_four_core(frame, design, block['core_calibration'],
-                                     block.get('strain_gains'), magnitude_ratio)
         def direction_value(name):
             """取当前 region/direct 的标定数组副本；slopes 为 [level,segment]。"""
             mapping = block.get(name)
@@ -80,6 +76,14 @@ class CurvatureService:
             if result is None:
                 raise ValueError(f'{name}缺少direct={direct}')
             return np.array(result, dtype=float, copy=True)
+        if 'core_position' in block:
+            from .four_core import compute_four_core
+            calibration = {**block['core_position_metadata'], 'sections': block['core_position']}
+            base = compute_four_core(frame, design, calibration, None, 1.0)
+            effective = self._effective_core_weights(base.curvature_per_m, direction_value('weights'))
+            gains = np.broadcast_to(effective[:, None], frame.signals.shape)
+            result = compute_four_core(frame, design, calibration, gains, magnitude_ratio)
+            return replace(result, diagnostics={**result.diagnostics, 'effective_weights': effective})
         kernel = CurvatureKernel(self.config, design, float(block.get('global_phases_set', 0.0)),
                                  frame.signals.shape[1], block.get('multi_region_parameters'))
         if not np.array_equal(frame.distance_m, design.sampling_distance_m):
@@ -97,11 +101,44 @@ class CurvatureService:
         所有输入保持不变；不加虚拟点、不滤波输出曲率、不拟合初值。
         """
         block = parameters.parameters_by_region[region]
+        if 'core_position' in block:
+            from .four_core import compute_four_core
+            calibration = {**block['core_position_metadata'], 'sections': block['core_position']}
+            result = compute_four_core(frame, design, calibration, None, 1.)
+            settings = calibration['calibration']
+            strain = frame.signals.T / (settings['strain_sensitivity_pm_per_ue'] *
+                                        settings['strain_projection_sign'])
+            return strain, result.curvature_per_m, result.direction_rad, ()
         slopes = block['slopes']
         slopes = slopes.get(direct, slopes.get(str(direct))) if isinstance(slopes, dict) else slopes
         kernel = CurvatureKernel(self.config, design, block['global_phases_set'], frame.signals.shape[1])
         strain, magnitude, angle, segments = kernel._get_base(None, np.array(frame.signals, copy=True), np.array(slopes, copy=True)[0])
         return strain.copy(), np.array(magnitude, copy=True), np.array(angle, copy=True), tuple(segments)
+
+    def _effective_core_weights(self, magnitude, weights):
+        config = self.config
+        levels = len(config.thresholds) + 1
+        groups = config.weight_group_ids
+        count = len(magnitude)
+        group_count = max(groups) + 1 if groups is not None else (2 if config.end_weights else 1)
+        if weights.shape != (levels * group_count,) or not np.all(np.isfinite(weights)) or np.any(weights <= 0):
+            raise ValueError('四芯 weights 必须按原曲率等级和分组布局提供有限正权重')
+        if groups is None:
+            groups = np.zeros(count, dtype=int)
+            if config.end_weights:
+                groups[config.end_start:] = 1
+        kernel = _ScoringKernel(config)
+        if levels == 1:
+            masses = np.ones((1, count))
+        elif not config.soft:
+            masses, _, _ = kernel._hard_masses(magnitude)
+        else:
+            if config.end5cm_independent_weight_score and config.weight_group_ids is not None:
+                scores, _ = kernel._get_groupwise_weight_scores(magnitude, groups)
+            else:
+                scores = kernel._get_scores(magnitude, min_consecutive=min(config.min_consecutive, count))
+            masses = kernel._alloc_mass(scores)
+        return np.sum(weights.reshape(-1, levels)[np.asarray(groups)].T * masses, axis=0)
 
     def scores(self, magnitude, *, thresholds=None, sharpness=None, min_consecutive=None, boundary_mode='constant'):
         """输入基础曲率(P,)1/m，返回阈值×真实点(L-1,P)分级分数。"""

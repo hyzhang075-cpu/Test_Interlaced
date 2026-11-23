@@ -20,6 +20,15 @@ def validate_seed(parameters, *, region='full'):
                          + '；请先运行该区域init，再用--resume载入初值，或显式提供这些参数')
 
 
+def _initial_weights(directions, config):
+    levels = len(config.thresholds) + 1
+    groups = config.weight_group_ids
+    split_end = config.end_weights and groups is None
+    group_count = max(groups) + 1 if groups is not None else (2 if split_end else 1)
+    initial_weight = 1.0 if split_end else config.init_weight
+    return {direct: initial_weight * np.ones(levels * group_count) for direct in directions}
+
+
 def _initial_parameters(result, dataset, config, region, previous):
     """由单区域拟合结果生成完整运行参数，并保留显式 weights/slopes 覆盖。
 
@@ -28,15 +37,10 @@ def _initial_parameters(result, dataset, config, region, previous):
     S 形布局复制拟合分段以覆盖两段；旧末端双组布局以单位权重开始。
     """
     levels = len(config.curvature.thresholds) + 1
-    groups = config.curvature.weight_group_ids
-    split_end = config.curvature.end_weights and groups is None
-    group_count = max(groups) + 1 if groups is not None else (2 if split_end else 1)
-    initial_weight = 1.0 if split_end else config.curvature.init_weight
     block = {
         'global_phases_set': result.global_phases_set,
         'rot_ang': config.reconstruction.rot_ang,
-        'weights': {direct: initial_weight * np.ones(levels * group_count)
-                    for direct in dataset.radii},
+        'weights': _initial_weights(dataset.radii, config.curvature),
         'slopes': {},
     }
     shapes = dataset.radii[next(iter(dataset.radii))]
@@ -77,6 +81,10 @@ class TaskSession:
             'multi_region_parameters': deepcopy(parameters.get('multi_region_parameters'))}})
         if self.config.input.core_position_calib:
             block = deepcopy(parameters.get('core_position_parameters', {}).get(region, {}))
+            if block.get('core_position') is not None and 'weights' not in block:
+                directions = block['core_position_metadata']['calibration']['directions_deg']
+                block['weights'] = _initial_weights(directions, self.config.curvature)
+                block['weight_layout'] = self._weight_layout()
             self.parameters = CalibrationParameters({region: block}, source='four_core_common')
             self.point_curvature = {}
         self.cur_interp = np.array([])
@@ -88,8 +96,11 @@ class TaskSession:
         """任务开始校验参数，缺少初值明确指导init+resume，不偷偷执行模块2。"""
         block = self.parameters.parameters_by_region[self.region]
         if self.config.input.core_position_calib:
-            if block.get('core_calibration', {}).get('schema_version') != 6:
+            if (not block.get('core_position')
+                    or block.get('core_position_metadata', {}).get('schema_version') != 6):
                 raise ValueError(f'区域 {self.region} 需要 schema 6 芯位参数，请先运行 init 并通过 --resume 加载')
+            if 'weight_layout' in block and block['weight_layout'] != self._weight_layout():
+                raise ValueError(f'区域 {self.region} 的曲率阈值或权重分组与快照不一致，请重新运行 init')
             return
         validate_seed(block, region=self.region)
 
@@ -103,18 +114,31 @@ class TaskSession:
     def initialize(self, verbose=False):
         """拟合静态 [P,C] 信号并保存模块2诊断，展开本区域各方向的等级初值。"""
         dataset = self.load_data()
-        service = InitializationService(self.config.initialization)
         if self.config.input.core_position_calib:
-            result = service.fit_four_core(dataset, self.config.input, self.region)
-            self.parameters = CalibrationParameters({self.region: {'core_calibration': result}},
-                                                    source='four_core_common')
-            self.initialization_result = result
-            return result
+            service = InitializationService(self.config.initialization,
+                                            input_config=self.config.input, region=self.region)
+        else:
+            service = InitializationService(self.config.initialization)
         result = service.fit(dataset, verbose=verbose)
-        previous = self.parameters.parameters_by_region[self.region]
-        self.parameters = _initial_parameters(result, dataset, self.config, self.region, previous)
+        if self.config.input.core_position_calib:
+            block = dict(core_position=result.core_position,
+                         core_position_metadata=result.core_position_metadata,
+                         weights=_initial_weights(dataset.radii, self.config.curvature),
+                         weight_layout=self._weight_layout())
+            self.parameters = CalibrationParameters({self.region: block}, source='four_core_common')
+        else:
+            previous = self.parameters.parameters_by_region[self.region]
+            self.parameters = _initial_parameters(result, dataset, self.config, self.region, previous)
         self.initialization_result = result
         return result
+
+    def _weight_layout(self):
+        config = self.config.curvature
+        groups = None if config.weight_group_ids is None else list(config.weight_group_ids)
+        return dict(thresholds=list(config.thresholds), end_weights=config.end_weights,
+                    soft=config.soft, sharpness=config.sharpness, min_consecutive=config.min_consecutive,
+                    independent_weight_score=config.end5cm_independent_weight_score,
+                    end_start=config.end_start, weight_group_ids=groups)
 
     def frame(self, values):
         """输入已预处理的静态信号 [P,C]，返回带物理通道及设计几何的真实点帧。
@@ -152,7 +176,7 @@ class TaskSession:
             curvature = self.curvature.compute(self.frame(values), self.design, parameters,
                 direct=direct, region=self.region, shape_kind=calib_shape)
             if self.config.input.core_position_calib:
-                core = parameters.parameters_by_region[self.region]['core_calibration']['calibration']
+                core = parameters.parameters_by_region[self.region]['core_position_metadata']['calibration']
                 fixture_angle = core['core2_azimuth_deg'] + core['bend_side_offset_deg']
                 angle = curvature.direction_rad - np.deg2rad(fixture_angle + core['direction_sign'] * direct)
                 angle = np.arctan2(np.sin(angle), np.cos(angle))
@@ -191,39 +215,6 @@ class TaskSession:
         """公开静态重构入口；叶子坐标(N,3)m，距离(N,)m。"""
         return self._predict_shapes(self.parameters, calib_shape, direct, force_ideal_magnitude,
                                     record_points=self.config.input.core_position_calib)
-
-    def _optimize_core_gains(self):
-        """Fit positive strain gains while keeping initialized WL coordinates fixed."""
-        from ..optimization.four_core import FourCoreGainConfig, fit_strain_gains
-
-        dataset = self.load_data()
-        block = self.parameters.parameters_by_region[self.region]
-        initial = block.get('strain_gains', np.ones((len(self.design.source_indices), 4)))
-        directions = sorted(dataset.data['circ'])
-
-        def distances(gains):
-            trial = CalibrationParameters({self.region: {**block, 'strain_gains': gains}},
-                                          source='four_core_common')
-            point_errors, endpoints = [], []
-            for direct in directions:
-                curves, grid = self._predict_shapes(trial, 'circ', direct)
-                for radius, curve in curves.items():
-                    if radius <= 0:
-                        continue
-                    reference = EvaluationReference(radius_m=radius / 1000.0, shape_kind='circ')
-                    ideal = self.evaluation.ideal_shape(grid, reference)
-                    errors_mm = np.linalg.norm(curve - ideal, axis=1) * 1000
-                    point_errors.append(errors_mm)
-                    endpoints.append(errors_mm[-1])
-            return np.concatenate(point_errors), np.asarray(endpoints)
-
-        settings = FourCoreGainConfig(max_nfev=self.config.optimization.core_gain_max_nfev,
-                                      ridge=0.02, smooth=0.02)
-        fitted = fit_strain_gains(distances, initial, settings)
-        self.parameters = CalibrationParameters(
-            {self.region: {**block, 'strain_gains': fitted.gains}}, source='four_core_common')
-        return {'cost': float(fitted.cost), 'converged': bool(fitted.success),
-                'evaluations': int(fitted.nfev), 'message': str(fitted.message)}
 
     def evaluate(self, interp_dist, rs, direct=None):
         """只调用模块6并保存此次快照，供报告/图形读取。"""
@@ -274,8 +265,6 @@ class TaskSession:
 
     def optim_coeff(self, verbose=True):
         """模块4通过独立参数候选回调3+5、6，禁止模块2隐式初始化。"""
-        if self.config.input.core_position_calib:
-            return self._optimize_core_gains()
         from ..optimization.service import OptimizationService
         dataset = self.load_data()
         def real_curvature(values, parameters, direct, kind):

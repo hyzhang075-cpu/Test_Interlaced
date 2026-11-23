@@ -491,7 +491,6 @@ def build_argument_parser():
     parser.add_argument('--core_radius_um', type=float, default=50.0)
     parser.add_argument('--core_sensitivity_pm_per_ue', type=float, default=1.0)
     parser.add_argument('--core_bend_offset_deg', type=float, default=-90.0)
-    parser.add_argument('--core_gain_max_nfev', type=int, default=100)
     parser.add_argument('--interlaced_grating', type=bool, default=False, help='栅区是否交错排列')
     parser.add_argument('--interlaced_offset', type=float, default=np.pi/3, help='交错排列时的角度偏移，单位为rad')
     # parser.add_argument('--global_phases_set', type=float, default=-0.20541970186130923, help='全局相位，初始值为None') #全段相位

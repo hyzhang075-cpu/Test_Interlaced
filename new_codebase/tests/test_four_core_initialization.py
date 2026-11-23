@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from shape_sensing import cli
-from shape_sensing.contracts import PreparedFrame
+from shape_sensing.contracts import CalibrationParameters, PreparedFrame
 from shape_sensing.curvature.four_core import compute_four_core
 from shape_sensing.pipelines.tasks import build_session, execute_task
 
@@ -28,7 +28,8 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     root = tmp_path / 'input'
     config = tmp_path / 'sensor.yaml'
     config.write_text(json.dumps(dict(
-        sensor_id='fixture', R=1e-4, core_position_calib=True, core_gain_max_nfev=2,
+        sensor_id='fixture', R=1e-4, core_position_calib=True, max_iter=1,
+        thresholds=[5.0, 15.0], soft=False, min_consecutive=1, hyper_params=[1, 1e-6, 1e-6],
         start_value=-10.0, end_value=6.0, samp_dist_preset=[100, 150, 300],
         active_channels=list(channels), folder_path=str(root), radii={'circ': [100]},
         interp_num=20, curvature_interp='vector_pchip', move_filter=1, frame_rule='TNN',
@@ -49,11 +50,14 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
 
     runs = tmp_path / 'runs'
     initialized, init_run = _run(config, runs, 'init')
-    calibration = initialized['core_position_parameters']['full']['core_calibration']
+    initial = initialized['core_position_parameters']['full']
+    calibration = initial['core_position_metadata']
     assert calibration['schema_version'] == 6
     assert calibration['calibration']['wl_ids'] == [2, 3]
     assert calibration['channel_configuration']['response_channels'] == list(channels)
-    section = calibration['sections'][0]
+    assert 'slopes' not in initial
+    assert np.asarray(initial['weights'][0]).shape == (3,)
+    section = initial['core_position'][0]
     assert section['cores']['ch7']['alpha_rad'] is None
     assert section['cores']['ch9']['r_um'] == pytest.approx(110)
     assert [row['b_pm'] for row in section['calibration_common_response_pm']] == pytest.approx([73, -19, 42])
@@ -68,10 +72,16 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     signals = (matrix_m @ target) / gains + drift[:, None]
     order = [2, 0, 3, 1]
     frame = PreparedFrame.from_design(engine.design, signals[:, order], tuple(channels[i] for i in order))
-    solved = compute_four_core(frame, engine.design, calibration, gains, 1.0)
+    solved = compute_four_core(frame, engine.design, {**calibration, 'sections': initial['core_position']}, gains, 1.0)
     np.testing.assert_allclose(solved.diagnostics['k_y_per_m'], [3, 3])
     np.testing.assert_allclose(solved.diagnostics['k_z_per_m'], [-4, -4])
     np.testing.assert_allclose(solved.diagnostics['common_response_b_strain'], drift)
+    graded_frame = PreparedFrame.from_design(engine.design, 10 * matrix_m[:, 0] + drift[:, None], channels)
+    graded_parameters = CalibrationParameters({'full': {**initial, 'weights': {0: [1.0, 0.3, 0.8]}}})
+    graded = engine.curvature.compute(graded_frame, engine.design, graded_parameters)
+    np.testing.assert_allclose(graded.curvature_per_m, [3, 3])
+    np.testing.assert_allclose(graded.diagnostics['effective_weights'], [0.3, 0.3])
+    np.testing.assert_allclose(graded.diagnostics['common_response_b_strain'], drift)
 
     recon, _ = _run(config, runs, 'recon', '--resume', str(init_run), '--direct', '120')
     points = recon['reports']['full']['point_curvature']['100']
@@ -79,12 +89,28 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     np.testing.assert_allclose(points['common_response_b_strain'], [-19e-6, -19e-6])
     np.testing.assert_allclose(points['direction_rad'], [0, 0], atol=1e-10)
     assert recon['reports']['full']['curves_m'][100].shape == (20, 3)
+    np.testing.assert_allclose(points['effective_weights'], [1, 1])
 
     optimized, opt_run = _run(config, runs, 'optim', '--resume', str(init_run))
     block = optimized['core_position_parameters']['full']
-    assert block['core_calibration'] == calibration
-    assert np.asarray(block['strain_gains']).shape == (2, 4)
-    assert np.all(np.asarray(block['strain_gains']) > 0)
+    assert block['core_position'] == initial['core_position']
+    assert 'slopes' not in block and 'strain_gains' not in block
+    assert np.asarray(block['weights'][0]).shape == (3,)
+    assert np.all(np.asarray(block['weights'][0]) > 0)
+    assert set(optimized['reports']['full']['stages']) == {'weights'}
+    np.testing.assert_allclose(block['weights'][120], initial['weights'][120])
     replay, _ = _run(config, tmp_path / 'optimized-recon', 'recon', '--resume', str(opt_run))
-    np.testing.assert_allclose(replay['core_position_parameters']['full']['strain_gains'],
-                               block['strain_gains'])
+    np.testing.assert_allclose(replay['core_position_parameters']['full']['weights']['0'],
+                               block['weights'][0])
+
+    # A previous-version init carries only the source schema 6 payload.
+    snapshot = init_run / 'initialization.json'
+    legacy = json.loads(snapshot.read_text(encoding='utf-8'))
+    legacy['result']['core_position_parameters']['full'] = {
+        'core_calibration': {**calibration, 'sections': initial['core_position']},
+    }
+    snapshot.write_text(json.dumps(legacy), encoding='utf-8')
+    resumed, _ = _run(config, tmp_path / 'legacy-init-recon', 'recon', '--resume', str(init_run))
+    migrated = resumed['core_position_parameters']['full']
+    assert migrated['weight_layout'] == initial['weight_layout']
+    np.testing.assert_allclose(migrated['weights'][0], initial['weights'][0])

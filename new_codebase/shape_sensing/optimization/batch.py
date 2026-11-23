@@ -34,7 +34,7 @@ CONTROL_KEYS = {
     'anchor_constraint_enabled', 'anchor_translation_enabled', 'anchor_rotation_enabled',
     'anchor_offset_m',
     'core_position_calib', 'core_diameter_um', 'core_radius_um',
-    'core_sensitivity_pm_per_ue', 'core_bend_offset_deg', 'core_gain_max_nfev',
+    'core_sensitivity_pm_per_ue', 'core_bend_offset_deg',
     'core_position_parameters',
 }
 
@@ -77,9 +77,9 @@ def prepare_calibration_jobs(args, configure):
         raise ValueError('optimization_regions 必须是非空、无重复的区域名称列表')
     core_mode = getattr(args, 'core_position_calib', False)
     if len(regions) > 1:
-        shared = ('folder_path', 'radii', 'straight_trim')
+        shared = ('folder_path', 'radii', 'straight_trim', 'thresholds', 'end_weights', 'end_start')
         if not core_mode:
-            shared += ('thresholds', 'segmentation', 'weights', 'slopes', 'end_weights', 'end_start')
+            shared += ('segmentation', 'weights', 'slopes')
         for key in shared:
             if getattr(args, key) is not None:
                 raise ValueError(f'批量任务不能共用单个 {key} 覆盖值；请写入 calibration_regions 各区域配置')
@@ -336,7 +336,8 @@ def diagnose_score_distribution(optim):
                 continue
             _, magnitude, _, _ = optim._get_base(
                 keys=list(path), calib_Data=data,
-                base_slopes=optim.slopes[optim.direct][0], verbose=False,
+                base_slopes=None if getattr(optim, 'core_position_mode', False)
+                else optim.slopes[optim.direct][0], verbose=False,
             )
             magnitude = np.asarray(magnitude, dtype=float)
             if not np.all(np.isfinite(magnitude)):

@@ -11,6 +11,9 @@ class OptimizationKernel:
         """运行本模块scipy搜索；测试可注入求解器验证候选边界。"""
         return minimize(**kwargs)
 
+    def _uses_core_positions(self):
+        return getattr(self, 'core_position_mode', False)
+
     def _uses_real_point_objective(self):
         """Support older callers that set only end5cm_point_calib."""
         return bool(getattr(self, 'real_point_calib', False)
@@ -70,7 +73,6 @@ class OptimizationKernel:
         freeze_idx = np.unique(np.atleast_1d(self.freeze).astype(int))
 
         n_weights = len(self.weights[self.direct])
-        n_slopes = self.slopes_shape[0]
 
         if np.any(freeze_idx < 0):
             raise ValueError(f"freeze 中不应包含负 index: {freeze_idx}")
@@ -78,8 +80,19 @@ class OptimizationKernel:
         if np.any(freeze_idx >= n_weights):
             raise ValueError(f"freeze index 超出 weights 范围: freeze={freeze_idx}, weights长度={n_weights}")
 
-        if np.any(freeze_idx >= n_slopes):
-            raise ValueError(f"freeze index 超出 slopes 范围: freeze={freeze_idx}, slopes第一维长度={n_slopes}")
+        if self._uses_core_positions():
+            # Freeze indices are repeated across each spatial weight group.
+            local_weight_count = n_weights
+            if getattr(self, 'weight_group_ids', None) is not None:
+                local_weight_count = self.num_levels
+            elif self.end_weights:
+                local_weight_count = n_weights // 2
+            if np.any(freeze_idx >= local_weight_count):
+                raise ValueError(f"freeze index 超出单组 weights 范围: freeze={freeze_idx}, weights长度={local_weight_count}")
+        else:
+            n_slopes = self.slopes_shape[0]
+            if np.any(freeze_idx >= n_slopes):
+                raise ValueError(f"freeze index 超出 slopes 范围: freeze={freeze_idx}, slopes第一维长度={n_slopes}")
 
         return freeze_idx
 
@@ -187,7 +200,8 @@ class OptimizationKernel:
             options = None
 
         start = time.time()
-        if self._uses_real_point_objective():
+        core_positions = self._uses_core_positions()
+        if self._uses_real_point_objective() and not core_positions:
             # Validate data before entering a potentially expensive optimization.
             fixed_slope_loss = self._real_point_loss(direction_only=True)
             if self.optim_weights_only:
@@ -196,7 +210,9 @@ class OptimizationKernel:
                 print('真实点模式：slopes(首个真实点方向参考) -> weights(真实半径曲率)；最终仍报告几何误差')
         else:
             fixed_slope_loss = None
-        if self.optim_weights_only:
+        if core_positions:
+            stage_order = 'fixed core positions, optimize weights'
+        elif self.optim_weights_only:
             stage_order = 'fixed slopes, optimize weights only'
         else:
             stage_order = ('slopes(真实点方向) -> weights(真实点曲率幅值)' if self._uses_real_point_objective()
@@ -204,16 +220,17 @@ class OptimizationKernel:
         print(f"-------------------- 优化开始, 方向: {self.direct}, 旋转角度: {self.rot_ang}, 顺序: {stage_order} --------------------")
 
         # ---------- 第一阶段：优化 slopes，强制使用理想 magnitude ----------
-        if self.optim_weights_only:
-            slopes_loss = fixed_slope_loss
-            slopes_start_loss = fixed_slope_loss
-            slopes_status = 'fixed'
-            slopes_recoveries = []
-        else:
-            slopes_loss, slopes_status, slopes_start_loss, slopes_recoveries = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
+        if not core_positions:
+            if self.optim_weights_only:
+                slopes_loss = fixed_slope_loss
+                slopes_start_loss = fixed_slope_loss
+                slopes_status = 'fixed'
+                slopes_recoveries = []
+            else:
+                slopes_loss, slopes_status, slopes_start_loss, slopes_recoveries = self._optim_one_coeff_until_stop(coeff="slopes", init_loss=None, options=options, verbose=verbose, force_ideal_magnitude=True,)
 
-        print(f"slopes 阶段结束: status={slopes_status}, start_loss={slopes_start_loss}, final_loss={slopes_loss}")
-        print()
+            print(f"slopes 阶段结束: status={slopes_status}, start_loss={slopes_start_loss}, final_loss={slopes_loss}")
+            print()
 
         # ---------- 第二阶段：优化 weights，恢复正常 magnitude ----------
         # 注意：这里必须 init_loss=None，不能沿用 slopes_loss。
@@ -227,7 +244,7 @@ class OptimizationKernel:
 
         end = time.time()
         print(f"优化耗时: {end - start}")
-        end_label = 'weights-only优化结束' if self.optim_weights_only else '两阶段优化结束'
+        end_label = 'weights-only优化结束' if core_positions or self.optim_weights_only else '两阶段优化结束'
         print(f"-------------------- {end_label}, 方向: {self.direct}, 旋转角度: {self.rot_ang} --------------------")
         print()
 
@@ -240,31 +257,37 @@ class OptimizationKernel:
         self._compute_error(interp_dist=interp_dist, rs=rs)
 
         print(f"当前最优应变权重: {self.weights[self.direct].tolist()}")
-        print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
+        if not core_positions:
+            print(f"当前最优扭转系数: {self.slopes[self.direct].tolist()}")
         print(f"最小误差: {current_loss}")
         self._print_errors()
         # 两阶段 loss 的曲率来源不同，分别保存；最终验收误差由正常重构统计获得。
-        slope_loss_definition = (
-            'fixed source slopes; not optimized' if self.optim_weights_only else
-            ('mean circular direction error to first real point (1-cos)'
-             if self._uses_real_point_objective() else 'ideal-magnitude geometry')
-        )
         weight_loss_definition = (
             'mean squared relative real-point curvature error'
             if self._uses_real_point_objective() else 'measured-magnitude geometry'
         )
-        slope_stage = {'status': slopes_status, 'start_loss': slopes_start_loss,
-                       'final_loss': slopes_loss, 'source_sensor_params': self.source_sensor_params}
+        loss_definitions = {}
+        stages = {}
+        if not core_positions:
+            loss_definitions['slopes'] = (
+                'fixed source slopes; not optimized' if self.optim_weights_only else
+                ('mean circular direction error to first real point (1-cos)'
+                 if self._uses_real_point_objective() else 'ideal-magnitude geometry')
+            )
+            slope_stage = {'status': slopes_status, 'start_loss': slopes_start_loss,
+                           'final_loss': slopes_loss, 'source_sensor_params': self.source_sensor_params}
+            if slopes_recoveries:
+                slope_stage['recoveries'] = slopes_recoveries
+            stages['slopes'] = slope_stage
+
         weight_stage = {'status': weights_status, 'start_loss': weights_start_loss,
                         'final_loss': weights_loss}
-        if slopes_recoveries:
-            slope_stage['recoveries'] = slopes_recoveries
         if weights_recoveries:
             weight_stage['recoveries'] = weights_recoveries
+        loss_definitions['weights'] = weight_loss_definition
+        stages['weights'] = weight_stage
         return {'objective': ('real_points' if self._uses_real_point_objective() else 'geometry'),
-                'loss_definitions': {'slopes': slope_loss_definition,
-                                      'weights': weight_loss_definition},
-                'stages': {'slopes': slope_stage, 'weights': weight_stage}}
+                'loss_definitions': loss_definitions, 'stages': stages}
 
     def _optim_one_coeff_until_stop(self, coeff, init_loss, options, verbose=True, force_ideal_magnitude=False):
         """
@@ -309,23 +332,30 @@ class OptimizationKernel:
 
         print(f"-------------------- {coeff_name}连续优化开始 --------------------")
 
+        core_positions = self._uses_core_positions()
         for i in range(self.max_iter):
             prev_weights = copy.deepcopy(self.weights[self.direct])
-            prev_slopes = copy.deepcopy(self.slopes[self.direct])
-
-            slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
-            slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
-            slopes_normalised = slopes_flattened / slope_upper_bound
+            slope_arguments = {}
+            if not core_positions:
+                prev_slopes = copy.deepcopy(self.slopes[self.direct])
+                slopes_flattened = np.asarray(self.slopes[self.direct], dtype=float).reshape(-1)
+                slope_upper_bound = max(np.max(np.abs(slopes_flattened)), self.slope_upper_bound)
+                slope_arguments = {'slopes_normalised': slopes_flattened / slope_upper_bound,
+                                   'slope_upper_bound': slope_upper_bound}
 
             first_unknown_opcode = None
             for attempt in range(2):
                 try:
-                    new_loss, iter_init_loss = self._optim_coeff_iter(coeff=coeff, i=i, init_loss=best_loss, slopes_normalised=slopes_normalised, slope_upper_bound=slope_upper_bound, options=options, force_ideal_magnitude=force_ideal_magnitude,)
+                    new_loss, iter_init_loss = self._optim_coeff_iter(
+                        coeff=coeff, i=i, init_loss=best_loss, options=options,
+                        force_ideal_magnitude=force_ideal_magnitude, **slope_arguments,
+                    )
                 except SystemError as exc:
                     if 'unknown opcode' not in str(exc).lower():
                         raise
                     self.weights[self.direct] = copy.deepcopy(prev_weights)
-                    self.slopes[self.direct] = copy.deepcopy(prev_slopes)
+                    if not core_positions:
+                        self.slopes[self.direct] = copy.deepcopy(prev_slopes)
                     if first_unknown_opcode is None:
                         first_unknown_opcode = exc
                     if attempt == 0:
@@ -375,7 +405,8 @@ class OptimizationKernel:
 
             if not np.isfinite(new_loss):
                 self.weights[self.direct] = prev_weights
-                self.slopes[self.direct] = prev_slopes
+                if not core_positions:
+                    self.slopes[self.direct] = prev_slopes
                 current_loss = prev_loss
 
                 print(f"{coeff_name}优化出现非有限 loss，已回滚")
@@ -383,7 +414,8 @@ class OptimizationKernel:
 
             if new_loss > prev_loss:
                 self.weights[self.direct] = prev_weights
-                self.slopes[self.direct] = prev_slopes
+                if not core_positions:
+                    self.slopes[self.direct] = prev_slopes
                 current_loss = prev_loss
 
                 print(f"{coeff_name}优化未改善，已回滚")
@@ -402,7 +434,8 @@ class OptimizationKernel:
         print(f"{coeff_name}优化已达最大轮数")
         return current_loss, "max_iter", first_loss, recoveries
 
-    def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised, slope_upper_bound,options, force_ideal_magnitude=False):
+    def _optim_coeff_iter(self, coeff, i, init_loss, slopes_normalised=None,
+                          slope_upper_bound=None, options=None, force_ideal_magnitude=False):
         """
         执行一轮指定参数类型的 scipy 优化，并将最优结果写回对象状态。
 
@@ -441,9 +474,11 @@ class OptimizationKernel:
         start = time.time()
 
         base_weights = np.asarray(self.weights[self.direct], dtype=float).copy()
-        base_slopes_normalised = np.asarray(slopes_normalised, dtype=float).reshape(self.slopes_shape).copy()
+        core_positions = self._uses_core_positions()
+        if not core_positions:
+            base_slopes_normalised = np.asarray(slopes_normalised, dtype=float).reshape(self.slopes_shape).copy()
 
-        if coeff == "slopes":
+        if coeff == "slopes" and not core_positions:
             freeze_mask = self._get_slope_freeze_mask()
             optimise_mask = ~freeze_mask
 
@@ -472,6 +507,8 @@ class OptimizationKernel:
                 else:
                     weights_full = base_weights.copy()
                     weights_full[optimise_mask] = x
+                if core_positions:
+                    return self._loss_fn(self.rot_ang, weights_full)
                 return self._loss_fn(self.rot_ang, weights_full, base_slopes_normalised.reshape(-1), slope_upper_bound, force_ideal_magnitude=force_ideal_magnitude)
 
         else:
@@ -546,12 +583,12 @@ class OptimizationKernel:
         if not np.all(np.isfinite(radii)) or np.any(radii < 0) or not np.any(radii > 0):
             raise ValueError('真实点定标需要有限正半径；0仅表示直线状态')
         losses = []
+        slope_arguments = {} if self._uses_core_positions() else {'slope': self.slopes[self.direct]}
         for radius in radii[radii > 0]:
             magnitude, angle = self._Strain_2_Cur(
                 keys=[radius], calib_shape='circ',
                 calib_Data=self.processed_Data['circ'][self.direct],
-                weight=self.weights[self.direct], slope=self.slopes[self.direct],
-                direct=self.direct,
+                weight=self.weights[self.direct], direct=self.direct, **slope_arguments,
             )
             magnitude = np.asarray(magnitude, dtype=float)
             angle = np.asarray(angle, dtype=float)
@@ -568,16 +605,20 @@ class OptimizationKernel:
                 losses.append(float(np.mean((magnitude / target_curvature - 1.) ** 2)))
         return float(np.mean(losses))
 
-    def _loss_fn(self, rot_ang, weights, slopes_normalised, slope_upper_bound, force_ideal_magnitude=False):
+    def _loss_fn(self, rot_ang, weights, slopes_normalised=None, slope_upper_bound=None,
+                 force_ideal_magnitude=False):
         """候选参数只在局部副本评估，返回标量后恢复当前最优参数。"""
         previous_weights = copy.deepcopy(self.weights)
-        previous_slopes = copy.deepcopy(self.slopes)
+        core_positions = self._uses_core_positions()
+        if not core_positions:
+            previous_slopes = copy.deepcopy(self.slopes)
         missing_rotation = object()
         previous_rotation = getattr(self, 'rot_ang', missing_rotation)
         try:
             self.rot_ang = rot_ang
             self.weights[self.direct] = np.array(weights, copy=True)
-            self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape).copy()
+            if not core_positions:
+                self.slopes[self.direct] = (slopes_normalised * slope_upper_bound).reshape(self.slopes_shape).copy()
             if self._uses_real_point_objective():
                 return self._real_point_loss(direction_only=force_ideal_magnitude)
             rs = {}
@@ -590,7 +631,8 @@ class OptimizationKernel:
                     + self.k_pitch * self.avg_pitch_err + self.k_radius * self.avg_radius_err)
         finally:
             self.weights = previous_weights
-            self.slopes = previous_slopes
+            if not core_positions:
+                self.slopes = previous_slopes
             if previous_rotation is missing_rotation:
                 del self.rot_ang
             else:

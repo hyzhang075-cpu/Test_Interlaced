@@ -228,11 +228,34 @@ def configure_core_position_region(args):
     if not isinstance(radii, dict) or not radii.get('circ'):
         raise ValueError('四芯校准需要 radii.circ 圆弧半径')
     args.radii = {'circ': radii['circ']}
-    if args.task in ('init', 'optim'):
+    from ..contracts import CurvatureConfig
+    defaults = CurvatureConfig()
+    thresholds = args.thresholds if args.thresholds is not None else profile.get('thresholds', defaults.thresholds)
+    thresholds = np.asarray(thresholds, dtype=float)
+    if (thresholds.ndim != 1 or not np.all(np.isfinite(thresholds))
+            or np.any(thresholds <= 0) or np.any(np.diff(thresholds) <= 0)):
+        raise ValueError('四芯权重 thresholds 必须是有限、正值、严格递增列表')
+    args.thresholds = thresholds.tolist()
+    args.end_weights, args.end_start = validate_end_weight_config(
+        profile.get('end_weights', False) if args.end_weights is None else args.end_weights,
+        profile.get('end_start', -5) if args.end_start is None else args.end_start, len(indices))
+    groups = profile.get('weight_group_ids')
+    if region == 'end5cm' and args.end5cm_independent_weights:
+        if not args.end_weights or indices.size < 3:
+            raise ValueError('末端独立三组权重需要 end_weights=True 且至少三个真实点')
+        groups = [0] * (indices.size - 2) + [1, 2]
+    args._resolved_weight_group_ids = validate_weight_group_ids(groups, len(indices))
+    if args.task == 'init':
         if sorted(args.exp_directs) != [0, 120, 240]:
             raise ValueError('四芯标定需要 0、120、240 三个实验方向')
-    elif args.task == 'recon':
+    elif args.task in ('recon', 'optim'):
+        if args.direct not in (0, 120, 240):
+            raise ValueError('四芯任务的 direct 必须为 0、120 或 240')
         args.exp_directs = [args.direct]
+    if args.task == 'optim':
+        bounds = np.asarray(args.weight_bounds, dtype=float)
+        if bounds.shape != (2,) or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] < bounds[1]:
+            raise ValueError('四芯 weight_bounds 必须是递增的两个有限正值')
     return dict(optimization_region=region, global_point_ids=(indices+1).tolist(),
                 global_sample_dist_m=positions[indices].tolist(),
                 sample_dist_m=(positions[indices]-origin).tolist(),

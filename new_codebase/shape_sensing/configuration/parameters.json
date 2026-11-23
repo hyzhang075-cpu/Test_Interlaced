@@ -400,7 +400,6 @@
   "core_radius_um": {"help": null, "choices": null, "default": 50.0, "options": ["--core_radius_um"], "type": "float"},
   "core_sensitivity_pm_per_ue": {"help": null, "choices": null, "default": 1.0, "options": ["--core_sensitivity_pm_per_ue"], "type": "float"},
   "core_bend_offset_deg": {"help": null, "choices": null, "default": -90.0, "options": ["--core_bend_offset_deg"], "type": "float"},
-  "core_gain_max_nfev": {"help": null, "choices": null, "default": 100, "options": ["--core_gain_max_nfev"], "type": "int"},
   "interlaced_grating": {
     "help": "栅区是否交错排列",
     "choices": null,

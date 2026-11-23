@@ -100,6 +100,14 @@ def load_resume(path,resolved_config):
         for key in ('core_diameter_um', 'core_radius_um', 'core_sensitivity_pm_per_ue', 'core_bend_offset_deg'):
             if prior.get(key) != resolved_config.get(key):
                 raise ValueError(f'resume 配置不兼容: {key}')
+        for region, block in blocks.items():
+            if 'core_calibration' not in block:
+                continue
+            if 'strain_gains' in block:
+                raise ValueError('旧逐芯增益快照不能加载为曲率分档 weights，请从 init 快照重新运行 optim')
+            metadata = dict(block['core_calibration'])
+            sections = metadata.pop('sections')
+            blocks[region] = {'core_position': sections, 'core_position_metadata': metadata}
         return {'core_position_parameters': blocks}
     initialization = result.get('result')
     if (result.get('task') == 'init' and isinstance(initialization, dict)

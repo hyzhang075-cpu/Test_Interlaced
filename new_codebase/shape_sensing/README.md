@@ -83,11 +83,15 @@ calibration_regions:
 
 ```powershell
 python -m shape_sensing --config configs/my_sensor.yaml --task init
-python -m shape_sensing --config configs/my_sensor.yaml --task optim --resume <init运行目录>
-python -m shape_sensing --config configs/my_sensor.yaml --task recon --resume <optim运行目录> --direct 0
+python -m shape_sensing --config configs/my_sensor.yaml --task optim --resume "runs/实际的init目录" --direct 0
+python -m shape_sensing --config configs/my_sensor.yaml --task recon --resume "runs/实际的optim目录" --direct 0
 ```
 
-`init` 的运行快照保存各区域的 schema 6 芯位及共同响应。可直接用 `init` 快照执行单位增益重建，也可用 `optim` 快照执行逐 WL、逐芯增益重建。`optim` 固定芯位，仅拟合正值增益。 `recon` 在运行快照中保存轨迹、误差和逐 WL 曲率诊断。区域仍通过 `optimization_region` 或 `optimization_regions` 配置，静态重建选用 `optimization_region`。
+`init` 在原 `InitializationResult` 中追加 `core_position`（schema 6 的 `sections` 列表）和 `core_position_metadata`（通道、坐标、灵敏度及区域几何）。模块 1 仍输出 `CalibrationDataset` 和 `PreparedFrame`，模块 3 仍输出 `CurvatureResult`。区域参数沿用 `CalibrationParameters.parameters_by_region`，`weights` 保持按方向储存、按分组和曲率等级排列的原格式。
+
+`optim` 按 `--direct` 优化。四芯模式固定芯位，仅运行原优化器的权重阶段，沿用曲率阈值、硬分档或软分配、权重边界及区域目标。每个 WL 按单位权重的基础曲率分档，其有效权重统一作用于该截面四芯的差分应变。依次优化多个方向时，可将上一方向的 `optim` 快照用于下一次 `--resume`。 `recon` 接受 `init` 或 `optim` 快照，并在结果中保存轨迹、误差和逐 WL 曲率诊断。
+
+此前的四芯 `init` 快照可继续加载。此前的逐芯增益快照需要从 `init` 重新执行 `optim`。旧 YAML 中的 `core_gain_max_nfev` 由现有优化参数 `method`、`hyper_params`、`max_iter` 和 `min_loss_diff` 取代。
 
 七通道静态交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。默认 `core_position_calib: false` 使用已有的分段 slope/weight 参数。
 

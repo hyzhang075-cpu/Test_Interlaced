@@ -236,7 +236,6 @@ class OptimizationConfig:
     end5cm_min_weight_max_mass: float = 0.05
     end5cm_uncovered_weight_policy: str = 'interpolate_neutral_edges'
     source_sensor_params: str | None = None
-    core_gain_max_nfev: int = 100
 
 @dataclass(frozen=True)
 class EvaluationConfig:
@@ -312,10 +311,12 @@ class CalibrationDataset:
 @dataclass(frozen=True)
 class InitializationResult:
     """模块2输出初值及拟合诊断；所有诊断容器属于此次fit调用。"""
-    global_phases_set: float
+    global_phases_set: float | None
     slopes_init: Mapping[int, list[float]]
     magnitude_results: dict
     angle_results_raw: dict
     angle_results_unwrap: dict
     global_fit_direct: dict
     individual_fits_direct: dict
+    core_position: list[dict] | None = None
+    core_position_metadata: dict | None = None

@@ -6,15 +6,24 @@ from ..curvature.service import GeometryService
 from ..contracts import InitializationResult
 
 class InitializationService:
-    def __init__(self, config):
+    def __init__(self, config, *, input_config=None, region='full'):
         """只保存初始化配置，不读文件、不做拟合。"""
         self.config = config
+        self.input_config = input_config
+        self.region = region
 
     def fit(self, dataset, *, verbose=False):
         """输入模块1的(P,C)静态数据；输出相位rad、slopes rad/m及诊断。
 
         使用原分段拟合正文；数据、几何及诊断容器均不与调用方共享可写数组。
         """
+        if self.config.core_position_calib:
+            if self.input_config is None:
+                raise ValueError('芯位初始化需要模块 1 的传感器配置')
+            payload = self._fit_four_core(dataset, self.input_config, self.region)
+            sections = payload.pop('sections')
+            return InitializationResult(None, {}, {}, {}, {}, {}, {},
+                                        core_position=sections, core_position_metadata=payload)
         design = dataset.design
         kernel = InitializationKernel()
         kernel.geometry = GeometryService(design, len(dataset.channel_ids))
@@ -46,7 +55,7 @@ class InitializationService:
             deepcopy(kernel.angle_results_unwrap), deepcopy(kernel.global_fit_direct),
             deepcopy(kernel.individual_fits_direct))
 
-    def fit_four_core(self, dataset, input_config, region):
+    def _fit_four_core(self, dataset, input_config, region):
         """Fit schema 6 from the standard module 1 CalibrationDataset."""
         from .four_core import DIRECTIONS, FourCoreFitData, FourCoreFitSettings, fit_four_cores
 

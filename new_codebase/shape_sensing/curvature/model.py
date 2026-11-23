@@ -87,36 +87,7 @@ class CurvatureModelMixin:
         groups = getattr(self, 'weight_group_ids', None)
         if not self.soft:
             slope_scores = None
-            hard_level_idx = np.zeros(self.total_points, dtype=int)
-            hard_regions = [None] * self.num_levels
-            min_consecutive = max(1, int(self.min_consecutive))
-
-            for level, threshold in enumerate(self.thresholds, start=1):
-                consecutive_count = 0
-                region_start = None
-                region_indices = None
-
-                for i, mag in enumerate(score_magnitude):
-                    if mag > threshold:
-                        if consecutive_count == 0:
-                            region_start = i
-                        consecutive_count += 1
-                    else:
-                        if consecutive_count >= min_consecutive:
-                            region_indices = np.arange(region_start, i)
-                            break
-                        consecutive_count = 0
-                        region_start = None
-
-                if region_indices is None and consecutive_count >= min_consecutive:
-                    region_indices = np.arange(region_start, self.total_points)
-
-                if region_indices is not None and len(region_indices) > 0:
-                    hard_level_idx[region_indices] = level
-                    hard_regions[level] = region_indices
-
-            slope_masses = np.zeros((self.num_levels, self.total_points))
-            slope_masses[hard_level_idx, np.arange(self.total_points)] = 1.0
+            slope_masses, hard_level_idx, hard_regions = self._hard_masses(score_magnitude)
             weight_scores = slope_scores
             weight_masses = slope_masses
         else:
@@ -239,6 +210,25 @@ class CurvatureModelMixin:
             print(f"magnitude(base): {magnitude}")
             print(f"angle(base): {angle}")
         return strain_data, magnitude, angle, turn_segments
+
+    def _hard_masses(self, magnitude):
+        """Assign each point to the highest level whose first contiguous run covers it."""
+        count = len(magnitude)
+        level_ids = np.zeros(count, dtype=int)
+        regions = [None] * self.num_levels
+        minimum = max(1, int(self.min_consecutive))
+        for level, threshold in enumerate(self.thresholds, start=1):
+            edges = np.flatnonzero(np.diff(np.r_[False, magnitude > threshold, False]))
+            starts, stops = edges[::2], edges[1::2]
+            matches = np.flatnonzero(stops - starts >= minimum)
+            if matches.size:
+                index = matches[0]
+                indices = np.arange(starts[index], stops[index])
+                level_ids[indices] = level
+                regions[level] = indices
+        masses = np.zeros((self.num_levels, count))
+        masses[level_ids, np.arange(count)] = 1.0
+        return masses, level_ids, regions
 
     def _alloc_mass(self, scores):
         """

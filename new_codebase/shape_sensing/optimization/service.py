@@ -13,11 +13,17 @@ class OptimizationService(OptimizationKernel):
         for name, value in asdict(config).items():
             setattr(self, name, deepcopy(value))
         block = deepcopy(parameters.parameters_by_region[region])
-        if block.get('slopes') is None or block.get('weights') is None:
+        self.core_position_mode = block.get('core_position') is not None
+        if block.get('weights') is None or (not self.core_position_mode and block.get('slopes') is None):
             raise ValueError('优化需要完整初值；请先运行init并通过--resume载入结果')
         self.weights = {int(key): np.array(value, dtype=float, copy=True) for key, value in block['weights'].items()}
-        self.slopes = {int(key): np.array(value, dtype=float, copy=True) for key, value in block['slopes'].items()}
-        self.global_phases_set = float(block.get('global_phases_set', 0.0))
+        if self.core_position_mode:
+            block.pop('slopes', None)
+            self._core_position_block = block
+        else:
+            self.slopes = {int(key): np.array(value, dtype=float, copy=True)
+                           for key, value in block['slopes'].items()}
+            self.global_phases_set = float(block.get('global_phases_set', 0.0))
         self.rot_ang = float(block.get('rot_ang', 0.0))
         self.region = region
         self.processed_Data = deepcopy(dataset.data)
@@ -36,8 +42,9 @@ class OptimizationService(OptimizationKernel):
         self.thresholds = curvature_config.thresholds
         self.num_levels = len(self.thresholds) + 1
         self.end5cm_independent_weight_score = curvature_config.end5cm_independent_weight_score
-        self.num_segments = len(curvature_config.segmentation)
-        self.slopes_shape = self.slopes[self.direct].shape
+        if not self.core_position_mode:
+            self.num_segments = len(curvature_config.segmentation)
+            self.slopes_shape = self.slopes[self.direct].shape
         self.weight_bounds = [(config.weight_bounds[0] * self.init_weight,
                                config.weight_bounds[1] * self.init_weight)]
         self._coverage_support_map = None
@@ -49,10 +56,12 @@ class OptimizationService(OptimizationKernel):
 
     def parameters(self):
         """返回独立的区域和方向候选参数，斜率 rad/m、权重无量纲、安装角 deg。"""
-        return CalibrationParameters({self.region: {
-            'weights': deepcopy(self.weights), 'slopes': deepcopy(self.slopes),
-            'global_phases_set': self.global_phases_set, 'rot_ang': self.rot_ang}},
-            source='optimization_candidate')
+        if self.core_position_mode:
+            block = deepcopy(self._core_position_block)
+        else:
+            block = {'slopes': deepcopy(self.slopes), 'global_phases_set': self.global_phases_set}
+        block.update(weights=deepcopy(self.weights), rot_ang=self.rot_ang)
+        return CalibrationParameters({self.region: block}, source='optimization_candidate')
 
     def reconstruct_shapes(self, calib_shape, direct, verbose=False, force_ideal_magnitude=False):
         """用当前 region/direct 参数调用预测器；返回形状树及其距离数组（m）。"""
@@ -65,7 +74,7 @@ class OptimizationService(OptimizationKernel):
             setattr(self, name, deepcopy(value))
         return result
 
-    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope, **kwargs):
+    def _Strain_2_Cur(self, keys, calib_shape, calib_Data, weight, slope=None, **kwargs):
         """按 keys 取出真实点信号叶子，委托显式回调计算曲率及方向。"""
         values = calib_Data
         for key in keys or ():
@@ -93,7 +102,7 @@ class OptimizationService(OptimizationKernel):
         print(f"逐点误差: {self.avg_point_err}; 末端误差: {self.avg_end_err}")
 
     def optimize(self, verbose=True):
-        """运行原两阶段搜索与回滚，返回优化参数（相位 rad、斜率 rad/m）及报告。"""
+        """运行权重阈值搜索与回滚，并返回该模型的参数和报告。"""
         report = self.optim_coeff(verbose=verbose)
         return replace(self.parameters(), source='optimization'), report
 

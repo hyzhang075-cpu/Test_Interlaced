@@ -171,7 +171,6 @@ core_diameter_um: 350.0
 core_radius_um: 50.0
 core_sensitivity_pm_per_ue: 1.0
 core_bend_offset_deg: -90.0
-core_gain_max_nfev: 100
 # interlaced_grating: 栅区是否交错排列
 interlaced_grating: false
 # interlaced_offset: 交错排列时的角度偏移，单位为rad（弧度）
