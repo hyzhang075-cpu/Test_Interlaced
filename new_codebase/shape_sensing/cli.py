@@ -783,7 +783,12 @@ def parse_main_args(argv=None):
     defaults = {}
     if bootstrap_args.sensor_params:
         package = load_algorithm_package(bootstrap_args.sensor_params)
-        if package.get('package_type') == 'shape_sensing_algorithm_package':
+        if 'core_position_parameters' in package:
+            if bootstrap_args.sensor_id is not None and bootstrap_args.sensor_id != package['sensor_id']:
+                raise ValueError('--sensor_id 与算法参数包 sensor_id 不一致')
+            defaults.update(package['configuration'])
+            defaults['core_position_parameters'] = package['core_position_parameters']
+        elif package.get('package_type') == 'shape_sensing_algorithm_package':
             if 'sensor_id' in explicit and bootstrap_args.sensor_id:
                 if bootstrap_args.sensor_id != package['sensor_id']:
                     raise ValueError('--sensor_id 与算法参数包 sensor_id 不一致')
@@ -832,6 +837,8 @@ def parse_main_args(argv=None):
     if working and working.get('task') and 'task' not in explicit:
         parse_argv = ['--task', str(working['task'])] + parse_argv
     args = parser.parse_args(parse_argv)
+    if package is not None and 'core_position_parameters' in package and not args.core_position_calib:
+        raise ValueError('四芯参数包需要 core_position_calib=True')
     args._explicit_cli_parameters = sorted(explicit)
     args._explicit_config_parameters = sorted(k for k in (working or {}) if k not in ('task','config','resume','schema_version','_config_path'))
     # A single-region static reconstruction consumes one selected direct.
@@ -839,6 +846,7 @@ def parse_main_args(argv=None):
     # so restore its complete direction table after CLI overrides are known.
     if (package is not None
             and package.get('package_type') == 'shape_sensing_algorithm_package'
+            and not args.core_position_calib
             and args.task == 'demo' and not args.multi_region_calib):
         entries = package.get('calibration', {}).get(args.optimization_region, {})
         available = sorted(int(key) for key in entries)

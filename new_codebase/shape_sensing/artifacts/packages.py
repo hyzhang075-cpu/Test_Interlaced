@@ -18,6 +18,11 @@ def export_package(run_paths,output):
     if not records: raise ValueError('至少需要一个 run 快照')
     sensors={r[2].get('sensor_id') for r in records}
     if len(sensors)!=1: raise ValueError('不能合并不同 sensor_id 的运行')
+    modes = {bool(config.get('core_position_calib')) for _, config, _, _ in records}
+    if len(modes) != 1:
+        raise ValueError('不能混合四芯和分段 slope 标定运行')
+    if True in modes:
+        return _export_core_position(records, Path(output))
     base=records[0][1]; calibration={}; initialization={}; scope=[]; provenance=[]; code_sources=[]; region_meta={}; phase_values={}; rot_values={}; region_signatures={}
     for root,config,manifest,payload in records:
         task=manifest.get('task'); status=manifest.get('status')
@@ -145,6 +150,82 @@ def export_package(run_paths,output):
         'validation':{'deployment_ready':False,'verified':False}}
     output.write_text(json.dumps(package,ensure_ascii=False,indent=2,allow_nan=False)+'\n',encoding='utf-8')
     return package
+
+def _export_core_position(records, output):
+    """Merge the optimized direction from each four-core task snapshot."""
+    config = dict(records[0][1])
+    calibration, blocks, initialization = {}, {}, {}
+    scope, provenance = [], []
+    design_keys = (
+        'sensor_id', 'R', 'start_value', 'end_value', 'samp_dist_preset', 'samp_dist_preset_sub',
+        'active_channels', 'channel_layout', 'centre_fibre', 'interlaced_grating', 'interlaced_offset',
+        'curvature_interp', 'frame_rule', 'move_filter', 'move_filter_for_vector',
+        'nonnegative_curvature', 'interp_num',
+    )
+    for root, resolved, manifest, payload in records:
+        task = manifest.get('task')
+        if manifest.get('status') != 'succeeded' or task not in ('init', 'optim'):
+            raise ValueError(f'四芯参数包需要成功的 init 或 optim 运行: {root}')
+        for key in design_keys:
+            if config.get(key) != resolved.get(key):
+                raise ValueError(f'不同四芯运行的配置不兼容: {key}')
+        provenance.append({'run_path': str(root), 'code': manifest.get('code', {})})
+        result = payload.get('result', {})
+        regions = result.get('core_position_parameters')
+        if not isinstance(regions, dict) or not regions:
+            raise ValueError(f'运行缺少四芯区域参数: {root}')
+        for region, block in regions.items():
+            metadata = block.get('core_position_metadata', {})
+            if metadata.get('schema_version') != 6 or not block.get('core_position'):
+                raise ValueError(f'{region} 缺少 schema 6 芯位')
+            geometry = {key: block[key] for key in ('core_position', 'core_position_metadata', 'weight_layout')}
+            combined = blocks.setdefault(region, {**geometry, 'weights': {}})
+            if any(combined[key] != value for key, value in geometry.items()):
+                raise ValueError(f'{region} 芯位或权重分档配置不一致')
+            if task == 'init':
+                initialization[region] = {'run_path': str(root)}
+                scope.append(dict(task=task, region=region, final_calibration=False))
+                continue
+            direct = str(resolved['direct'])
+            report = result.get('reports', {}).get(region, {})
+            stage = report.get('stages', {}).get('weights', {})
+            weights = block.get('weights', {}).get(direct)
+            if not weights or stage.get('final_loss') is None or stage.get('status') == 'diverge':
+                raise ValueError(f'{region}/{direct} 缺少可用的权重优化结果')
+            table = calibration.setdefault(region, {})
+            if direct in table:
+                raise ValueError(f'{region}/{direct} 重复优化结果')
+            table[direct] = dict(weights=weights, stages=report['stages'], objective=report.get('objective'),
+                                 run_path=str(root))
+            combined['weights'][direct] = weights
+            scope.append(dict(task=task, region=region, direct=int(direct), final_calibration=True))
+
+    for region, block in blocks.items():
+        directions = {str(d) for d in block['core_position_metadata']['calibration']['directions_deg']}
+        if set(block['weights']) != directions:
+            raise ValueError(f'{region} 缺少优化方向: {sorted(directions - set(block["weights"]))}')
+    resources = []
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if config.get('zero_reference_path'):
+        source = Path(config['zero_reference_path'])
+        destination = output.parent / (output.stem + '_resources') / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        config['zero_reference_path'] = destination.relative_to(output.parent).as_posix()
+        resources.append({'path': config['zero_reference_path'], 'source': str(source)})
+    for key in ('task', 'resume', 'provenance'):
+        config.pop(key, None)
+    package = dict(package_type=PACKAGE_TYPE, schema_version=SCHEMA_VERSION,
+        sensor_id=config['sensor_id'], configuration=config, calibration=calibration,
+        core_position_parameters=blocks, initialization=initialization, scope=scope, resources=resources,
+        multi_region=dict(region_order=list(blocks), directions=sorted({
+            int(direct) for table in calibration.values() for direct in table}),
+            deployment_ready=False),
+        provenance=dict(runs=[item['run_path'] for item in provenance], code_sources=provenance),
+        validation=dict(verified=False, deployment_ready=False))
+    output.write_text(json.dumps(package, ensure_ascii=False, indent=2, allow_nan=False)+'\n', encoding='utf-8')
+    return package
+
 
 def load_algorithm_package(path):
     """校验并读取新包；format_version=2 委托原 loader。"""

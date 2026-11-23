@@ -66,3 +66,32 @@ def test_export_carries_zero_reference_and_init_is_not_final(tmp_path):
     assert Path(target.parent/package['configuration']['zero_reference_path']).read_text(encoding='utf-8')=='{"version":1}'
     loaded=load_algorithm_package(target)
     assert loaded['configuration']['zero_reference_path']==str((target.parent/package['configuration']['zero_reference_path']).resolve())
+
+
+def test_four_core_package_selects_the_optimized_direction_from_each_run(tmp_path):
+    from main import parse_main_args
+
+    paths = []
+    directions = (0, 120, 240)
+    for direct in directions:
+        config = dict(sensor_id='S', core_position_calib=True, direct=direct)
+        run = create_run('S', 'optim', config, tmp_path / 'runs')
+        block = dict(core_position=[{'wl_id': 1}, {'wl_id': 2}],
+                     core_position_metadata=dict(schema_version=6,
+                                                 calibration=dict(directions_deg=list(directions))),
+                     weight_layout=dict(thresholds=[1.0]),
+                     weights={d: [0.5, 0.6] if d == direct else [1.0, 1.0] for d in directions})
+        result = dict(core_position_parameters={'full': block},
+                      reports={'full': {'stages': {'weights': {'status': 'converge', 'final_loss': 0.1}}}})
+        run.write_result({'result': result}, 'optim')
+        run.finish('succeeded')
+        paths.append(run.path)
+    output = tmp_path / 'package.json'
+    with pytest.raises(ValueError, match='缺少优化方向'):
+        export_package(paths[:1], output)
+    package = export_package(paths, output)
+    expected = {str(d): [0.5, 0.6] for d in directions}
+    assert package['core_position_parameters']['full']['weights'] == expected
+    args = parse_main_args(['--task', 'recon', '--sensor_params', str(output), '--direct', '120'])
+    assert args.core_position_calib
+    assert args.core_position_parameters['full']['weights'] == expected
