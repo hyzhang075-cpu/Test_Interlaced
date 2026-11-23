@@ -44,3 +44,33 @@ class InitializationService:
             deepcopy(kernel.magnitude_results), deepcopy(kernel.angle_results_raw),
             deepcopy(kernel.angle_results_unwrap), deepcopy(kernel.global_fit_direct),
             deepcopy(kernel.individual_fits_direct))
+
+    @staticmethod
+    def fit_four_core(dataset, *, diameter_um=350.0, core_radius_um=50.0,
+                      sensitivity_pm_per_ue=1.0, bend_offset_deg=-90.0,
+                      size_constraint_mode="both", envelope_center_mode="free",
+                      center_order_reference="envelope_center"):
+        """Fit a module 1 raw four-core dataset and return a schema 6 parameter dict."""
+        from .four_core import FourCoreFitSettings, fit_four_cores
+
+        settings = FourCoreFitSettings(
+            fiber_diameter_um=diameter_um,
+            core_radius_um=core_radius_um,
+            k_pm_per_ue=sensitivity_pm_per_ue,
+            bend_side_offset_deg=bend_offset_deg,
+            size_constraint_mode=size_constraint_mode,
+            envelope_center_mode=envelope_center_mode,
+            center_order_reference=center_order_reference,
+        )
+        result = fit_four_cores(dataset, settings)
+        result["hardware_geometry"] = deepcopy(dataset.hardware_geometry)
+        result["scope"] = deepcopy(dataset.scope)
+        for section in result["sections"]:
+            section["source_region"] = dataset.scope["name"]
+        if dataset.interlaced_sources:
+            result["acquisition_channels"] = list(dataset.acquisition_channels)
+            result["interlaced_response_mapping"] = dict(
+                center_interpolation="CubicSpline", extrapolate=True,
+                section_sources=dataset.interlaced_sources.copy(),
+            )
+        return result

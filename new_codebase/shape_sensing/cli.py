@@ -894,6 +894,10 @@ def _application_factory(*args, **kwargs):
 def main():
     """解析参数并通过包内 pipeline 分派原有任务。"""
     from .pipelines import execute_task
+    if sys.argv[1:2] == ["orthocal"]:
+        from .pipelines.orthocal import run_orthocal
+        run_orthocal(sys.argv[2:])
+        return
     args = parse_main_args()
     return execute_task(
         args, optimiser_factory=None, visualizer_factory=_visualizer_factory,

@@ -77,6 +77,18 @@ calibration_regions:
 
 ## 3. 初始化与优化
 
+### 四芯共同项芯位校准
+
+`orthocal` 使用已经按直态归零的波长变化 CSV。输入目录包含三组方向 `0`、`120`、`240`，且每组提供相同的非零实验半径。工况目录命名为 `方向-半径`（如 `120-100`），每个激活物理通道在各目录提供一个 `Channel_<通道号>_*.csv` 文件，列名为原始 `WL_<编号>`，数值单位为 pm。程序对各列取算术平均，保留四芯原始变化量，在逐 WL 拟合中显式求出每个工况的共同响应 `b`。芯位校准使用单位权重，无需旧版中心芯扣除或二次归零。
+
+```powershell
+python -m shape_sensing orthocal --data-dir data/end15cm --geometry-json params/hardware.json --output-json params/my-end15cm-cores.json --region end15cm --active-channels 1 2 3 4
+```
+
+几何文件提供 `start_value`、`end_value` 和 `samp_dist_preset`（毫米），也可使用包含 `hardware_geometry` 的已有芯位参数 JSON。区域可选 `full`、`end15cm`、`end5cm`，默认 `full`。使用 `--radii-mm` 可指定半径子集，`--boundary-margin-mm` 可在末段区域起点处排除额外的边界点。七通道交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。
+
+结果为 schema 6 JSON，包含全局 WL 编号、实际距离、逐截面四芯的半径和角度，以及拟合与物理约束诊断。完整选项可通过 `python -m shape_sensing orthocal --help` 查看。
+
 ### 3.1 选择批量或单区域初始化
 
 `--multi_region_calib True` 按 `optimization_regions` 的顺序初始化各区域。09B7 默认依次为 `full`、`end15cm`、`end5cm`，每个区域都拟合 `exp_directs` 中的方向。
