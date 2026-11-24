@@ -97,6 +97,16 @@ python -m shape_sensing --config configs/my_sensor.yaml --task recon --resume "r
 
 七通道静态交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。默认 `core_position_calib: false` 使用已有的分段 slope/weight 参数。
 
+四芯实时显示可直接加载优化后的算法参数包。
+
+```powershell
+python -m shape_sensing --task demo --core_position_calib True --sensor_params packages/my_sensor-v1.json --multi_region_calib True --direction_reference_direct 240
+```
+
+启用 `multi_region_calib` 时，全长实时网格按 `end5cm > end15cm > full` 分配 WL。每个区域先按自身的芯位和完整标定范围计算分档权重，再把其负责的 WL 写回全长曲率场。`False` 时由所选区域同时提供芯位和权重，默认 `full`。两种模式沿用原有 VTK、记录和 UDP 结构。
+
+`use_stored_zero: false` 用首个完整有效的实时绝对波长快照归零。`True` 从 `zero_reference_path` 读取现有绝对波长零状态。两种方式都在采集层计算逐通道差分，静态任务直接使用 CSV 中的相对波长变化。当前四芯实时入口使用非交错采集，七通道交错可用于静态重建。
+
 ### 3.1 选择批量或单区域初始化
 
 `--multi_region_calib True` 按 `optimization_regions` 的顺序初始化各区域。09B7 默认依次为 `full`、`end15cm`、`end5cm`，每个区域都拟合 `exp_directs` 中的方向。

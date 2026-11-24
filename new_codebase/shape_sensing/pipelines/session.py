@@ -74,23 +74,36 @@ class TaskSession:
         self.optimization = None
         self.calibration_context = {}
         self.phase_reference = None
+        self._core_demo_curvature = None
         self.parameters = CalibrationParameters({region: {
             'weights': deepcopy(parameters.get('weights')), 'slopes': deepcopy(parameters.get('slopes')),
             'global_phases_set': parameters.get('global_phases_set'),
             'rot_ang': parameters.get('rot_ang', 0.0),
             'multi_region_parameters': deepcopy(parameters.get('multi_region_parameters'))}})
         if self.config.input.core_position_calib:
-            block = deepcopy(parameters.get('core_position_parameters', {}).get(region, {}))
-            if block.get('core_position') is not None and 'weights' not in block:
+            source = parameters.get('core_position_parameters', {})
+            regions = (region,)
+            if task == 'demo':
+                from ..curvature.core_regions import CORE_REGION_ORDER, CoreDemoCurvature
+                if parameters.get('multi_region_calib', False):
+                    if region != 'full':
+                        raise ValueError('四芯区域拼接需要 full 实时采样网格')
+                    regions = CORE_REGION_ORDER
+            blocks = {name: deepcopy(source.get(name, {})) for name in regions}
+            block = blocks[region]
+            if task != 'demo' and block.get('core_position') is not None and 'weights' not in block:
                 directions = block['core_position_metadata']['calibration']['directions_deg']
                 block['weights'] = _initial_weights(directions, self.config.curvature)
                 block['weight_layout'] = self._weight_layout()
-            self.parameters = CalibrationParameters({region: block}, source='four_core_common')
+            self.parameters = CalibrationParameters(blocks, source='four_core_common')
             self.point_curvature = {}
         self.cur_interp = np.array([])
         self.metrics = None
         if task != 'init':
             self.require_seed()
+        if task == 'demo' and self.config.input.core_position_calib:
+            self._core_demo_curvature = CoreDemoCurvature(self.curvature, self.design, self.parameters,
+                regions, self.config.runtime.direction_reference_direct)
 
     def require_seed(self):
         """任务开始校验参数，缺少初值明确指导init+resume，不偷偷执行模块2。"""
@@ -155,7 +168,10 @@ class TaskSession:
         """
         frame = self.input.preprocess(signals, acquired=acquired, design=self.design)
         parameters = self.parameters if parameter_selector is None else parameter_selector(frame, self.parameters)
-        curvature = self.curvature.compute(frame, self.design, parameters, direct=direct, region=self.region)
+        if self._core_demo_curvature is None:
+            curvature = self.curvature.compute(frame, self.design, parameters, direct=direct, region=self.region)
+        else:
+            curvature = self._core_demo_curvature.compute(frame, parameters, direct=direct)
         prepared = self.reconstruction.prepare(curvature, self.design, np.array([1., 0., 0.]) if tangent_seed is None else tangent_seed, state=state)
         if temporal_filter is not None:
             prepared = temporal_filter(prepared)

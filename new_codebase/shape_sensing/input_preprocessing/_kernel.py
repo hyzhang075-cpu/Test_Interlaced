@@ -152,6 +152,8 @@ class InputKernel:
         self.use_stored_zero = use_stored_zero
         self.zero_reference_path = zero_reference_path
         self.current_snapshot = np.zeros((self.total_points, self.num_channels))
+        if self.core_position_calib:
+            self.current_snapshot.fill(np.nan)
         self.buffer = bytearray()
         self.wavelength_jump_guard_enabled = bool(wavelength_jump_guard_enabled)
         self.wavelength_jump_threshold_pm = float(wavelength_jump_threshold_pm)
@@ -396,9 +398,21 @@ class InputKernel:
             total_points=self.total_points,
             raw_trim_idx=self.raw_trim_idx,
         )
+        if getattr(self, 'core_position_calib', False) and any(np.any(values <= 0) for values in loaded.values()):
+            raise ValueError('四芯存储零状态需要正的绝对波长')
         self.zero_points = {channel: loaded[channel].tolist() for channel in self.active_channels}
         self.is_zero_set = {channel: True for channel in self.active_channels}
         print(f"已加载 SensorID={self.sensor_id} 的存储零状态: {zero_reference_path}")
+
+    def _complete_core_snapshot(self, snapshot):
+        """Accept a complete absolute-wavelength grid and latch its first valid zero."""
+        if not np.isfinite(snapshot).all() or np.any(snapshot <= 0):
+            return False
+        if not all(self.is_zero_set.values()):
+            for channel, column in self.active_channels.items():
+                self.zero_points[channel] = snapshot[:, column].copy()
+                self.is_zero_set[channel] = True
+        return True
 
     # -------------------- FBG数据处理 --------------------
     def read_data_FBG(self, folder_path, samp_dist_preset, samp_dist_preset_sub=None):
@@ -1554,6 +1568,7 @@ class InputKernel:
         - 该方法可处理粘包情况，即一次接收中包含多个完整包
         - 对不完整数据包会保留在缓存中，等待后续字节到达
         """
+        core_mode = getattr(self, 'core_position_calib', False)
         # 处理粘包
         while len(self.buffer) >= 4:
             N = struct.unpack('<I', self.buffer[0:4])[0]
@@ -1582,6 +1597,8 @@ class InputKernel:
                 if phy_ch in self.active_channels and 0 <= effective_idx < self.total_points:
                     # 找到对应的列
                     col = self.active_channels[phy_ch]
+                    if core_mode and (not np.isfinite(wavelength) or wavelength <= 0):
+                        continue
 
                     if self.wavelength_jump_guard_enabled:
                         # 逐 FBG 连续性检查必须发生在绝对波长写入快照之前。
@@ -1596,7 +1613,7 @@ class InputKernel:
                     self.current_snapshot[effective_idx, col] = safe_wavelength
 
                     # 4. 归零基准设置 (首次收到有效数据时)
-                    if not self.is_zero_set[phy_ch]:
+                    if not core_mode and not self.is_zero_set[phy_ch]:
                         if self.zero_points[phy_ch][effective_idx] is None:
                             self.zero_points[phy_ch][effective_idx] = safe_wavelength
 
@@ -1604,6 +1621,8 @@ class InputKernel:
                         if all(v is not None for v in self.zero_points[phy_ch]):
                             self.is_zero_set[phy_ch] = True
                             print(f"物理通道 {phy_ch} 基准已设置")
+            if core_mode and not all(self.is_zero_set.values()):
+                self._complete_core_snapshot(self.current_snapshot)
 
     def _parse_packet(self, packet_body):
         """

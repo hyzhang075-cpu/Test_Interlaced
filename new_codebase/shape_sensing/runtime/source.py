@@ -21,6 +21,11 @@ class InterrogatorSource:
         protocol = socket.SOCK_STREAM if self.config.interrogator == 'FiberTecc' else socket.SOCK_DGRAM
         if self.config.interrogator not in ('FiberTecc', 'Hippo'):
             raise ValueError('live acquisition supports FiberTecc and Hippo')
+        if self.config.core_position_calib and self.config.interrogator == 'Hippo':
+            if self.kernel.raw_trim_idx + self.kernel.total_points > 16:
+                raise ValueError('Hippo 四芯实时模式最多接收 16 个原始 WL')
+            if not all(1 <= channel <= 8 for channel in self.kernel.active_channels):
+                raise ValueError('Hippo 四芯实时模式的物理通道必须在 1–8 内')
         self.socket = socket.socket(socket.AF_INET, protocol)
         self.socket.settimeout(3.)
         self.closed = False
@@ -51,12 +56,24 @@ class InterrogatorSource:
                         return None
                     self.kernel.buffer.extend(chunk)
                     self.kernel._process_buffer()
+                    if self.config.core_position_calib and not np.isfinite(self.kernel.current_snapshot).all():
+                        continue
                     now = time.monotonic()
                     if now - self.last_push < 1 / self.config.data_freq:
                         continue
                     self.last_push = now
                     return self.kernel._prep_frame()[0] * 1e-6
                 wave = self.kernel._recv_010c_once(connection)
+                if self.config.core_position_calib:
+                    start = self.kernel.raw_trim_idx
+                    stop = start + self.kernel.total_points
+                    columns = [physical for physical, _ in sorted(
+                        self.kernel.active_channels.items(), key=lambda entry: entry[1])]
+                    absolute = wave[np.asarray(columns) - 1, start:stop].T
+                    if not self.kernel._complete_core_snapshot(absolute):
+                        continue
+                    zero = np.column_stack([self.kernel.zero_points[physical] for physical in columns])
+                    return (absolute - zero) * 1000 * 1e-6
                 values = np.empty((16, self.kernel.num_channels))
                 for physical, column in self.kernel.active_channels.items():
                     current = wave[physical - 1]

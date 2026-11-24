@@ -16,6 +16,7 @@ def module_parameters(args, parameter_builder):
     values.update(parameter_builder(args))
     if getattr(args, 'core_position_calib', False):
         values['core_position_parameters'] = getattr(args, 'core_position_parameters', {})
+        values['multi_region_calib'] = getattr(args, 'multi_region_calib', False)
     return values
 
 

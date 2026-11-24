@@ -199,6 +199,8 @@ def configure_core_position_region(args):
         args.use_stored_zero = False
     elif args.use_stored_zero and not args.zero_reference_path:
         raise ValueError('demo 启用 use_stored_zero 时必须提供 zero_reference_path')
+    if args.task == 'demo' and args.multi_region_calib:
+        args.optimization_region = 'full'
     region = args.optimization_region
     if region not in args.calibration_regions:
         raise ValueError(f'未知 optimization_region={region!r}')
