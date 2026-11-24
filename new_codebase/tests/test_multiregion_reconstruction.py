@@ -293,3 +293,26 @@ def test_09b7_five_point_end5_preserves_distal_weight_groups():
         assert context['global_point_ids'] == [18, 19, 20, 21, 22]
         assert context['segmentation'] == [2, 3]
         assert context['weight_group_ids'] == [0, 0, 0, 1, 2]
+
+
+@pytest.mark.parametrize('point_count', [2, 3, 4, 6])
+def test_end5_independent_weight_groups_follow_actual_support(point_count):
+    from shape_sensing.cli import configure_calibration_args, parse_main_args
+
+    args = parse_main_args([
+        '--task', 'init', '--optimization_region', 'end5cm',
+        '--multi_region_calib', 'False', '--end5cm_independent_weights', 'True',
+        '--end_weights', 'True', '--end_start', '-1',
+    ])
+    args.start_value = args.end_value = 8
+    args.samp_dist_preset = [*range(0, 8 * point_count, 8), 200, 400]
+    args.full_segmentation = [2, point_count]
+    args.calibration_regions['end5cm']['segmentation'] = [point_count]
+    if point_count == 2:
+        with pytest.raises(ValueError, match='至少三个真实点'):
+            configure_calibration_args(args)
+        return
+    context = configure_calibration_args(args)
+    assert context['global_point_ids'] == list(range(3, point_count + 3))
+    assert context['weight_group_ids'] == [0] * (point_count - 2) + [1, 2]
+    assert args._resolved_weight_group_ids == context['weight_group_ids']

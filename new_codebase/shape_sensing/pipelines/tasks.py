@@ -37,27 +37,32 @@ def _visualization(session, output_root=None):
     config = session.config
     return VisualizationService(VisualizationInputs(
         session.load_data(), session.initialization_result,
-        segmentation=tuple(config.initialization.segmentation),
+        segmentation=tuple(config.initialization.segmentation or ()),
         discont_rad=config.initialization.discont, connect=config.initialization.connect,
-        rotation_deg=config.reconstruction.rot_ang, output_root=output_root))
+            rotation_deg=config.reconstruction.rot_ang, output_root=output_root,
+            static_reconstruction=config.input.core_position_calib))
 
 
 def _initialize_session(session, output_root=None, *, core_mode=False):
     """拟合单个区域并重构各方向，返回相位 rad、分段斜率 rad/m、权重与误差。"""
     session.initialize(verbose=True)
-    if core_mode:
-        return session.parameters.parameters_by_region[session.region]
     visualizer = _visualization(session, output_root=output_root)
+    if core_mode:
+        visualizer.plot_core_positions(session.region)
     errors = {}
     for direct in session.dataset.radii:
         rs = {}
         for kind in session.calib_shapes:
             rs[kind], distance = session.reconstruct_shapes(kind, direct)
         result = session.evaluate(distance, rs, direct)
-        errors[direct] = result.metrics['avg_point_err']['calib']
-        visualizer.init_visualise(direct)
-        visualizer.show_reconstruction(direct, rs, distance, showanime=output_root is None,
-                                        ideals=result.details.get('ideals'))
+        if not core_mode:
+            errors[direct] = result.metrics['avg_point_err']['calib']
+            visualizer.init_visualise(direct)
+        visualizer.show_reconstruction(
+            direct, rs, distance, showanime=output_root is None and not core_mode,
+            ideals=result.details.get('ideals'))
+    if core_mode:
+        return session.parameters.parameters_by_region[session.region]
     return {'errors': errors, 'weights': session.weights, 'slopes': session.slopes,
             'global_phases_set': session.global_phases_set}
 
@@ -101,7 +106,7 @@ def _restore_regional_initialization(args, regions, explicit):
 def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs, run_jobs,
                        project_root, app_factory, optimiser_factory=None,
                        visualizer_factory=None, compute_error_ang=None, optim_ang=None, system=None, session_observer=None,
-                       initialization_output_root=None):
+                       task_output_root=None):
     """生产任务仅编排模块service；优化不会执行初始化模块2。"""
     core_mode = getattr(args, 'core_position_calib', False)
     if args.task != 'demo':
@@ -117,7 +122,7 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         for job, context in jobs:
             region = job.optimization_region
             session = _configured_session(job, context, parameter_builder)
-            output_root = initialization_output_root / region
+            output_root = task_output_root / region
             parameters = _initialize_session(session, output_root, core_mode=core_mode)
             if core_mode:
                 regions[region] = parameters
@@ -162,7 +167,8 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         from shape_sensing.runtime.service import run_demo
         return run_demo(session, args, app_factory)
     if args.task == 'init':
-        parameters = _initialize_session(session, core_mode=core_mode)
+        output_root = task_output_root / session.region if core_mode else None
+        parameters = _initialize_session(session, output_root, core_mode=core_mode)
         if core_mode:
             return {'core_position_parameters': {session.region: parameters}, 'reports': {}}
         return parameters
@@ -196,12 +202,15 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         for kind in session.calib_shapes:
             rs[kind], distance = session.reconstruct_shapes(kind, args.direct)
         result = session.evaluate(distance, rs, args.direct)
+        output_root = task_output_root / session.region if core_mode else None
+        _visualization(session, output_root=output_root).show_reconstruction(
+            args.direct, rs, distance, showanime=not core_mode,
+            ideals=result.details.get('ideals'))
         if core_mode:
             report = dict(metrics=result.metrics, distance_m=distance, curves_m=rs['circ'],
                 point_curvature={str(path[0]): values for path, values in session.point_curvature.items()})
             return {'core_position_parameters': dict(session.parameters.parameters_by_region),
                     'reports': {session.region: report}}
-        _visualization(session).show_reconstruction(args.direct, rs, distance, showanime=True, ideals=result.details.get('ideals'))
         return result.metrics
     raise ValueError(f'未知task: {args.task!r}')
 
@@ -302,7 +311,7 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
             app_factory=app_factory,configure_args=configure_args,parameter_builder=parameter_builder,
             prepare_jobs=prepare_jobs,run_jobs=run_jobs,compute_error_ang=compute_error_ang,optim_ang=optim_ang,
             project_root=project_root,system=system,session_observer=observe,
-            initialization_output_root=run.path / 'outputs')
+            task_output_root=run.path / 'outputs')
         payload={'task':args.task,'result':result}
         if args.task == 'init' and isinstance(result, dict):
             payload.update({key:result[key] for key in ('weights','slopes','global_phases_set') if key in result})

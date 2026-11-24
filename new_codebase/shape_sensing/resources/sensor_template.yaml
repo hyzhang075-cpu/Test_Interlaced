@@ -8,9 +8,9 @@ use_full_transported_phase: false
 end15cm_point_calib: false
 # end5cm_point_calib: 仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化
 end5cm_point_calib: false
-# end5cm_independent_weights: 仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变
+# end5cm_independent_weights: 仅end5cm：最后两个真实点各为一组，其余真实点共用一组
 end5cm_independent_weights: false
-# end5cm_independent_weight_score: 仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名
+# end5cm_independent_weight_score: 仅end5cm独立三组weights：共享组按组内基础曲率均值评分，最后两点各自评分
 end5cm_independent_weight_score: false
 # end5cm_coverage_aware_weights: 仅end5cm真实点+独立组均值评分：只优化有实测覆盖的weight档位，其他档位由相邻自由档位对数插值
 end5cm_coverage_aware_weights: false

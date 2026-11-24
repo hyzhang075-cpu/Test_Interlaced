@@ -220,12 +220,14 @@ def configure_calibration_args(args):
         args, 'end5cm_uncovered_weight_policy', 'interpolate_neutral_edges')
     context['weight_group_ids'] = None
     if independent:
-        points = context['global_point_ids']
-        if points not in ([19, 20, 21, 22], [18, 19, 20, 21, 22]) or args.reverse:
-            raise ValueError('end5cm三组weights要求正向真实点19–22或18–22')
+        point_count = len(context['global_point_ids'])
+        if args.reverse:
+            raise ValueError('end5cm三组weights需要正向采样顺序')
+        if point_count < 3:
+            raise ValueError('end5cm三组weights需要至少三个真实点')
         if not args.end_weights:
             raise ValueError('end5cm三组weights需要该区域end_weights=True')
-        context['weight_group_ids'] = [0] * (len(points) - 2) + [1, 2]
+        context['weight_group_ids'] = [0] * (point_count - 2) + [1, 2]
     configured_mode = selected.get('weight_score_mode')
     if 'end5cm_independent_weight_score' in explicit_cli:
         configured_mode = 'group_mean' if groupwise and independent else 'spatial_window'
@@ -412,10 +414,10 @@ def build_argument_parser():
     parser.add_argument('--end5cm_point_calib', type=_str2bool, default=False,
                         help='仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化')
     parser.add_argument('--end5cm_independent_weights', type=_str2bool, default=False,
-                        help='仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变')
+                        help='仅end5cm：最后两个真实点各为一组，其余真实点共用一组')
     parser.add_argument('--end5cm_independent_weight_score', '--end5cm_groupwise_weight_score',
                         dest='end5cm_independent_weight_score', type=_str2bool, default=False,
-                        help='仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名')
+                        help='仅end5cm独立三组weights：共享组按组内基础曲率均值评分，最后两点各自评分')
     parser.add_argument('--end5cm_coverage_aware_weights', type=_str2bool, default=False,
                         help='仅end5cm真实点+独立组均值评分：只优化有实测覆盖的weight档位，其他档位由相邻自由档位对数插值')
     parser.add_argument('--end5cm_min_weight_effective_samples', type=_finite_nonnegative_float, default=1.0,

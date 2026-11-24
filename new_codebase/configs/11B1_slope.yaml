@@ -1,0 +1,424 @@
+# Bronchoscope sensor working configuration
+schema_version: 1
+# task / --config / --sensor_params are invocation controls, supplied at the command line.
+# Calibration region paths are relative to calibration_data_root; root is relative to this YAML.
+# use_full_transported_phase: 局部优化使用非零弯曲状态的固定上游相位；区域跨界固定使用full第0档slope
+use_full_transported_phase: false
+# end15cm_point_calib: 仅end15cm：使用真实点方向一致性优化slopes、已知半径曲率优化weights；默认沿用几何优化
+end15cm_point_calib: true
+# end5cm_point_calib: 仅end5cm：固定区域相位后优化真实点方向一致性，再按真实radii优化曲率幅值；默认沿用几何优化
+end5cm_point_calib: true
+# end5cm_independent_weights: 仅end5cm：19–20普通组、21独立组、22独立组；weights为三组，旧布局默认不变
+end5cm_independent_weights: true
+# end5cm_independent_weight_score: 仅end5cm独立三组weights：19–20用组内base曲率均值，21/22各自评分；旧groupwise名称为兼容别名
+end5cm_independent_weight_score: true
+# end5cm_coverage_aware_weights: 仅end5cm真实点+独立组均值评分：只优化有实测覆盖的weight档位，其他档位由相邻自由档位对数插值
+end5cm_coverage_aware_weights: true
+# end5cm_min_weight_effective_samples: coverage-aware weight档位的最小有效样本数
+end5cm_min_weight_effective_samples: 1.0
+# end5cm_min_weight_max_mass: coverage-aware weight档位的最小最大组质量
+end5cm_min_weight_max_mass: 0.05
+# end5cm_uncovered_weight_policy: coverage-aware weight未覆盖档位的派生策略
+# choices: interpolate_neutral_edges
+end5cm_uncovered_weight_policy: interpolate_neutral_edges
+# optim_weights_only: 只优化weights并固定继承的slopes；必须来自sensor_params或显式--slopes
+optim_weights_only: false
+# multi_region_calib: True时optim/score遍历optimization_regions；False时仅全长
+multi_region_calib: true
+# optimization_region: init/recon/demo等单区域任务使用的数据区域
+optimization_region: full
+# optimization_regions: 区域模式下optim/score依次处理的区域列表
+optimization_regions:
+- full
+- end15cm
+- end5cm
+# full_segmentation: 全长真实点分段列表；局部区域必须由其完整空间段组成
+full_segmentation:
+- 3
+- 2
+- 2
+- 3
+- 4
+- 2
+- 2
+# calibration_data_root: 定标数据根目录；相对路径以main.py所在目录为基准
+calibration_data_root: ../data/1113-11B1-自研（1+3）18点79.7cmFBG+镍钛管
+# calibration_regions: 各区域独立配置；阈值暂保留旧值，可先通过task score检查实际评分分布
+calibration_regions:
+  full:
+    length_m: null
+    folder_path: 全段测试
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+      - 200
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    end_weights: false
+    end_start: -5
+    weights: null
+    slopes: null
+  end15cm:
+    length_m: 0.15
+    folder_path: 末端测试/15cm
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+      - 200
+      - 100
+      - 75
+      - 50
+      - 30
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    - 10.0
+    - 20
+    end_weights: false
+    end_start: -5
+    segmentation:
+    - 3
+    - 4
+    - 2
+    - 2
+    weights: null
+    slopes: null
+  end5cm:
+    length_m: 0.05
+    folder_path: 末端测试/5cm
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+      - 200
+      - 100
+      - 75
+      - 50
+      - 30
+      - 20
+      - 15
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    - 10.0
+    - 20
+    - 35
+    - 45
+    end_weights: true
+    end_start: -1
+    segmentation:
+    - 2
+    - 2
+    weights: null
+    slopes: null
+# calibration_output_dir: 批量优化/评分诊断输出目录，按传感器、本地时间和优化角度创建新目录
+calibration_output_dir: calibration_results
+# sensor_id: 传感器编号
+sensor_id: 11B1_slope
+# start_value: 传感器第一个传感点到固定件的距离, 单位为mm
+start_value: 114.0
+# end_value: 传感器最后一个传感点到末端的距离, 单位为mm
+end_value: 8.0
+# R: 传感器半径, 单位为m
+R: 0.0001
+# ideal_len: FBG总长自动计算(m)；显式传值必须与几何一致
+ideal_len: null
+# samp_dist_preset: FBG传感点位置, 单位为mm
+samp_dist_preset:
+- 510
+- 521
+- 532
+- 543
+- 554
+- 565
+- 576
+- 587
+- 607
+- 627
+- 647
+- 667
+- 687
+- 707
+- 807
+- 907
+- 1107
+- 1307
+# samp_dist_preset_sub: FBG传感点位置(B组), 单位为mm
+samp_dist_preset_sub:
+- 120
+- 160
+- 200
+- 295
+- 445
+- 595
+- 745
+- 895
+# centre_fibre: 是否为1+x构型
+centre_fibre: true
+# 使用逐 WL 四芯共同响应模型。保留中心芯响应，沿用 init / optim / recon 任务。
+core_position_calib: false
+core_diameter_um: 350.0
+core_radius_um: 50.0
+core_sensitivity_pm_per_ue: 1.0
+core_bend_offset_deg: -90.0
+# interlaced_grating: 栅区是否交错排列
+interlaced_grating: false
+# interlaced_offset: 交错排列时的角度偏移，单位为rad（弧度）
+interlaced_offset: 1.0471975511965976
+# global_phases_set: 全局相位，初始值为None
+global_phases_set: null
+# interrogator: 解调仪器
+# choices: FiberTecc, Hippo, LUNA
+interrogator: FiberTecc
+# active_channels: 传感器连接解调仪的通道以及其顺序
+active_channels:
+- 1
+- 2
+- 3
+- 4
+# channel_change: 通道排布是否变化
+channel_change: false
+# channel_layout: 当通道排布出现错序，每一段的长度及其排布顺序(列表嵌套元组格式)
+channel_layout:
+- - 5
+  - - 2
+    - 1
+    - 4
+    - 3
+    - 7
+    - 5
+    - 6
+- - 7
+  - - 5
+    - 1
+    - 4
+    - 3
+    - 2
+    - 7
+    - 6
+- - 4
+  - - 7
+    - 1
+    - 4
+    - 3
+    - 2
+    - 5
+    - 6
+# active_angles: 外围通道角度排布(度数)，若为None则默认均匀排布
+active_angles: null
+# folder_path: 覆盖所选区域的数据目录；默认由 calibration_regions 提供
+folder_path: null
+# rot_dir: 各个标定实验按逆(1)还是顺(-1)顺时针调整的方向
+# 字典按实验方向角 0/120/240 配置；列表按 calib_shapes 顺序配置；单个数值用于全部实验。
+rot_dir:
+  '0': -1
+  '120': -1
+  '240': -1
+# exp_directs: 实验使用的字面方向角列表，如[0]或[0,120,240]；单区域recon默认只使用direct
+exp_directs:
+- 0
+- 120
+- 240
+# radii: 覆盖所选区域半径字典(mm)
+radii: null
+# end_len: end形状中进入末端大曲率弧圈的包含长度
+end_len: 0.05
+# direct: 优化曲率权重与扭转系数的标定方向
+direct: 0
+# freeze: 冻结部分分区的参数，使得它们不参与优化。如果不需要冻结则调整为None。分区index从0开始。
+freeze: null
+# weight_bounds: 曲率权重范围
+weight_bounds:
+- 0.6
+- 5.0
+# slope_upper_bound: 扭转系数大小上限
+slope_upper_bound: 50.0
+# thresholds: 覆盖所选区域曲率阈值列表(m^-1)
+thresholds: null
+# max_iter: 优化的最大轮次
+max_iter: 20
+# k_point: 优化目标中末端误差的权重
+k_point: 1.0
+# k_end: 优化目标中末端误差的权重
+k_end: 0.5
+# k_pitch: 优化目标中螺距误差的权重
+k_pitch: 1.0
+# k_radius: 优化目标中半径误差的权重
+k_radius: 1.0
+# method: 优化算法, 用于输入scipy.optimize.minimimze
+method: Powell
+# hyper_params: 优化算法使用的超参数
+hyper_params:
+- 20000
+- 1.0e-06
+- 1.0e-06
+# min_loss_diff: 收敛判定
+min_loss_diff: 0.0001
+# ss: LUNA传感点间隔, 单位为m
+ss: 0.0026
+# IP: FiberTecc使用192.168.1.75, Hippo使用10.0.0.122
+# choices: 192.168.1.75, 10.0.0.122
+IP: 192.168.1.75
+# PORT: FiberTecc使用26546, Hippo使用4010
+# choices: 26546, 4010
+PORT: 26546
+# maxsize: FiberTecc使用10, Hippo使用2
+# choices: 10, 2
+maxsize: 10
+# data_freq: 解调仪频率
+data_freq: 100
+# use_stored_zero: demo 是否使用文件中的绝对波长零状态；False 时使用首帧归零
+use_stored_zero: false
+# zero_reference_path: 统一零状态 JSON 文件路径，文件中的 SensorID、通道及栅点数必须与当前配置一致
+# 初始化和优化阶段无需零点文件；仅在 demo 使用存储零点时填写路径。
+zero_reference_path: null
+# wavelength_jump_guard_enabled: 启用逐 FBG 跨帧波长连续性检查（True/False；默认开启）
+wavelength_jump_guard_enabled: true
+# wavelength_jump_threshold_pm: 逐 FBG 跨帧波长跳变阈值，单位 pm；超过阈值的单帧跳变先安全保持，默认 12000 pm
+wavelength_jump_threshold_pm: 12000.0
+# total_scale: 动态显示大小
+total_scale: 1.0
+# imu: 是否启用IMU
+imu: false
+# imu_com: IMU接口
+imu_com: COM6
+# imu_maxlen:
+imu_maxlen: 10
+# demo_recorder: 是否在动态展示时记录数据
+demo_recorder: true
+# unwrap_threshold: 若两帧同一点角度变化小于该阈值，则统一unwrap方向
+unwrap_threshold: 0.65
+# align_threshold: 若某帧第一点角度变化小于该阈值，则将第一点角度与上一帧对齐
+align_threshold: 0.2
+# direction_blend_enabled: 动态展示中启用0/120/240度参数半余弦软过渡；应在rot_ang确定后再打开
+direction_blend_enabled: false
+# direction_reference_direct: 动态第一遍方向估计及关闭软过渡时使用的最高精度参数方向
+# choices: 0, 120, 240
+direction_reference_direct: 240
+# direction_min_curvature: 动态方向估计的有效弯曲点最小曲率，低于该值时冻结上一帧方向质量
+direction_min_curvature: 0.5
+# direction_min_consecutive: 动态方向估计中近端稳定弯曲区要求的最少连续点数
+direction_min_consecutive: 3
+# direction_consistency_threshold: 曲率加权圆周平均的最小方向一致性，低于该值时冻结上一帧方向质量
+direction_consistency_threshold: 0.6
+# direction_smooth_alpha: 动态方向质量跨帧指数平滑系数，范围(0,1]
+direction_smooth_alpha: 0.15
+# demo_kalman_enabled: 动态展示中对插值后的局部曲率向量启用跨帧卡尔曼滤波（True开启，开启后替代原有的curve_history滑动平均；False关闭）
+demo_kalman_enabled: true
+# demo_kalman_Rk: 局部曲率向量跨帧卡尔曼观测噪声参数，越大越平滑、响应越慢；保持默认 1e-4
+demo_kalman_Rk: 0.0001
+# demo_kalman_Bk: 局部曲率向量跨帧卡尔曼状态转移误差参数，越大对新观测响应越快；保持默认 1e-5
+demo_kalman_Bk: 1.0e-05
+# anchor_translation_enabled: 启用入口位置平移锚定，将当前入口点平移到首帧固定入口坐标
+anchor_translation_enabled: false
+# anchor_rotation_enabled: 启用入口姿态旋转锚定，使当前入口T/Y/Z与首帧入口标架对齐
+anchor_rotation_enabled: false
+# anchor_constraint_enabled: 兼容旧参数：同时启用入口平移锚定和旋转锚定
+anchor_constraint_enabled: null
+# anchor_offset_m: 末端到主隆突/支气管入口的初始距离，单位为m；运行中可通过进程接口修改
+anchor_offset_m: 0.06
+# soft: 是否使用软化判定
+soft: true
+# reverse: 是否反向重构
+reverse: false
+# discont: np.unwrap跳变判断阈值
+discont: 3.141592653589793
+# frame_rule: 选择使用FS标架还是平行传递标架
+# choices: TNB, TNN
+frame_rule: TNN
+# straight_threshold: 零螺距形状中判断直线段的曲率阈值
+straight_threshold: 2.0
+# rot_threshold: 零螺距形状中判断螺旋段的曲率阈值
+rot_threshold: 4.0
+# min_consecutive: 曲率分级判定前平滑滤波窗口大小
+min_consecutive: 3
+# move_filter: 动/静态重构前平滑滤波窗口大小
+move_filter: 3
+# move_filter_for_vector: 向量曲率插值前是否启用空间方向窗口滤波；默认True，关闭时直接插值原始kx/ky
+move_filter_for_vector: true
+# kalman_params: 卡尔曼滤波参数
+kalman_params:
+  angle:
+    Rk: 0.001
+    Bk: 0.001
+  magnitude:
+    Rk: 0.0001
+    Bk: 0.01
+# smoothing_params: LUNA数据平滑参数
+smoothing_params:
+  window_length: 21
+  polyorder: 3
+# interp_num: 插值目标点数
+interp_num: 256
+# curvature_interp: 曲率空间插值方法：hermite为原始基线；pchip是scalar_pchip的兼容别名；vector_linear/vector_pchip分别对曲率向量分量做线性/PCHIP插值
+# choices: hermite, pchip, scalar_pchip, vector_linear, vector_pchip
+curvature_interp: vector_pchip
+# nonnegative_curvature: 对插值后的曲率施加非负约束
+nonnegative_curvature: false
+# sharpness: sigmoid软评分硬度
+sharpness: 4.8
+# end_weights: 覆盖所选区域末端权重开关；默认使用calibration_regions
+end_weights: null
+# end_start: 覆盖所选区域末端起点负索引；仅计真实点
+end_start: null
+# TNB_threshold: TNB重构直线判定阈值
+TNB_threshold: 0.0
+# straight_trim: 由优化区域长度计算；显式值必须一致
+straight_trim: null
+# segmentation: 所选区域分段，必须与全长对应空间段相同
+segmentation: null
+# connect: 拟合初始分段时是否令各分段首尾相连
+connect: false
+# turn_threshold: 判断形状弯曲方向是否改变的阈值
+turn_threshold: 2.0
+# sensing_ranges: LUNA各通道使用的传感点范围
+sensing_ranges:
+  '1':
+  - 583
+  - 1048
+  '3':
+  - 678
+  - 1146
+  '4':
+  - 749
+  - 1215
+# rot_ang: 绕x轴旋转角度, 初始为0.0
+rot_ang: 0
+# weights: 所选区域已定标权重；None表示重新初始化
+weights: null
+# slopes: 所选区域已定标扭转参数；None表示重新初始化
+slopes: null
+# ang_step: 旋转角度搜索步长, 初始为0.1
+ang_step: 0.1
+# ang_range: 旋转角度搜索距离, 初始为180.0
+ang_range: 1.0

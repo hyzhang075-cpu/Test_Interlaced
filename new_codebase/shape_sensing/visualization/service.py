@@ -16,6 +16,7 @@ class VisualizationInputs:
     connect: bool = True
     rotation_deg: float = 0.0
     output_root: Path | None = None
+    static_reconstruction: bool = False
 
 class VisualizationService:
     """接收DTO；只有绘图方法调用时加载matplotlib/VTK，不拟合、不重构。"""
@@ -29,6 +30,20 @@ class VisualizationService:
             raise ValueError('initialization diagnostics are required')
         from .plots import Visualisor
         return Visualisor(inputs=self.inputs).init_visualise(direct)
+
+    def plot_core_positions(self, region):
+        """保存模块2的逐 WL 芯位诊断 PNG，每个区域一张。"""
+        inputs = self.inputs
+        if inputs is None or inputs.initialization is None or not inputs.initialization.core_position:
+            raise ValueError('core position initialization results are required')
+        if inputs.output_root is None:
+            raise ValueError('an output directory is required for core position plots')
+        from .plots import save_core_position_plot
+        path = inputs.output_root / f'init_core_positions_{region}.png'
+        save_core_position_plot(inputs.initialization.core_position,
+                                sensor_id=inputs.dataset.design.sensor_id,
+                                region=region, output_path=path)
+        return path
 
     def plot_shape(self, shape: ShapeResult, *, ideal_position_m=None, evaluation: EvaluationResult | None = None, ax=None):
         """输入重构(N,3)m、可选理想(M,3)m/误差DTO/坐标轴；输出matplotlib Figure。
@@ -52,9 +67,9 @@ class VisualizationService:
         return ax.figure
 
     def show_reconstruction(self, direct, rs, interp_dist, showanime=False, *, ideals=None):
-        """输入方向deg、曲线树叶子(N,3)m与距离(N,)m；输出None并按原目录保存MP4动画。
+        """输入方向deg、曲线树叶子(N,3)m与距离(N,)m；保存MP4动画或静态PNG。
 
-        ideals按同样路径显式传入，来自模块6；保留原旋转动画、ffmpeg保存和可选静态图。
+        ideals按相同路径从模块6传入。static_reconstruction=True 时保存静态PNG。
         """
         if self.inputs is None:
             raise ValueError('explicit visualization inputs are required for saved plots')

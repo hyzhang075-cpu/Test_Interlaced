@@ -7,11 +7,48 @@ from scipy import stats
 
 from ..common.utils import dict_recur_paths, dict_recur_value, update_view
 
+
+def save_core_position_plot(sections, *, sensor_id, region, output_path):
+    """Plot per-WL radial distance, azimuth and transverse core positions."""
+    fig, (radial, azimuth, transverse) = plt.subplots(
+        1, 3, figsize=(13, 4.1), constrained_layout=True)
+    try:
+        fig.suptitle(f"{sensor_id} | {region} | Calibrated core positions",
+                     fontsize=15, weight="bold")
+        wl_ids = [section["wl_id"] for section in sections]
+        ticks = wl_ids[::max(1, len(wl_ids) // 8)]
+        colors = ("#52647c", "#168983", "#cf6b45", "#626cc2")
+        for channel, color in zip(sections[0]["cores"], colors):
+            cores = [section["cores"][channel] for section in sections]
+            radius = np.asarray([core["r_um"] for core in cores])
+            angle = np.asarray([core["alpha_deg"] for core in cores], dtype=float)
+            radial.plot(wl_ids, radius, "o-", ms=3.5, color=color, label=channel)
+            azimuth.plot(wl_ids, angle, "o-", ms=3.5, color=color)
+            # At the centroid the angle is undefined, but the position is the origin.
+            radians = np.deg2rad(np.nan_to_num(angle))
+            transverse.scatter(radius * np.sin(radians), radius * np.cos(radians),
+                               s=24, color=color, alpha=0.7)
+
+        radial.set(xlabel="Global WL", ylabel="Radial distance (µm)", xticks=ticks)
+        azimuth.set(xlabel="Global WL", ylabel="Azimuth (°)", xticks=ticks,
+                    yticks=[0, 90, 180, 270, 360])
+        transverse.set(xlabel="u (µm)", ylabel="v (µm)", aspect="equal",
+                       title="All calibrated sections")
+        radial.legend(ncol=2, frameon=False)
+        for axis in (radial, azimuth, transverse):
+            axis.grid(alpha=0.2)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=160, facecolor="white")
+    finally:
+        plt.close(fig)
+
+
 class Visualisor:
     """
     可视化方法以及必要参数
     """
     def __init__(self, recon=None, *, inputs=None):
+        self.static_reconstruction = False
         if inputs is not None:
             self._init_explicit_inputs(inputs)
             return
@@ -42,6 +79,7 @@ class Visualisor:
         """输入数据集与拟合诊断，绑定 [P] m 绘图距离、通道和 rad 方向供绘图。"""
         from .segments import PlotSegments
         self.output_root = inputs.output_root
+        self.static_reconstruction = inputs.static_reconstruction
         dataset = inputs.dataset
         diagnostics = inputs.initialization
         self.sensor_id = dataset.design.sensor_id
@@ -611,13 +649,13 @@ class Visualisor:
 
     def show_reconstruction(self, direct, rs, interp_dist, showanime=False, *, ideals=None):
         """
-        将各标定形状的三维重构结果与理论曲线进行可视化，并保存旋转动画。
+        将各标定形状的三维重构结果与理论曲线进行可视化，并保存旋转动画或静态PNG。
 
         步骤：
         1. 创建当前方向与旋转角度对应的重构结果保存目录。
         2. 对 rs 中的每个标定形状构造对应的理想曲线 ideals。
         3. 调用 _plot_reconstruction() 在三维坐标系中绘制重构曲线与理想曲线。
-        4. 使用 matplotlib.animation.FuncAnimation 生成旋转视角动画并保存为 mp4 文件。
+        4. 静态模式保存俯视 PNG，动画模式保存旋转视角 MP4。
         5. 若 showanime=True，则额外弹出静态三维图进行显示。
 
         输入：
@@ -629,9 +667,11 @@ class Visualisor:
         输出：
         - 无显式返回
         - 副作用：
-            - 在 self.sensor_id/.../recon_plots/... 目录下保存各形状的 mp4 动画文件
+            - 按方向保存 PNG，或在原 recon_plots 子目录下保存 MP4
         """
-        base_save_dir = os.path.join(self._output_for_direction(direct), "recon_plots", str(self.rot_ang))
+        base_save_dir = self._output_for_direction(direct)
+        if not self.static_reconstruction:
+            base_save_dir = os.path.join(base_save_dir, "recon_plots", str(self.rot_ang))
         os.makedirs(base_save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -645,14 +685,20 @@ class Visualisor:
             self._plot_reconstruction(ax_anim, results, shape_ideals)
             ax_anim.set_title(f'3D reconstruction: shape={shape}, direct={direct}')
 
-            shape_save_dir = os.path.join(base_save_dir, str(shape))
-            os.makedirs(shape_save_dir, exist_ok=True)
-
-            ani = animation.FuncAnimation(fig_anim, lambda num: update_view(num, ax=ax_anim), frames=np.arange(0, 180), interval=200)
-
-            filename = os.path.join(shape_save_dir, f"reconstruction_{shape}_direct_{direct}_{timestamp}.mp4")
-            ani.save(filename, writer="ffmpeg", fps=10)
-            plt.close(fig_anim)
+            try:
+                if self.static_reconstruction:
+                    ax_anim.view_init(elev=90, azim=-90)
+                    filename = os.path.join(base_save_dir, f"reconstruction_{shape}.png")
+                    fig_anim.savefig(filename, dpi=300, bbox_inches='tight')
+                else:
+                    shape_save_dir = os.path.join(base_save_dir, str(shape))
+                    os.makedirs(shape_save_dir, exist_ok=True)
+                    filename = os.path.join(shape_save_dir, f"reconstruction_{shape}_direct_{direct}_{timestamp}.mp4")
+                    ani = animation.FuncAnimation(fig_anim, lambda num: update_view(num, ax=ax_anim),
+                                                  frames=np.arange(0, 180), interval=200)
+                    ani.save(filename, writer="ffmpeg", fps=10)
+            finally:
+                plt.close(fig_anim)
 
             if showanime:
                 fig_show = plt.figure(figsize=(10, 8))

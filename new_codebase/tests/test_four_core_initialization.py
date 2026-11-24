@@ -51,6 +51,11 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
 
     runs = tmp_path / 'runs'
     initialized, init_run = _run(config, runs, 'init')
+    core_plot = init_run / 'outputs' / 'full' / 'init_core_positions_full.png'
+    assert core_plot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+    init_plots = list((init_run / 'outputs' / 'full').glob('*/reconstruction_circ.png'))
+    assert {path.parent.name for path in init_plots} == {'0', '120', '240'}
+    assert all(path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n') for path in init_plots)
     initial = initialized['core_position_parameters']['full']
     calibration = initial['core_position_metadata']
     assert calibration['schema_version'] == 6
@@ -84,7 +89,10 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     np.testing.assert_allclose(graded.diagnostics['effective_weights'], [0.3, 0.3])
     np.testing.assert_allclose(graded.diagnostics['common_response_b_strain'], drift)
 
-    recon, _ = _run(config, runs, 'recon', '--resume', str(init_run), '--direct', '120')
+    recon, recon_run = _run(config, runs, 'recon', '--resume', str(init_run), '--direct', '120')
+    assert not list((recon_run / 'outputs').rglob('init_core_positions_*.png'))
+    recon_plot = recon_run / 'outputs' / 'full' / '120' / 'reconstruction_circ.png'
+    assert recon_plot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
     points = recon['reports']['full']['point_curvature']['100']
     np.testing.assert_allclose(points['curvature_per_m'], [10, 10], atol=1e-10)
     np.testing.assert_allclose(points['common_response_b_strain'], [-19e-6, -19e-6])

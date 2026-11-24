@@ -99,6 +99,7 @@ calibration_regions:
     end_start: -5
     segmentation:
     - 3
+    - 4
     - 2
     - 2
     weights: null
