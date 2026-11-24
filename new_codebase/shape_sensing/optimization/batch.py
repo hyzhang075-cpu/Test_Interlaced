@@ -162,6 +162,7 @@ def collect_calibration_result(optim, stages):
         isinstance(optim.weight_bounds, list) and len(optim.weight_bounds) == 1
     ) else optim.weight_bounds
     optimization = deepcopy(stages)
+    core_mode = getattr(optim, 'core_position_mode', False)
     coverage_enabled = bool(getattr(optim, 'end5cm_coverage_aware_weights', False))
     free_indices = None
     derived_indices = None
@@ -188,22 +189,24 @@ def collect_calibration_result(optim, stages):
         }
     optimization['parameter_bounds'] = diagnose_parameter_bounds(
         weights=optim.weights[optim.direct],
-        slopes=optim.slopes[optim.direct],
+        slopes=[] if core_mode else optim.slopes[optim.direct],
         weight_bounds=weight_bounds,
         slope_upper_bound=optim.slope_upper_bound,
         free_weight_indices=free_indices,
         derived_weight_indices=derived_indices,
     )
+    if core_mode:
+        optimization['parameter_bounds']['slopes'] = None
     if coverage_info is not None:
         optimization['coverage_aware_weights'] = coverage_info
     calibration_context = getattr(optim, 'calibration_context', None) or {}
     return _native({
         'parameters': {
             'weights': {optim.direct: optim.weights[optim.direct]},
-            'slopes': {optim.direct: optim.slopes[optim.direct]},
+            'slopes': None if core_mode else {optim.direct: optim.slopes[optim.direct]},
             'end_weights': bool(getattr(optim, 'end_weights', False)),
             'end_start': getattr(optim, 'end_start', (getattr(optim, 'calibration_context', None) or {}).get('end_start', -5)),
-            'global_phases_set': optim.global_phases_set,
+            'global_phases_set': None if core_mode else optim.global_phases_set,
             'rot_ang': optim.rot_ang,
             'phase_reference': getattr(optim, 'phase_reference', None),
             'calibration_objective': ('real_points' if (
@@ -479,6 +482,7 @@ def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_f
             return session_factory(job_args)
         return optimizer_factory(**optimizer_parameters(job_args))
     first = jobs[0][0]
+    core_mode = getattr(first, 'core_position_calib', False)
     sensor = re.sub(r'[^\w.-]+', '_', first.sensor_id).strip('.') or 'sensor'
     run_id = (datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%z')
               + f'-direct{first.direct}-' + uuid4().hex[:6])
@@ -486,13 +490,15 @@ def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_f
     output.mkdir(parents=True, exist_ok=False)
     report = {'sensor_id': first.sensor_id, 'task': first.task, 'direct': first.direct,
               'regions': {args.optimization_region: {'status': 'pending'} for args, _ in jobs}}
+    if core_mode:
+        report['core_position_parameters'] = {}
     print(f'区域结果目录: {output}')
     completed_optimizers = {}
     for index, (args, context) in enumerate(jobs):
         region = args.optimization_region
         entry = report['regions'][region]
         configuration = {key: value for key, value in vars(args).items()
-                         if key != '_phase_source_jobs'}
+                         if key not in ('_phase_source_jobs', 'core_position_parameters')}
         configuration['folder_path'] = _report_relative_folder(
             configuration.get('folder_path'), args.calibration_data_root,
         )
@@ -505,7 +511,8 @@ def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_f
         try:
             print(f'========== {index+1}/{len(jobs)} 区域: {region}; 方向: {args.direct} ==========')
             reference = None
-            if args.task == 'optim' and region != 'full' and getattr(args, 'use_full_transported_phase', False):
+            if (not core_mode and args.task == 'optim' and region != 'full'
+                    and getattr(args, 'use_full_transported_phase', False)):
                 from ..initialization.phase_reference import build_fixed_phase_reference
                 full = completed_optimizers.get('full')
                 if full is None:
@@ -545,6 +552,9 @@ def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_f
             else:
                 stages = optim.optim_coeff(verbose=True)
                 entry.update(collect_calibration_result(optim, stages))
+                if core_mode:
+                    report['core_position_parameters'][region] = _native(
+                        optim.parameters.parameters_by_region[region])
             completed_optimizers[region] = optim
             entry['status'] = 'complete'
         except Exception as exc:
@@ -555,12 +565,14 @@ def run_calibration_jobs(jobs, optimizer_factory=None, *, output_root, session_f
         _save_report(output / 'results.json', report)
         completed = {key: value['parameters'] for key, value in report['regions'].items()
                      if value['status'] == 'complete' and 'parameters' in value}
-        (output / 'parameters.py').write_text(
-            '# 仅包含本次 direct 的优化结果；其他方向需分别运行并补齐。\n'
-            '# 以下区域相位仍是各自局部参考，不能直接当作全段部署参数包。\n'
-            'region_parameters = ' + pprint.pformat(completed, width=110, sort_dicts=False) + '\n',
-            encoding='utf-8',
-        )
+        parameter_text = '# 仅包含本次 direct 的优化结果；其他方向需分别运行并补齐。\n'
+        if not core_mode:
+            parameter_text += '# 以下区域相位仍是各自局部参考，不能直接当作全段部署参数包。\n'
+        parameter_text += 'region_parameters = ' + pprint.pformat(completed, width=110, sort_dicts=False) + '\n'
+        if core_mode:
+            parameter_text += '\ncore_position_parameters = ' + pprint.pformat(
+                report['core_position_parameters'], width=110, sort_dicts=False) + '\n'
+        (output / 'parameters.py').write_text(parameter_text, encoding='utf-8')
     print('========== 区域汇总 ==========')
     for region, entry in report['regions'].items():
         if 'parameters' in entry:

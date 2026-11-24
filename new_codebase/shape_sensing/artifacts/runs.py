@@ -58,6 +58,16 @@ def create_run(sensor_id,task,resolved_config,output_root):
 _GEOMETRY_KEYS=('sensor_id','R','start_value','end_value','samp_dist_preset','samp_dist_preset_sub',
     'active_channels','channel_layout','active_angles','centre_fibre','interlaced_grating','interlaced_offset')
 _REGION_LAYOUT_KEYS = ('radii', 'thresholds', 'segmentation', 'end_weights', 'end_start')
+
+
+def run_report(payload):
+    """Unwrap the normal batch result or the earlier direct report."""
+    result = payload.get('result', payload)
+    if isinstance(result, (list, tuple)) and len(result) == 2:
+        return result[1]
+    return result
+
+
 def _layout(value):
     if isinstance(value,dict): return {str(k):_layout(v) for k,v in value.items()}
     if isinstance(value,(list,tuple)): return [_layout(v) for v in value]
@@ -94,7 +104,7 @@ def load_resume(path,resolved_config):
         manifest = json.loads((run_dir/'manifest.json').read_text(encoding='utf-8'))
         if manifest.get('status') != 'succeeded' or result.get('task') not in ('init', 'optim'):
             raise ValueError('四芯 resume 需要已成功完成的 init 或 optim 快照')
-        blocks = result.get('result', {}).get('core_position_parameters')
+        blocks = run_report(result).get('core_position_parameters')
         if not isinstance(blocks, dict) or not blocks:
             raise ValueError('resume 缺少四芯芯位参数')
         for key in ('core_diameter_um', 'core_radius_um', 'core_sensitivity_pm_per_ue', 'core_bend_offset_deg'):

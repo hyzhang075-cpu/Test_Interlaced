@@ -1,6 +1,7 @@
 """从运行快照导出自包含算法参数包。"""
 from pathlib import Path
 import json, shutil
+from .runs import run_report
 PACKAGE_TYPE='shape_sensing_algorithm_package'; SCHEMA_VERSION=1
 
 def _run(path):
@@ -170,7 +171,7 @@ def _export_core_position(records, output):
             if config.get(key) != resolved.get(key):
                 raise ValueError(f'不同四芯运行的配置不兼容: {key}')
         provenance.append({'run_path': str(root), 'code': manifest.get('code', {})})
-        result = payload.get('result', {})
+        result = run_report(payload)
         regions = result.get('core_position_parameters')
         if not isinstance(regions, dict) or not regions:
             raise ValueError(f'运行缺少四芯区域参数: {root}')
@@ -187,7 +188,13 @@ def _export_core_position(records, output):
                 scope.append(dict(task=task, region=region, final_calibration=False))
                 continue
             direct = str(resolved['direct'])
-            report = result.get('reports', {}).get(region, {})
+            entry = result.get('regions', {}).get(region)
+            if entry is not None:
+                if entry.get('status') != 'complete':
+                    raise ValueError(f'{region}/{direct} 区域优化未完成')
+                report = entry['optimization']
+            else:
+                report = result.get('reports', {}).get(region, {})
             stage = report.get('stages', {}).get('weights', {})
             weights = block.get('weights', {}).get(direct)
             if not weights or stage.get('final_loss') is None or stage.get('status') == 'diverge':
@@ -197,6 +204,8 @@ def _export_core_position(records, output):
                 raise ValueError(f'{region}/{direct} 重复优化结果')
             table[direct] = dict(weights=weights, stages=report['stages'], objective=report.get('objective'),
                                  run_path=str(root))
+            if entry is not None:
+                table[direct].update(errors=entry['errors'], segmentation=entry['context']['segmentation'])
             combined['weights'][direct] = weights
             scope.append(dict(task=task, region=region, direct=int(direct), final_calibration=True))
 

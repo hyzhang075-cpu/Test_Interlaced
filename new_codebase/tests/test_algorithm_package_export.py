@@ -68,7 +68,8 @@ def test_export_carries_zero_reference_and_init_is_not_final(tmp_path):
     assert loaded['configuration']['zero_reference_path']==str((target.parent/package['configuration']['zero_reference_path']).resolve())
 
 
-def test_four_core_package_selects_the_optimized_direction_from_each_run(tmp_path):
+@pytest.mark.parametrize('legacy_report', [False, True])
+def test_four_core_package_selects_the_optimized_direction_from_each_run(tmp_path, legacy_report):
     from main import parse_main_args
 
     paths = []
@@ -81,8 +82,15 @@ def test_four_core_package_selects_the_optimized_direction_from_each_run(tmp_pat
                                                  calibration=dict(directions_deg=list(directions))),
                      weight_layout=dict(thresholds=[1.0]),
                      weights={d: [0.5, 0.6] if d == direct else [1.0, 1.0] for d in directions})
-        result = dict(core_position_parameters={'full': block},
-                      reports={'full': {'stages': {'weights': {'status': 'converge', 'final_loss': 0.1}}}})
+        optimization = {'stages': {'weights': {'status': 'converge', 'final_loss': 0.1}}}
+        result = dict(core_position_parameters={'full': block})
+        if legacy_report:
+            result['reports'] = {'full': optimization}
+        else:
+            result['regions'] = {'full': dict(status='complete', optimization=optimization,
+                context={'segmentation': [2]}, errors={'avg_point_err': {'calib': 0.1},
+                                                       'avg_end_err': {'calib': 0.2}})}
+            result = ['results.json', result]
         run.write_result({'result': result}, 'optim')
         run.finish('succeeded')
         paths.append(run.path)
@@ -92,6 +100,10 @@ def test_four_core_package_selects_the_optimized_direction_from_each_run(tmp_pat
     package = export_package(paths, output)
     expected = {str(d): [0.5, 0.6] for d in directions}
     assert package['core_position_parameters']['full']['weights'] == expected
+    if not legacy_report:
+        entry = package['calibration']['full']['120']
+        assert entry['errors']['avg_end_err']['calib'] == 0.2
+        assert entry['segmentation'] == [2]
     args = parse_main_args(['--task', 'recon', '--sensor_params', str(output), '--direct', '120'])
     assert args.core_position_calib
     assert args.core_position_parameters['full']['weights'] == expected

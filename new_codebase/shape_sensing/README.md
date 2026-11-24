@@ -93,6 +93,8 @@ python -m shape_sensing --config configs/my_sensor.yaml --task recon --resume "r
 
 此前的四芯 `init` 快照可继续加载。此前的逐芯增益快照需要从 `init` 重新执行 `optim`。旧 YAML 中的 `core_gain_max_nfev` 由现有优化参数 `method`、`hyper_params`、`max_iter` 和 `min_loss_diff` 取代。
 
+四芯 `optim.json` 沿用普通批量优化报告结构，在 `result[1]` 增加 `core_position_parameters`。各区域的 `errors.avg_point_err`、`errors.avg_end_err` 来自模块 6 的最终轨迹评估，`optimization.stages.weights` 单独记录权重优化目标。芯位模式中的 `slopes` 和 `global_phases_set` 在旧参数字段内以 `null` 表示不适用。
+
 七通道静态交错采集还需设置 `interlaced_grating` 和 `samp_dist_preset_sub`，并按中心、外芯 1 到 3 各自的 A/B 顺序提供物理通道。默认 `core_position_calib: false` 使用已有的分段 slope/weight 参数。
 
 ### 3.1 选择批量或单区域初始化

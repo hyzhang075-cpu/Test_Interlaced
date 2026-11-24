@@ -253,14 +253,35 @@ def configure_core_position_region(args):
             raise ValueError('四芯任务的 direct 必须为 0、120 或 240')
         args.exp_directs = [args.direct]
     if args.task == 'optim':
+        segmentation = args.segmentation
+        if segmentation is not None:
+            segmentation = _validate_partition(segmentation, len(indices), region)
+            segment_ids = []
+        else:
+            full = args.full_segmentation
+            if full and sum(full) == len(positions):
+                full = _validate_partition(full, len(positions), '全长')
+                segmentation, segment_ids = _trim_partition_prefix(full, int(indices[0]))
+            elif profile.get('segmentation') and sum(profile['segmentation']) == len(indices):
+                segmentation = _validate_partition(profile['segmentation'], len(indices), region)
+                segment_ids = []
+            else:
+                segmentation, segment_ids = [len(indices)], []
+        args.segmentation = segmentation
         bounds = np.asarray(args.weight_bounds, dtype=float)
         if bounds.shape != (2,) or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] < bounds[1]:
             raise ValueError('四芯 weight_bounds 必须是递增的两个有限正值')
-    return dict(optimization_region=region, global_point_ids=(indices+1).tolist(),
+    context = dict(optimization_region=region, global_point_ids=(indices+1).tolist(),
                 global_sample_dist_m=positions[indices].tolist(),
                 sample_dist_m=(positions[indices]-origin).tolist(),
                 crop_origin_m=origin, reconstruction_length_m=region_length,
                 ideal_len=length, straight_trim=trim, folder_path=args.folder_path)
+    if args.task == 'optim':
+        context.update(segmentation=segmentation, global_segment_ids=segment_ids,
+                       thresholds=args.thresholds, weight_group_ids=args._resolved_weight_group_ids,
+                       weight_score_mode=('group_mean' if region == 'end5cm'
+                                          and args.end5cm_independent_weight_score else 'spatial_window'))
+    return context
 
 
 def validate_calibration_parameters(weights, slopes, thresholds, segmentation,

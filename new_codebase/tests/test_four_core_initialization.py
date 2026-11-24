@@ -13,6 +13,7 @@ from shape_sensing.pipelines.tasks import build_session, execute_task
 
 def _run(config, output, task, *extra):
     args = cli.parse_main_args(['--config', str(config), '--task', task, *extra])
+    args.calibration_output_dir = str(output / 'calibration_results')
     result = execute_task(
         args, optimiser_factory=None, visualizer_factory=None, app_factory=None,
         configure_args=cli.configure_calibration_args, parameter_builder=cli.optimizer_parameters,
@@ -91,15 +92,26 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     assert recon['reports']['full']['curves_m'][100].shape == (20, 3)
     np.testing.assert_allclose(points['effective_weights'], [1, 1])
 
-    optimized, opt_run = _run(config, runs, 'optim', '--resume', str(init_run))
+    (_, optimized), opt_run = _run(config, runs, 'optim', '--resume', str(init_run))
     block = optimized['core_position_parameters']['full']
     assert block['core_position'] == initial['core_position']
     assert 'slopes' not in block and 'strain_gains' not in block
     assert np.asarray(block['weights'][0]).shape == (3,)
     assert np.all(np.asarray(block['weights'][0]) > 0)
-    assert set(optimized['reports']['full']['stages']) == {'weights'}
+    saved = json.loads((opt_run / 'optim.json').read_text(encoding='utf-8'))
+    report = saved['result'][1]
+    assert report['sensor_id'] == 'fixture' and report['task'] == 'optim'
+    region = report['regions']['full']
+    assert region['configuration']['segmentation'] == region['context']['segmentation'] == [2]
+    assert set(region['optimization']['stages']) == {'weights'}
+    assert region['parameters']['slopes'] is None
+    assert region['errors']['avg_point_err']['calib'] >= 0
+    assert region['errors']['avg_end_err']['calib'] >= 0
     np.testing.assert_allclose(block['weights'][120], initial['weights'][120])
     replay, _ = _run(config, tmp_path / 'optimized-recon', 'recon', '--resume', str(opt_run))
+    for metric in ('avg_point_err', 'avg_end_err'):
+        assert saved[metric] == region['errors'][metric]
+        assert region['errors'][metric] == replay['reports']['full']['metrics'][metric]
     np.testing.assert_allclose(replay['core_position_parameters']['full']['weights']['0'],
                                block['weights'][0])
 

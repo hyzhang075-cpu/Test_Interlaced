@@ -128,14 +128,11 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
     if args.task in ('optim', 'score'):
         jobs = prepare_jobs(args, configure_args)
         if core_mode:
-            sessions = [_configured_session(job, context, parameter_builder) for job, context in jobs]
-            reports = {session.region: session.optim_coeff() for session in sessions}
-            return {'core_position_parameters': {
-                session.region: session.parameters.parameters_by_region[session.region]
-                for session in sessions}, 'reports': reports}
+            sessions = {job.optimization_region: _configured_session(job, context, parameter_builder)
+                        for job, context in jobs}
         # Validate every region seed before loading any calibration CSV or
         # launching the first region's search.
-        for job_args, context in jobs:
+        for job_args, context in (() if core_mode else jobs):
             region = job_args.optimization_region
             layout = getattr(args, '_resume_initialization_layouts', {}).get(region)
             if layout is not None:
@@ -148,6 +145,8 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         if not root.is_absolute():
             root = Path(project_root) / root
         def factory(job_args):
+            if core_mode:
+                return sessions[job_args.optimization_region]
             session = TaskSession(module_parameters(job_args, parameter_builder), task=job_args.task,
                                   region=job_args.optimization_region)
             session.load_data()
@@ -306,6 +305,12 @@ def execute_task(args, *, optimiser_factory, visualizer_factory, app_factory,
         payload={'task':args.task,'result':result}
         if args.task == 'init' and isinstance(result, dict):
             payload.update({key:result[key] for key in ('weights','slopes','global_phases_set') if key in result})
+        if core_mode and args.task == 'optim' and not getattr(args, 'multi_region_calib', False):
+            entry = result[1]['regions'][args.optimization_region]
+            payload.update({key: entry['parameters'][key]
+                            for key in ('weights', 'slopes', 'global_phases_set', 'rot_ang')})
+            payload.update({key: entry['errors'][key]
+                            for key in ('avg_point_err', 'avg_end_err', 'avg_pitch_err', 'avg_radius_err')})
         engine=state.get('session')
         if engine is not None and not core_mode and not (
                 args.task in ('optim','score') and getattr(args,'multi_region_calib',False)):
