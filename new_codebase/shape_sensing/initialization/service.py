@@ -64,6 +64,20 @@ class InitializationService:
                         for direction in DIRECTIONS]
         if not by_direction[0] or any(radii != by_direction[0] for radii in by_direction[1:]):
             raise ValueError('四芯标定需要 0、120、240 方向具有相同的非零圆弧半径')
+        rot_dir = input_config.rot_dir
+        if isinstance(rot_dir, dict):
+            # The sign at 0° does not affect the fixture angle.
+            signs = [rot_dir.get(d, rot_dir.get(str(d))) for d in DIRECTIONS if d != 0]
+        elif isinstance(rot_dir, (list, tuple)):
+            circ_index = list(dataset.radii[DIRECTIONS[0]]).index('circ')
+            signs = rot_dir[circ_index:circ_index + 1]
+        else:
+            signs = [rot_dir]
+        if not signs or any(
+            isinstance(sign, (bool, np.bool_)) or sign not in (-1, 1) or sign != signs[0]
+            for sign in signs
+        ):
+            raise ValueError('四芯标定要求圆弧 rot_dir 为 ±1，按方向配置时 120° 和 240° 必须同号')
         states = tuple((direction, radius) for direction in DIRECTIONS
                        for radius in sorted(by_direction[0]))
         design = dataset.design
@@ -78,6 +92,8 @@ class InitializationService:
             core_radius_um=self.config.core_radius_um,
             k_pm_per_ue=self.config.core_sensitivity_pm_per_ue,
             bend_side_offset_deg=self.config.core_bend_offset_deg,
+            # The bend plane in the fiber frame turns opposite to the fixture rotation.
+            direction_sign=-int(signs[0]),
         )
         result = fit_four_cores(data, settings)
         length = input_config.ideal_len
