@@ -6,7 +6,7 @@ import numpy as np
 
 class InterrogatorSource:
     def __init__(self, config):
-        """输入InputConfig，输出无设备I/O的采集源；read输出已裁剪(P,C)历史尺度。"""
+        """输入InputConfig，输出无设备I/O的采集源；read输出(P,C)历史尺度；交错模式保留未裁剪原始WL。"""
         self.config = config
         self.kernel = None
         self.socket = None
@@ -18,6 +18,8 @@ class InterrogatorSource:
         from ..input_preprocessing._kernel import InputKernel
         self.kernel = InputKernel(**asdict(self.config))
         self.kernel._configure_zero_reference(self.config.use_stored_zero, self.config.zero_reference_path)
+        if self.config.interlaced_grating and self.config.interrogator != 'FiberTecc':
+            raise ValueError('交错实时采集当前支持 FiberTecc；Hippo 每通道最多 16 点')
         protocol = socket.SOCK_STREAM if self.config.interrogator == 'FiberTecc' else socket.SOCK_DGRAM
         if self.config.interrogator not in ('FiberTecc', 'Hippo'):
             raise ValueError('live acquisition supports FiberTecc and Hippo')
@@ -58,11 +60,16 @@ class InterrogatorSource:
                     self.kernel._process_buffer()
                     if self.config.core_position_calib and not np.isfinite(self.kernel.current_snapshot).all():
                         continue
+                    if self.config.interlaced_grating and not self.kernel.snapshot_updated.all():
+                        continue
                     now = time.monotonic()
                     if now - self.last_push < 1 / self.config.data_freq:
                         continue
                     self.last_push = now
-                    return self.kernel._prep_frame()[0] * 1e-6
+                    values = self.kernel._prep_frame()[0] * 1e-6
+                    if self.config.interlaced_grating:
+                        self.kernel.snapshot_updated.fill(False)
+                    return values
                 wave = self.kernel._recv_010c_once(connection)
                 if self.config.core_position_calib:
                     start = self.kernel.raw_trim_idx

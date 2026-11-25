@@ -1,0 +1,40 @@
+{
+  "pure_full": true,
+  "section_count": 40,
+  "reconstruction_succeeded_directions": [
+    0,
+    120,
+    240
+  ],
+  "matches_original_full_metrics": true,
+  "all_curves_finite": true,
+  "source": "extracted full parameters from prior successful optim runs; not refitted",
+  "independent_validation": false,
+  "sha256": "cb454455b6a129057de800f78b872e45ef74d22bb6fd9d53399e71b439aca515",
+  "results": [
+    {
+      "direct": 0,
+      "point_mm": 11.388855350796804,
+      "end_mm": 33.56411705744337,
+      "states": 9,
+      "run_path": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113603-365851-1665fa578a-recon",
+      "image": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113603-365851-1665fa578a-recon\\outputs\\full\\0\\reconstruction_circ.png"
+    },
+    {
+      "direct": 120,
+      "point_mm": 6.466296922184098,
+      "end_mm": 17.201429427082545,
+      "states": 9,
+      "run_path": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113638-028934-0d6d85f8e9-recon",
+      "image": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113638-028934-0d6d85f8e9-recon\\outputs\\full\\120\\reconstruction_circ.png"
+    },
+    {
+      "direct": 240,
+      "point_mm": 5.543907258517189,
+      "end_mm": 16.155305567133475,
+      "states": 9,
+      "run_path": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113711-576225-dff6349727-recon",
+      "image": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\new_codebase\\runs\\11B8_CoreCalib\\20261125-113711-576225-dff6349727-recon\\outputs\\full\\240\\reconstruction_circ.png"
+    }
+  ]
+}

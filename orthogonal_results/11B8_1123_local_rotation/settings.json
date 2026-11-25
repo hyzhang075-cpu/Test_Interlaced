@@ -1,0 +1,9 @@
+{
+  "region": "end35",
+  "angle": 155.3831255094156,
+  "shape_mm": 51.22646323830378,
+  "global_rot_ang": 0,
+  "fit_direction": 0,
+  "validation": "same-data diagnostic fit; same correction applied to all directions",
+  "region_reference": "distance from last real sensor point, matching existing local correction"
+}

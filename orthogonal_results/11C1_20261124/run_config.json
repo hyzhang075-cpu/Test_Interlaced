@@ -1,0 +1,66 @@
+{
+  "hardware_geometry": {
+    "sensor_id": "11C1",
+    "start_value": 19.25,
+    "end_value": 6.0,
+    "R": 4.15e-05,
+    "ideal_len": 0.47525,
+    "samp_dist_preset": [
+      534,
+      546,
+      558,
+      592,
+      626,
+      660,
+      694,
+      728,
+      792,
+      856,
+      920,
+      984
+    ],
+    "interrogator": "FiberTecc",
+    "active_channels": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "channel_change": false,
+    "interlaced_grating": false
+  },
+  "raw_wl_rule": "per frame: WL13 present -> WL2..13; otherwise WL1..12",
+  "section_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "physical_constraints": {
+    "fiber_diameter_um": 350.0,
+    "core_radius_um": 50.0,
+    "ch1_assumed_at_section_center": false,
+    "size_constraint_mode": "both",
+    "envelope_center_mode": "free",
+    "center_order_reference": "envelope_center",
+    "radial_reference": "free_enclosing_circle",
+    "center_no_farther_than_each_outer": true,
+    "outer_center_min_radius_um": 0.0,
+    "outer_center_max_radius_um": 125.0,
+    "minimum_pairwise_core_center_distance_um": 100.0
+  },
+  "fit_rmse_pm": 1933.5249831752542,
+  "validation": "same-data",
+  "zero_subtraction": false,
+  "interp_num": 256,
+  "move_filter": 3,
+  "move_filter_for_vector": true
+}

@@ -56,13 +56,15 @@ class InputService:
         """
         from dataclasses import asdict
         from ._kernel import InputKernel
-        kernel = InputKernel(**asdict(self.config))
+        kernel = InputKernel(**asdict(self.config), print_geometry=False)
         channels = tuple(self.config.active_channels)
         if kernel.core_position_calib:
             channels = kernel.core_calibration_channel_ids()
         values = np.array(signals, dtype=float, copy=True)
-        if not acquired:
-            available = tuple(channel_ids or sorted(self.config.active_channels))
+        if not acquired or kernel.interlaced_grating:
+            available = tuple(channel_ids or (self.config.active_channels if acquired else sorted(self.config.active_channels)))
+            if kernel.interlaced_grating and values.shape != (len(kernel.samp_dist_preset), 7):
+                raise ValueError("交错输入须为原始 (A组点数,7) 差分帧")
             values = values[:, [available.index(channel) for channel in sorted(self.config.active_channels)]]
             kernel.Data = {'frame': values}
             if kernel.channel_change and kernel.channel_layout:
@@ -106,6 +108,12 @@ class InputService:
             channels = channels[1:]
         return CalibrationDataset(deepcopy(kernel.processed_Data), deepcopy(kernel.radii),
                                   self._design(kernel), channels, deepcopy(kernel.plot_Data))
+
+    def response_channel_ids(self):
+        """Physical IDs represented by the four-core response after A/B merging."""
+        from dataclasses import asdict
+        from ._kernel import InputKernel
+        return InputKernel(**asdict(self.config), print_geometry=False).core_calibration_channel_ids()
 
     def design(self):
         """只计算静态设计，不读取标定CSV；返回真实点m坐标和物理通道角。"""

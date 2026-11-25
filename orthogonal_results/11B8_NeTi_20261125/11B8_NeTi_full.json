@@ -1,0 +1,7660 @@
+{
+  "schema_version": 6,
+  "method": "四芯共同项校准法",
+  "channel_configuration": {
+    "centre_fibre": true,
+    "active_channels": [
+      1,
+      2,
+      4,
+      6
+    ],
+    "center_channel": 1,
+    "outer_channels": [
+      2,
+      4,
+      6
+    ],
+    "reference_up_channel": 2,
+    "nominal_outer_angles_deg": [
+      0.0,
+      120.0,
+      240.0
+    ],
+    "physical_center_core_present": true,
+    "response_reference": "four_core_common",
+    "response_channels": [
+      1,
+      2,
+      4,
+      6
+    ]
+  },
+  "coordinate_frame": {
+    "origin": "four_core_centroid",
+    "relative_positions_only": true,
+    "centroid_assumed_at_envelope_center": false,
+    "undefined_angle_radius_threshold_um": 1e-06,
+    "alpha_definition": "clockwise from fixture-zero reference-up (project +Z) toward project +Y",
+    "project_yz_mapping": "internal +X -> project +Y; internal +Y -> project +Z; axial -> project +X"
+  },
+  "calibration": {
+    "directions_deg": [
+      0,
+      120,
+      240
+    ],
+    "radii_mm": [
+      200,
+      300,
+      400,
+      600,
+      800,
+      1000,
+      1500,
+      2000
+    ],
+    "wl_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40
+    ],
+    "nominal_wl_ids": [],
+    "csv_file_count": 96,
+    "wavelength_shift_unit": "pm",
+    "input_already_straight_referenced": true,
+    "second_straight_rezero": false,
+    "center_channel_subtracted": false,
+    "response_reference": "four_core_common",
+    "common_response_symbol": "b",
+    "common_response_unit": "strain",
+    "weight_equation": "w_j * (e_j - b) = x_j*k_x + y_j*k_y",
+    "csv_sample_aggregation": "arithmetic_mean",
+    "strain_sensitivity_pm_per_ue": 1.0,
+    "sensitivity_source": "explicit_effective_pm_per_ue_assumption",
+    "core2_azimuth_deg": 90.0,
+    "bend_side_offset_deg": -90.0,
+    "direction_sign": -1,
+    "strain_projection_sign": 1,
+    "physical_strain_from_csv_sign": -1
+  },
+  "physical_constraints": {
+    "fiber_diameter_um": 350.0,
+    "core_radius_um": 50.0,
+    "ch1_assumed_at_section_center": false,
+    "size_constraint_mode": "both",
+    "envelope_center_mode": "free",
+    "center_order_reference": "envelope_center",
+    "radial_reference": "free_enclosing_circle",
+    "center_no_farther_than_each_outer": true,
+    "outer_center_min_radius_um": 0.0,
+    "outer_center_max_radius_um": 125.0,
+    "minimum_pairwise_core_center_distance_um": 100.0
+  },
+  "diagnostics": {
+    "section_count": 40,
+    "calibrated_section_count": 40,
+    "nominal_section_count": 0,
+    "coupled_fit_sections": 27,
+    "mean_fit_rmse_pm": 21.582942116981307
+  },
+  "sections": [
+    {
+      "wl_id": 1,
+      "cores": {
+        "ch1": {
+          "r_um": 4.351702546628456,
+          "alpha_rad": 0.5304946757731965,
+          "alpha_deg": 30.395105975965162
+        },
+        "ch2": {
+          "r_um": 124.30637427446777,
+          "alpha_rad": 5.621325664561187,
+          "alpha_deg": 322.07823584792874
+        },
+        "ch4": {
+          "r_um": 111.05866343154142,
+          "alpha_rad": 1.5487015609873334,
+          "alpha_deg": 88.73406316989667
+        },
+        "ch6": {
+          "r_um": 110.58212583273088,
+          "alpha_rad": 3.481197605470088,
+          "alpha_deg": 199.4579304444843
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 5.143555780975102,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -88.75866049140161
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -58.91539210038217
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -44.23820566466716
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -34.86385006876389
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -25.462094305503012
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -15.220790344147067
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -13.300419560185189
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -11.845364535812049
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 59.477391264363774
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 37.63004411318194
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 27.364661894648936
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 19.668579101562486
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 17.13783916147396
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 9.481738427441993
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 8.76952407993759
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 6.017215174100527
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 18.638919543668738
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 10.005523271090283
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 3.7349925321691066
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": -0.8107021715513912
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -3.048954716435189
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -1.2822370826755098
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": -4.79781132325571
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -2.5143791647518285
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.8903669745647498,
+        "ch2": 6.294007782961656,
+        "ch4": 5.889968164704726,
+        "ch6": 5.286295303543627
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.1874387659394987,
+      "minimum_enclosing_center_uv_um": [
+        -4.725632453538481,
+        7.042544499627837
+      ],
+      "minimum_enclosing_radius_um": 115.84811184068242,
+      "envelope_center_uv_um": [
+        -4.725632453538481,
+        7.042544499627837
+      ],
+      "envelope_containing_radius_um": 115.84811184068242,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 108.83753234062986,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 2,
+      "cores": {
+        "ch1": {
+          "r_um": 19.37216907410476,
+          "alpha_rad": 0.04013576271606456,
+          "alpha_deg": 2.299609811169025
+        },
+        "ch2": {
+          "r_um": 114.83872480843898,
+          "alpha_rad": 0.6822371055912511,
+          "alpha_deg": 39.08930677759978
+        },
+        "ch4": {
+          "r_um": 120.56273313737154,
+          "alpha_rad": 2.772100867560197,
+          "alpha_deg": 158.82968009575328
+        },
+        "ch6": {
+          "r_um": 116.79322880547225,
+          "alpha_rad": 4.74609433550944,
+          "alpha_deg": 271.93117459563786
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 4.977443338681344,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -55.87310872379099
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -40.234094915083176
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -22.85491919469572
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -24.27960830998709
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -13.99536080226436
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -10.825985783048452
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -6.1606120229149015
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -6.883785233902657
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 29.368750606472176
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 19.85105974935914
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 13.113367520960391
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 10.94511663108228
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 16.243115993764032
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 4.99733602750372
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 8.082757474095198
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 5.340973383662604
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 16.799413227188847
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 10.295453725816335
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 4.137279245551957
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 1.1611464623198124
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -1.1798624655966188
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -0.3400372263815023
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": -3.7035663956552214
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -2.006971091196325
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 4.899847390596782,
+        "ch2": 4.530974595420784,
+        "ch4": 5.828934040046934,
+        "ch6": 4.5370763141508474
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.831026719408895e-14,
+      "matrix_condition_number": 1.0551680298819968,
+      "minimum_enclosing_center_uv_um": [
+        0.3301458265338655,
+        -3.389818232582172
+      ],
+      "minimum_enclosing_radius_um": 117.28604062879354,
+      "envelope_center_uv_um": [
+        0.3301458265338655,
+        -3.389818232582172
+      ],
+      "envelope_containing_radius_um": 117.28604062879354,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000514,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 3,
+      "cores": {
+        "ch1": {
+          "r_um": 6.647486105447008,
+          "alpha_rad": 2.6692913747150184,
+          "alpha_deg": 152.9391300618441
+        },
+        "ch2": {
+          "r_um": 120.66659430373309,
+          "alpha_rad": 4.842671278968915,
+          "alpha_deg": 277.46462585413934
+        },
+        "ch4": {
+          "r_um": 121.66324779819143,
+          "alpha_rad": 0.4877117767422592,
+          "alpha_deg": 27.943826426158115
+        },
+        "ch6": {
+          "r_um": 131.51831515250234,
+          "alpha_rad": 2.6712100458391035,
+          "alpha_deg": 153.0490618195278
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 11.165044591733851,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -22.787872856185153
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -13.281249999999993
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -7.732615751378672
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -5.720330413276594
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -4.846708496832411
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -3.6289004110612524
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -3.276638454861083
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -2.6470100792654776
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -123.5964651065022
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -82.6428788303437
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -61.765142233974906
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -42.664139359085674
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -31.64055179441532
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -24.87324240678804
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -17.68177721468888
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -11.790289723201013
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 123.08978483167003
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 83.61072853898074
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 61.693393482881454
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 38.38980409520617
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 27.774658203125085
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 23.048480233678486
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 14.032295205916732
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 10.549657485064362
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 0.6392032660080809,
+        "ch2": 14.956759125528366,
+        "ch4": 5.377414378188017,
+        "ch6": 15.671728468568059
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 7.105427357601002e-15,
+      "matrix_condition_number": 1.1650700175833313,
+      "minimum_enclosing_center_uv_um": [
+        3.5473647244138395,
+        -5.510821392942637
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000186,
+      "envelope_center_uv_um": [
+        3.5473647244138395,
+        -5.510821392942637
+      ],
+      "envelope_containing_radius_um": 125.00000000000186,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 124.55467312191789,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 4,
+      "cores": {
+        "ch1": {
+          "r_um": 12.031687241776739,
+          "alpha_rad": 2.3285288587053006,
+          "alpha_deg": 133.41487607822813
+        },
+        "ch2": {
+          "r_um": 121.7510005743022,
+          "alpha_rad": 5.832102561285643,
+          "alpha_deg": 334.1548624491049
+        },
+        "ch4": {
+          "r_um": 111.1768731778614,
+          "alpha_rad": 1.672576148825411,
+          "alpha_deg": 95.8315542419411
+        },
+        "ch6": {
+          "r_um": 111.76973198113303,
+          "alpha_rad": 3.7762131130835725,
+          "alpha_deg": 216.36107392164658
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 9.862330101760557,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -19.43754758110481
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -6.683607739199599
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -7.342401513115569
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -5.935615555409129
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -5.0126119958161235
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -4.335753731677336
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -3.8033546292841294
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -3.349683148995357
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -118.27033310483728
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -79.9062436503833
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -59.51968829968074
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -43.14349275684186
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -32.789408277309725
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -26.226331893194253
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -19.395435470894455
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -14.095239505637249
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 114.26870068416969
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 77.56269217758428
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 56.87717666193306
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 34.94929701406934
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 25.393221026794592
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 21.08971173577856
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 12.465291993089675
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 9.529969227828927
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.8359313677032367,
+        "ch2": 14.180960952192208,
+        "ch4": 12.65725617139087,
+        "ch6": 4.440036723523137
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.0641898553188225,
+      "minimum_enclosing_center_uv_um": [
+        -3.0624244464451995,
+        6.041699407052988
+      ],
+      "minimum_enclosing_radius_um": 114.97864941936226,
+      "envelope_center_uv_um": [
+        -3.0624244464451995,
+        6.041699407052988
+      ],
+      "envelope_containing_radius_um": 114.97864941936226,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 101.90671433960276,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 5,
+      "cores": {
+        "ch1": {
+          "r_um": 8.851945449923372,
+          "alpha_rad": 2.320744492215144,
+          "alpha_deg": 132.9688647321591
+        },
+        "ch2": {
+          "r_um": 117.34483681027793,
+          "alpha_rad": 4.193587322647607,
+          "alpha_deg": 240.27485460727453
+        },
+        "ch4": {
+          "r_um": 133.74593476623156,
+          "alpha_rad": 6.242177279600925,
+          "alpha_deg": 357.6504130935866
+        },
+        "ch6": {
+          "r_um": 122.47996500809182,
+          "alpha_rad": 2.1733544291016584,
+          "alpha_deg": 124.52403617358954
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 12.854209135827634,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -14.101694321491065
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 18.206260187162826
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -4.781575394857745
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -2.3703039045164154
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -2.4110271782809987
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -2.220666996566699
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -3.23721426504628
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -3.985506600707083
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -101.7933205460575
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -69.95130690045772
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -48.82320725774186
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -35.396057882426696
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -28.103761229736676
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -22.394511514081238
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -15.726770073306705
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -11.760587154580836
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 85.6246948242188
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 59.706478375490406
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 44.74693747127758
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 26.197805912536992
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 19.06421802662044
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 15.379362970723427
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 9.099606331695812
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 6.172808478860299
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.7934852885519457,
+        "ch2": 12.153787937576167,
+        "ch4": 11.091888320570769,
+        "ch6": 19.6713403916088
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 2.0097183471152322e-14,
+      "matrix_condition_number": 1.1525598235518066,
+      "minimum_enclosing_center_uv_um": [
+        3.5322505850915316,
+        8.95902454485848
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000965,
+      "envelope_center_uv_um": [
+        3.5322505850915316,
+        8.95902454485848
+      ],
+      "envelope_containing_radius_um": 125.00000000000965,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 113.73142439168275,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 6,
+      "cores": {
+        "ch1": {
+          "r_um": 1.1340523928624593,
+          "alpha_rad": 0.643086222051133,
+          "alpha_deg": 36.846126386542814
+        },
+        "ch2": {
+          "r_um": 114.89131168905776,
+          "alpha_rad": 5.4136734630142875,
+          "alpha_deg": 310.1806410926915
+        },
+        "ch4": {
+          "r_um": 115.36607611753655,
+          "alpha_rad": 1.0410572191599425,
+          "alpha_deg": 59.648184889490686
+        },
+        "ch6": {
+          "r_um": 133.911284376527,
+          "alpha_rad": 3.2347392771800356,
+          "alpha_deg": 185.3369084076146
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 12.417035616189935,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -25.481302117742604
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 12.617295552426409
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -9.76100436604155
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -7.153315705346025
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -6.768508695530608
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -5.8264066912429655
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -5.1172222178332305
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -5.840300720169907
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -80.79855304325154
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -57.032322749204454
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -40.01900945280853
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -29.169416453248946
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -23.444444044203966
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -18.78929482071563
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -14.240336902882483
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -11.248469456518118
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 77.90447814486373
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 52.068559694796356
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 39.67064340430876
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 25.080110948477106
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 17.73562351358346
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 13.882674870484564
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 7.6089660445013125
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 5.533765475046657
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 4.136800994776742,
+        "ch2": 18.242481705379337,
+        "ch4": 11.969143252994753,
+        "ch6": 11.116179313177796
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.230935650234927,
+      "minimum_enclosing_center_uv_um": [
+        -0.6934134655061819,
+        -11.65697341461717
+      ],
+      "minimum_enclosing_radius_um": 122.24098272125326,
+      "envelope_center_uv_um": [
+        -0.6934134655061819,
+        -11.65697341461717
+      ],
+      "envelope_containing_radius_um": 122.24098272125326,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 114.32149561091907,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 7,
+      "cores": {
+        "ch1": {
+          "r_um": 3.6106734568990757,
+          "alpha_rad": 3.3264902670264433,
+          "alpha_deg": 190.59385289196143
+        },
+        "ch2": {
+          "r_um": 119.11965529487632,
+          "alpha_rad": 4.844642206916689,
+          "alpha_deg": 277.57755170727114
+        },
+        "ch4": {
+          "r_um": 125.47887874227186,
+          "alpha_rad": 0.5575856423593428,
+          "alpha_deg": 31.94730402428128
+        },
+        "ch6": {
+          "r_um": 129.66822645534057,
+          "alpha_rad": 2.726031969631461,
+          "alpha_deg": 156.19012667761774
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 11.523332579975312,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -51.83270697057589
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -36.63009533779215
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -25.440416837993386
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -21.326956664316707
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -18.30846927890974
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -15.067107652513059
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -9.221146195023126
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -8.037171746692486
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -111.60697994032606
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -78.33282972486916
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -63.01705234022025
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -41.69657200942806
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -34.939058180870475
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -28.984069824218803
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -20.547561533475537
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -14.704808990750166
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 119.91309017115258
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 79.4225672791713
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 58.32829194910388
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 49.22950338329786
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 29.584689670138985
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 22.179885569511512
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 14.58550027863143
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 10.631740794462338
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.475943355894741,
+        "ch2": 15.306550092514629,
+        "ch4": 5.82186471346002,
+        "ch6": 16.148863171399455
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.1130681890300693,
+      "minimum_enclosing_center_uv_um": [
+        5.554615437937954,
+        -2.7208721444384287
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000104,
+      "envelope_center_uv_um": [
+        5.554615437937954,
+        -2.7208721444384287
+      ],
+      "envelope_containing_radius_um": 125.00000000000104,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 118.98430662882566,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 8,
+      "cores": {
+        "ch1": {
+          "r_um": 3.1024103187071685,
+          "alpha_rad": 0.34296690740903957,
+          "alpha_deg": 19.65055630719205
+        },
+        "ch2": {
+          "r_um": 122.76669234755883,
+          "alpha_rad": 5.784400772519303,
+          "alpha_deg": 331.42175127756906
+        },
+        "ch4": {
+          "r_um": 113.8055817647699,
+          "alpha_rad": 1.6157004226577694,
+          "alpha_deg": 92.57281517579347
+        },
+        "ch6": {
+          "r_um": 119.55319137262333,
+          "alpha_rad": 3.6291562836798543,
+          "alpha_deg": 207.93533824823817
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 11.597661304211215,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": -51.06381192844884
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": -41.740013043670636
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": -21.845399868484684
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -23.97792820062973
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -20.321257080886692
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -17.486870195629955
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -10.398816567018766
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -9.398425707608105
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -77.19007702675654
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -57.35483809239956
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -47.44338331445748
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -33.867475431340914
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -28.551903645867327
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -23.777591255920342
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -16.26421777045448
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -10.908596566629143
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 84.4200207021929
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 58.32392163228853
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 43.63835996468526
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 39.13411004088043
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 22.90206319397317
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 17.144552825048716
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 11.06403988363328
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 8.24710293031972
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 4.641340483404002,
+        "ch2": 17.591448041220254,
+        "ch4": 13.298624229767661,
+        "ch6": 5.492585805828849
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.0955790869471935,
+      "minimum_enclosing_center_uv_um": [
+        -4.9946937159505325,
+        1.760598771232395
+      ],
+      "minimum_enclosing_radius_um": 118.88417748316253,
+      "envelope_center_uv_um": [
+        -4.9946937159505325,
+        1.760598771232395
+      ],
+      "envelope_containing_radius_um": 118.88417748316253,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 112.9334451177268,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 9,
+      "cores": {
+        "ch1": {
+          "r_um": 7.573064646267983,
+          "alpha_rad": 5.511039994300813,
+          "alpha_deg": 315.7593324012378
+        },
+        "ch2": {
+          "r_um": 118.87983504004855,
+          "alpha_rad": 5.689151529686487,
+          "alpha_deg": 325.964371661432
+        },
+        "ch4": {
+          "r_um": 116.11170580285282,
+          "alpha_rad": 1.5598466832279467,
+          "alpha_deg": 89.3726316364412
+        },
+        "ch6": {
+          "r_um": 114.15086708626946,
+          "alpha_rad": 3.539983372073877,
+          "alpha_deg": 202.8261067663225
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 16.271593288628498,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 20.41905871509782
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 8.20641826382641
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 3.7125153438225684
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -0.04469290287537315
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -2.2803694686081437
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -5.2321452552783825
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.9849265769675828
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.834306925752717
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -60.200279247243984
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -44.60027720361543
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -34.446394587137625
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -23.858011504750202
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -17.589792140062773
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -15.880881669278654
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -8.901587666919054
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -6.643368865332895
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 53.28161868056808
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 39.5710350686659
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 25.159813376033995
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 11.513252935465975
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 6.067889178240764
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 3.4888892435921073
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.786314058171746
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.822707232306984
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.979804182917635,
+        "ch2": 22.26290154488661,
+        "ch4": 21.492637625697164,
+        "ch6": 9.877707765094778
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.0945791402770464,
+      "minimum_enclosing_center_uv_um": [
+        -0.3618150320667583,
+        2.66507830477002
+      ],
+      "minimum_enclosing_radius_um": 116.4748991523972,
+      "envelope_center_uv_um": [
+        -0.3618150320667583,
+        2.66507830477002
+      ],
+      "envelope_containing_radius_um": 116.4748991523972,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 111.434653900621,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 10,
+      "cores": {
+        "ch1": {
+          "r_um": 5.662974164690678,
+          "alpha_rad": 4.576735359418499,
+          "alpha_deg": 262.2276200429699
+        },
+        "ch2": {
+          "r_um": 117.51660054865002,
+          "alpha_rad": 0.42456525353878116,
+          "alpha_deg": 24.3257971556739
+        },
+        "ch4": {
+          "r_um": 116.23576773504854,
+          "alpha_rad": 2.5007964432290475,
+          "alpha_deg": 143.285081618352
+        },
+        "ch6": {
+          "r_um": 113.05299215580673,
+          "alpha_rad": 4.595892875794313,
+          "alpha_deg": 263.32526487725676
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 14.32457231958474,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 23.25645022685763
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 2.9945547882156913
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 0.3267741643473842
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -2.128211189472969
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -4.23493761356657
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -6.927990867204933
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -1.735251856973456
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -2.2956182809155017
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -69.17122350703526
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -52.50462462165636
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -40.01861644625281
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -27.30429197741134
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -20.008944702448705
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -17.847528837930884
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -9.526639849008552
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -6.8951590514574805
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 66.88578054688413
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 48.31599647701104
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 34.864299457897495
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 15.89047763700437
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 9.739703445043933
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 6.158771121906278
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 4.193340690334551
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 2.802174619290898
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.8786169315220402,
+        "ch2": 9.426514420616016,
+        "ch4": 20.683981552131588,
+        "ch6": 17.336609241995696
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.0159352509370545,
+      "minimum_enclosing_center_uv_um": [
+        2.4500391146620615,
+        1.0054413171812941
+      ],
+      "minimum_enclosing_radius_um": 115.60549414522151,
+      "envelope_center_uv_um": [
+        2.4500391146620615,
+        1.0054413171812941
+      ],
+      "envelope_containing_radius_um": 115.60549414522151,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 107.39111193651773,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 11,
+      "cores": {
+        "ch1": {
+          "r_um": 10.472031232294832,
+          "alpha_rad": 5.376180232217587,
+          "alpha_deg": 308.0324372077306
+        },
+        "ch2": {
+          "r_um": 111.72628192846074,
+          "alpha_rad": 5.80549100356667,
+          "alpha_deg": 332.63013250553894
+        },
+        "ch4": {
+          "r_um": 111.96114908390484,
+          "alpha_rad": 1.7109704112543818,
+          "alpha_deg": 98.03138343663885
+        },
+        "ch6": {
+          "r_um": 103.5940794453384,
+          "alpha_rad": 3.6591083425659963,
+          "alpha_deg": 209.65146481014142
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 17.132174141343913,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 32.085621850730334
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 9.50857478080041
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 4.9614684869630326
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 0.27912749341251414
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -0.6528730291461563
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -3.4831094100336264
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.5601218894675701
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.3886166315009056
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -18.878338048276362
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -23.765940302690595
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -19.362346235528037
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -16.033973222897377
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -10.60909059630341
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -11.691156261695374
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -7.220745786871325
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -7.057031467335868
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 32.17139271642427
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 24.098531725873507
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 24.81518913717828
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 2.9087405232988273
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -0.05746346932869483
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -1.0138365701615968
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 0.47500906228359313
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 0.22165635052848653
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 3.525404832092081,
+        "ch2": 22.55506882690674,
+        "ch4": 23.263197414937995,
+        "ch6": 10.569276240798883
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.1370529404168974,
+      "minimum_enclosing_center_uv_um": [
+        3.4389453189856165,
+        4.628353747141034
+      ],
+      "minimum_enclosing_radius_um": 109.31991258542041,
+      "envelope_center_uv_um": [
+        3.4389453189856165,
+        4.628353747141034
+      ],
+      "envelope_containing_radius_um": 109.31991258542041,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 102.29746727090004,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 12,
+      "cores": {
+        "ch1": {
+          "r_um": 8.371506702960998,
+          "alpha_rad": 5.409705398563405,
+          "alpha_deg": 309.95328774681997
+        },
+        "ch2": {
+          "r_um": 108.28629806483542,
+          "alpha_rad": 0.49834540777891156,
+          "alpha_deg": 28.553088605457617
+        },
+        "ch4": {
+          "r_um": 112.13819281850907,
+          "alpha_rad": 2.5725321123406255,
+          "alpha_deg": 147.3952326989924
+        },
+        "ch6": {
+          "r_um": 105.93673364420316,
+          "alpha_rad": 4.6554776740783534,
+          "alpha_deg": 266.73922234207066
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 15.982890331306606,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 28.564303359190944
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 7.492562766918382
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 2.990099373703439
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -0.7036956130680548
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -1.3395851429919763
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -4.20280170368078
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.5910672540022059
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.2061252281646269
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -24.4438725870823
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -23.323262266543644
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -18.742014420774456
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -15.145025594153687
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -9.99696900522856
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -10.533288786212074
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -5.490729493065245
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -4.850612562281546
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 39.8425004014131
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 25.480864939581252
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 18.09683242122527
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 3.120137728351997
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -0.45851513965791235
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -1.7755816036285288
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": -1.0108400012598846
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -1.1050263058777476
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.0306267986948012,
+        "ch2": 11.605599122470945,
+        "ch4": 21.43749732949388,
+        "ch6": 20.577450411340166
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.432144669219779e-14,
+      "matrix_condition_number": 1.017047588657029,
+      "minimum_enclosing_center_uv_um": [
+        2.948866398423121,
+        -2.1044663442008584
+      ],
+      "minimum_enclosing_radius_um": 108.78478380898214,
+      "envelope_center_uv_um": [
+        2.948866398423121,
+        -2.1044663442008584
+      ],
+      "envelope_containing_radius_um": 108.78478380898214,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000081512,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 13,
+      "cores": {
+        "ch1": {
+          "r_um": 7.663512946322839,
+          "alpha_rad": 0.11532737137695825,
+          "alpha_deg": 6.607771642237561
+        },
+        "ch2": {
+          "r_um": 106.84391227882902,
+          "alpha_rad": 5.948203045914484,
+          "alpha_deg": 340.80693021776096
+        },
+        "ch4": {
+          "r_um": 106.54982332403463,
+          "alpha_rad": 1.9592112063054024,
+          "alpha_deg": 112.25453329603438
+        },
+        "ch6": {
+          "r_um": 93.75454688705543,
+          "alpha_rad": 3.8983621242620017,
+          "alpha_deg": 223.35969673386688
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 16.974652271618254,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 35.47406619822473
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 9.084358489770745
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 6.012765984786173
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -0.03105931028106752
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 0.38929533850227876
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -1.4748338092068396
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 0.7899757667824121
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -0.08175146840784353
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -7.176648697332773
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -11.833111088728515
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -9.03986735516283
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -9.18856962227526
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -3.758374718890554
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -4.832010783121265
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -1.4465600908590288
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.4964027291589388
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 18.97624462326138
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 9.837608166339676
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 8.800012925091917
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": -1.909244695358729
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -0.7117151331018556
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -1.1468351684388995
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": -1.7099565416161668
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -1.5683342428768454
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 10.217011127688654,
+        "ch2": 20.486299915097547,
+        "ch4": 21.53325328062283,
+        "ch6": 12.837386086245345
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.228473023860843,
+      "minimum_enclosing_center_uv_um": [
+        6.7363994208756,
+        6.599931186569151
+      ],
+      "minimum_enclosing_radius_um": 103.17878077866709,
+      "envelope_center_uv_um": [
+        6.7363994208756,
+        6.599931186569151
+      ],
+      "envelope_containing_radius_um": 103.17878077866709,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000001,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 14,
+      "cores": {
+        "ch1": {
+          "r_um": 1.5462262865072856,
+          "alpha_rad": 1.2153106550759938,
+          "alpha_deg": 69.63217133313378
+        },
+        "ch2": {
+          "r_um": 101.2314700956682,
+          "alpha_rad": 0.5705251218228575,
+          "alpha_deg": 32.688681586636875
+        },
+        "ch4": {
+          "r_um": 106.22129609908853,
+          "alpha_rad": 2.7373616758714086,
+          "alpha_deg": 156.83927102828974
+        },
+        "ch6": {
+          "r_um": 98.62363038821123,
+          "alpha_rad": 4.833590318054043,
+          "alpha_deg": 276.9443251197939
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 15.811555936908288,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 17.079301817926538
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 3.735353669810695
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 2.2217223252289213
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -1.5310893501766234
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -0.6918958856229931
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": -1.6835699914445836
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.011185597648397194
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -0.6228029558613857
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -20.138841239766435
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -21.991700009355796
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -15.398736225447532
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -12.547954486004574
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -6.341102157847831
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -6.660249847801937
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -2.2308423685936942
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.9984283677066996
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 42.635635069679296
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 27.502451223689157
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 27.13133684266782
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 5.0090340720191
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 3.4671508057174125
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 1.5447243743198213
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 0.5054762380868132
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -0.24803978295826146
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 7.037314967314782,
+        "ch2": 9.733399091121145,
+        "ch4": 20.858344048014132,
+        "ch6": 20.51067596015211
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.7763568394002505e-14,
+      "matrix_condition_number": 1.096452443064902,
+      "minimum_enclosing_center_uv_um": [
+        3.1748818094853917,
+        -3.054353794323177
+      ],
+      "minimum_enclosing_radius_um": 102.17882767891493,
+      "envelope_center_uv_um": [
+        3.1748818094853917,
+        -3.054353794323177
+      ],
+      "envelope_containing_radius_um": 102.17882767891493,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.0000000000082,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 15,
+      "cores": {
+        "ch1": {
+          "r_um": 7.5562558802450415,
+          "alpha_rad": 0.4465502950976048,
+          "alpha_deg": 25.585447249414212
+        },
+        "ch2": {
+          "r_um": 106.50156206336577,
+          "alpha_rad": 6.213397864416327,
+          "alpha_deg": 356.0014740666544
+        },
+        "ch4": {
+          "r_um": 111.37914548748778,
+          "alpha_rad": 2.242552157645491,
+          "alpha_deg": 128.4887739710431
+        },
+        "ch6": {
+          "r_um": 93.83444617277426,
+          "alpha_rad": 4.2274714293756,
+          "alpha_deg": 242.21627091535936
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 14.527604987750276,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 40.68187284751742
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 7.322945354653775
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 7.700964393261401
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -1.778912967478745
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -1.2473886925586009
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 5.747750913793909
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -1.0207790798611076
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.8312774435447081
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 0.7921797634061849
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -5.855315112925075
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -2.349531794168869
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -4.510620493947725
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -1.4046321565779682
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -1.0761101088838017
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 1.1758006091685018
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 1.7701100878616505
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 20.97192665055993
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 11.533956713027848
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 9.415390912224254
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 1.1471629848141778
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 4.941180193865739
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 3.4125726254875475
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 1.6063151267096627
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 0.7833593031939255
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 9.48943469533754,
+        "ch2": 15.611214275156982,
+        "ch4": 18.587474600010832,
+        "ch6": 12.843349747337646
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.2538844029706993,
+      "minimum_enclosing_center_uv_um": [
+        11.014375898931062,
+        2.9087606312580627
+      ],
+      "minimum_enclosing_radius_um": 104.96612945413884,
+      "envelope_center_uv_um": [
+        11.014375898931062,
+        2.9087606312580627
+      ],
+      "envelope_containing_radius_um": 104.96612945413884,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000021,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 16,
+      "cores": {
+        "ch1": {
+          "r_um": 4.0220477013953735,
+          "alpha_rad": 2.0890240006160834,
+          "alpha_deg": 119.69225853683626
+        },
+        "ch2": {
+          "r_um": 101.00015342043649,
+          "alpha_rad": 0.788867054754382,
+          "alpha_deg": 45.19875283434171
+        },
+        "ch4": {
+          "r_um": 102.44359469182633,
+          "alpha_rad": 2.991161123513926,
+          "alpha_deg": 171.3809082209575
+        },
+        "ch6": {
+          "r_um": 96.03850570054368,
+          "alpha_rad": 5.053290474145362,
+          "alpha_deg": 289.53221682219186
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 20.724543052688716,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 33.89379995317615
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 1.4737182966585896
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 4.56190592201214
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": -2.6395572269135266
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": -1.9816306338769933
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 0.5830068292271307
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -1.1851968477362782
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.319580156205129
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -33.28706222350588
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -28.53516275062727
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -18.9000001118528
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -15.559781274201463
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -8.689871351312913
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -7.988346757787972
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -4.268753398106942
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -3.2308025844471135
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 65.70734528996871
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 39.31568267552997
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 29.709634244753225
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 13.164333321297544
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 13.096519537592751
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 10.363575608514196
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 6.199468423477163
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 4.926894210257866
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 14.83034191820892,
+        "ch2": 20.138503361137985,
+        "ch4": 17.608967736621366,
+        "ch6": 27.97235483801945
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 7.105427357601002e-15,
+      "matrix_condition_number": 1.1078976349856215,
+      "minimum_enclosing_center_uv_um": [
+        3.493946603848741,
+        -1.992286335602344
+      ],
+      "minimum_enclosing_radius_um": 100.00000000015811,
+      "envelope_center_uv_um": [
+        3.493946603848741,
+        -1.992286335602344
+      ],
+      "envelope_containing_radius_um": 100.00000000015811,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000344,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 17,
+      "cores": {
+        "ch1": {
+          "r_um": 7.491949216341194,
+          "alpha_rad": 5.883452009496951,
+          "alpha_deg": 337.09696911193845
+        },
+        "ch2": {
+          "r_um": 122.58329430389017,
+          "alpha_rad": 0.2206546770987574,
+          "alpha_deg": 12.64258172758078
+        },
+        "ch4": {
+          "r_um": 135.12814913159357,
+          "alpha_rad": 2.4244015030191486,
+          "alpha_deg": 138.90797396817052
+        },
+        "ch6": {
+          "r_um": 115.39807127609139,
+          "alpha_rad": 4.496922087728052,
+          "alpha_deg": 257.6546564259763
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 28.094728923218913,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 56.91203281018824
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 40.92244758880398
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 37.94024677099455
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 21.304429635493698
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 17.165883766901533
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 16.39701717815771
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 10.956127025462987
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 8.45149798984946
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -15.49467306322404
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -27.09627935526439
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -15.829247164439002
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -14.501218442563665
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -12.215587152712704
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -10.569269785624096
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -7.217519258787609
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -4.576233091269462
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 98.30739456794159
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 56.60289998189928
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 49.97962502872242
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 19.08897083891922
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 14.321424696180578
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 14.180198998189068
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 6.990596528198594
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 5.438591452205864
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 3.15619653060864,
+        "ch2": 30.77733416768298,
+        "ch4": 37.245938473507685,
+        "ch6": 28.509460978686374
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.1719358809985887,
+      "minimum_enclosing_center_uv_um": [
+        10.604146991527948,
+        -4.3312776104980335
+      ],
+      "minimum_enclosing_radius_um": 125.0,
+      "envelope_center_uv_um": [
+        10.604146991527948,
+        -4.3312776104980335
+      ],
+      "envelope_containing_radius_um": 125.0,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 114.26297181462796,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 18,
+      "cores": {
+        "ch1": {
+          "r_um": 4.824211537128987,
+          "alpha_rad": 0.44263970789310036,
+          "alpha_deg": 25.361387107178242
+        },
+        "ch2": {
+          "r_um": 106.6393232887997,
+          "alpha_rad": 1.0929048850443825,
+          "alpha_deg": 62.61883732227353
+        },
+        "ch4": {
+          "r_um": 114.18655881961473,
+          "alpha_rad": 3.278169868289524,
+          "alpha_deg": 187.8252979799467
+        },
+        "ch6": {
+          "r_um": 100.80562887091486,
+          "alpha_rad": 5.3464536039818125,
+          "alpha_deg": 306.3292268706663
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 13.928209334392653,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 30.347851789287024
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 18.193988380740077
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 20.30293555077946
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 7.470639685215443
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 5.480151815875174
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 8.86766708626304
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 2.627327896724387
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.6645709175889127
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -47.3265275850535
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -41.62487225710875
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -28.046698991306677
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -21.824214162819278
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -17.14491546358536
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -13.931562258294212
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -9.791887360423896
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -7.938647792079267
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 116.73720431233887
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 72.69376007126861
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 56.94927277219842
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 27.543315491117283
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 21.941768647716692
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 20.024584319865028
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 11.811181777881648
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 9.647803586314442
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 13.645966782685907,
+        "ch2": 7.7944408818219655,
+        "ch4": 12.725325894648083,
+        "ch6": 19.15934299059508
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.1336468714299848,
+      "minimum_enclosing_center_uv_um": [
+        3.004073566577745,
+        -7.18071483143455
+      ],
+      "minimum_enclosing_radius_um": 107.55442206088472,
+      "envelope_center_uv_um": [
+        3.004073566577745,
+        -7.18071483143455
+      ],
+      "envelope_containing_radius_um": 107.55442206088472,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000001,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 19,
+      "cores": {
+        "ch1": {
+          "r_um": 10.519138089121004,
+          "alpha_rad": 5.873038000032659,
+          "alpha_deg": 336.5002903218252
+        },
+        "ch2": {
+          "r_um": 119.52456515668261,
+          "alpha_rad": 0.5031559468531908,
+          "alpha_deg": 28.828712191596587
+        },
+        "ch4": {
+          "r_um": 133.79072847739465,
+          "alpha_rad": 2.612307702760852,
+          "alpha_deg": 149.67420615771238
+        },
+        "ch6": {
+          "r_um": 120.99778429364393,
+          "alpha_rad": 4.721694331355666,
+          "alpha_deg": 270.53315733752487
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 82.89774826246565,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 69.7923016971381
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 64.44948045469874
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 62.612669386730815
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 32.907564964520134
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 28.1680477909891
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 22.391417635930495
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 15.389992042824073
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 10.983699603672443
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -18.510393675845453
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -10.30517943058672
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -6.241442209266743
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -10.023093517915706
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -7.750732787902942
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -7.823190289343212
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -7.155856722076905
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -5.735131328820472
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 101.5004505311822
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 79.70835595922084
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 51.48997587316172
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 24.43789871486687
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 15.940981264467613
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 14.686618481844333
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 7.3387589811288265
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 4.579297234030294
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 3.2796900132726785,
+        "ch2": 90.32290693352284,
+        "ch4": 103.27979210839773,
+        "ch6": 93.01853216692714
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.502702346173435e-14,
+      "matrix_condition_number": 1.0963511347874768,
+      "minimum_enclosing_center_uv_um": [
+        3.6709000286563627,
+        -8.040620057061417
+      ],
+      "minimum_enclosing_radius_um": 125.0,
+      "envelope_center_uv_um": [
+        3.6709000286563627,
+        -8.040620057061417
+      ],
+      "envelope_containing_radius_um": 125.0,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 113.4020317625665,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 20,
+      "cores": {
+        "ch1": {
+          "r_um": 6.598807374668875,
+          "alpha_rad": 3.6951404747488206,
+          "alpha_deg": 211.71595391107476
+        },
+        "ch2": {
+          "r_um": 125.03020028341157,
+          "alpha_rad": 1.399775425710731,
+          "alpha_deg": 80.20122415935299
+        },
+        "ch4": {
+          "r_um": 124.99127450013752,
+          "alpha_rad": 3.515765071908991,
+          "alpha_deg": 201.43850037989355
+        },
+        "ch6": {
+          "r_um": 124.9792437027734,
+          "alpha_rad": 5.64900328355151,
+          "alpha_deg": 323.6640466030454
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 55.00168753655529,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 55.305996251953744
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 48.21767656729629
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 45.1188426988104
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 26.789233941987927
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 20.91651188062393
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 16.745960229614838
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 11.702993912459261
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 8.535550921367921
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -69.44942710148996
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -50.53126158240003
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -36.91986534951059
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -29.715018101479494
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -21.154265911632688
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -17.153154411145692
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -12.583882095824606
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -9.95653953671546
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 144.36492471025477
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 103.70636922054551
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 76.17623809382835
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 38.48552505714256
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 27.501036676662252
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 24.35382034286592
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 13.51440889192183
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 9.67279594959692
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 5.604043724212058,
+        "ch2": 62.28840700997882,
+        "ch4": 64.02860686568944,
+        "ch6": 63.951771487666925
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.0372679626740935,
+      "minimum_enclosing_center_uv_um": [
+        0.03114125853383598,
+        -0.0028580581036479185
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000038,
+      "envelope_center_uv_um": [
+        0.03114125853383598,
+        -0.0028580581036479185
+      ],
+      "envelope_containing_radius_um": 125.00000000000038,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 118.50419131367558,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 21,
+      "cores": {
+        "ch1": {
+          "r_um": 16.291743511239723,
+          "alpha_rad": 5.902692870623926,
+          "alpha_deg": 338.19938924871144
+        },
+        "ch2": {
+          "r_um": 118.92977291525976,
+          "alpha_rad": 0.6038375350974512,
+          "alpha_deg": 34.59734227266667
+        },
+        "ch4": {
+          "r_um": 134.35016986505704,
+          "alpha_rad": 2.681798508513931,
+          "alpha_deg": 153.65573604232722
+        },
+        "ch6": {
+          "r_um": 121.32249460085735,
+          "alpha_rad": 4.77318959646429,
+          "alpha_deg": 273.48361869315636
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 59.488417594988675,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 44.11424264399938
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 26.151939776304054
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 18.194570629958363
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 16.9170311922152
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 14.266529169818465
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 10.300389676172456
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 6.964653862847199
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 4.143618841240863
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 11.551792846132269
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 3.3993571328475234
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 3.676448959902091
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -0.34826773184316884
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 1.5943261279516365
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 3.234771911255625
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 0.7351106484030794
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -0.20977439088001107
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 12.577078935038804
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 18.0071957620983
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 6.76152846392463
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 7.322096965722093
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 3.8987901475694207
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 4.467401603710076
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.4264010696199882
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.632735308478854
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.7282276214011034,
+        "ch2": 64.54823459817331,
+        "ch4": 71.26336600102537,
+        "ch6": 70.02215479640667
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 2.0734733982992197e-14,
+      "matrix_condition_number": 1.076390756079622,
+      "minimum_enclosing_center_uv_um": [
+        2.8185379668288992,
+        -9.047964691865957
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000091,
+      "envelope_center_uv_um": [
+        2.8185379668288992,
+        -9.047964691865957
+      ],
+      "envelope_containing_radius_um": 125.00000000000091,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 110.74801595030324,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 22,
+      "cores": {
+        "ch1": {
+          "r_um": 9.050753682879607,
+          "alpha_rad": 5.240391394850091,
+          "alpha_deg": 300.25230992158475
+        },
+        "ch2": {
+          "r_um": 120.91435742685125,
+          "alpha_rad": 1.6724594230370138,
+          "alpha_deg": 95.82486634690562
+        },
+        "ch4": {
+          "r_um": 125.35458162372922,
+          "alpha_rad": 3.649081725473943,
+          "alpha_deg": 209.07698196797304
+        },
+        "ch6": {
+          "r_um": 128.09835772885026,
+          "alpha_rad": 5.869008015369876,
+          "alpha_deg": 336.2693892091453
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 53.79553503773462,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 35.77204050995389
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 28.490922209126254
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 26.328762356511128
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 18.742886095406583
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 17.61354578768149
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 12.375625753320826
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 9.589180656636193
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 7.336337690934709
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -24.50918471656386
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -16.171966448966863
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -10.39522295592172
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -11.216069629797346
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -6.415394681625725
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -5.031458462725923
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -4.643421443519541
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -3.6949621129758947
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 79.65762263875827
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 64.42284994345975
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 42.23929049543968
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 25.6642479007592
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 17.365675899974747
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 15.637475192830394
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 9.155356845385601
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 6.758368177395744
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 13.590182444474914,
+        "ch2": 62.190712657556965,
+        "ch4": 60.85941126621977,
+        "ch6": 61.80285285150459
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.1210416564440886,
+      "minimum_enclosing_center_uv_um": [
+        -3.9272464807405782,
+        1.6951655554798604
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000007,
+      "envelope_center_uv_um": [
+        -3.9272464807405782,
+        1.6951655554798604
+      ],
+      "envelope_containing_radius_um": 125.00000000000007,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 120.89493247432269,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 23,
+      "cores": {
+        "ch1": {
+          "r_um": 20.29311340634918,
+          "alpha_rad": 5.806681588747799,
+          "alpha_deg": 332.69834801156844
+        },
+        "ch2": {
+          "r_um": 117.16906082062623,
+          "alpha_rad": 0.6473668058347979,
+          "alpha_deg": 37.09138577119896
+        },
+        "ch4": {
+          "r_um": 135.87418038132128,
+          "alpha_rad": 2.687539913800511,
+          "alpha_deg": 153.98469433372236
+        },
+        "ch6": {
+          "r_um": 121.41587124009472,
+          "alpha_rad": 4.799899930197702,
+          "alpha_deg": 275.01400808546674
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 42.271785672715595,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 18.131549541766585
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 8.878902737185243
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 6.033221265479853
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 5.976208568324654
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 7.206165123274426
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 6.800584550752063
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 3.98518880208333
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 2.454058793339413
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 13.43183987878362
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -1.7082545076607025
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -1.3883659638554349
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -3.3139829282407502
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -1.0495393172554375
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 0.09022786945639745
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -0.9211737678964717
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.4602253628060056
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 16.636005026756614
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 21.500249614630007
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 4.959285960477878
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 3.650732999722632
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 2.1967683015046098
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 3.2096964820533054
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 1.6559378922480972
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.3310151941635908
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 4.24948636149206,
+        "ch2": 43.10400314609783,
+        "ch4": 52.08855296287822,
+        "ch6": 50.58047928319903
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.0959804415458747,
+      "minimum_enclosing_center_uv_um": [
+        2.150697637516388,
+        -11.088774008148121
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000003,
+      "envelope_center_uv_um": [
+        2.150697637516388,
+        -11.088774008148121
+      ],
+      "envelope_containing_radius_um": 125.00000000000003,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 109.93232438773492,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 24,
+      "cores": {
+        "ch1": {
+          "r_um": 14.897775331516318,
+          "alpha_rad": 5.4554917208917555,
+          "alpha_deg": 312.5766507756601
+        },
+        "ch2": {
+          "r_um": 114.91818402053532,
+          "alpha_rad": 1.758453662200483,
+          "alpha_deg": 100.75197331341101
+        },
+        "ch4": {
+          "r_um": 125.57373870440986,
+          "alpha_rad": 3.60894162108662,
+          "alpha_deg": 206.77712339736487
+        },
+        "ch6": {
+          "r_um": 131.53486420578022,
+          "alpha_rad": 5.931131110115924,
+          "alpha_deg": 339.8287803483852
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 40.224669581382074,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 31.841155936355953
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 19.081066667143336
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 15.391807011129094
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 14.730093624988914
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 12.885771878915998
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 13.803540489278546
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 8.813269300839934
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 6.371106906148416
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -23.042458471351587
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -28.165922986228093
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -21.696569532918996
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -17.917940314040123
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -12.60207442357376
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -8.109307716793822
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -7.697269197599065
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -6.378524185956622
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 47.631421742973274
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 42.337182281496595
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 21.176186617671746
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 19.101042505639768
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 10.871998294040708
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 10.998188587881167
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 6.557629152233215
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 4.9090548002208925
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.3637722256976406,
+        "ch2": 40.71150065862954,
+        "ch4": 45.84689814727052,
+        "ch6": 52.03022580180376
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.4210854715202004e-14,
+      "matrix_condition_number": 1.2685088288643525,
+      "minimum_enclosing_center_uv_um": [
+        -9.543849477497147,
+        3.707437147017298
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000033,
+      "envelope_center_uv_um": [
+        -9.543849477497147,
+        3.707437147017298
+      ],
+      "envelope_containing_radius_um": 125.00000000000033,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 118.48728236597405,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 25,
+      "cores": {
+        "ch1": {
+          "r_um": 16.37193466081372,
+          "alpha_rad": 5.856763947794045,
+          "alpha_deg": 335.5678558129772
+        },
+        "ch2": {
+          "r_um": 116.13523452256813,
+          "alpha_rad": 0.6729957363717493,
+          "alpha_deg": 38.559815324400226
+        },
+        "ch4": {
+          "r_um": 136.13084768624665,
+          "alpha_rad": 2.7293145298327004,
+          "alpha_deg": 156.37820352314634
+        },
+        "ch6": {
+          "r_um": 121.6600661698877,
+          "alpha_rad": 4.869251842942778,
+          "alpha_deg": 278.9875799869192
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 18.85935654668173,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 43.97361800515433
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 23.668818851169025
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 20.816200657894694
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 10.895046256703017
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 9.030756178493784
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 11.034636219520747
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 7.17117874710648
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 5.388201414233572
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 22.958661408702355
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 6.810483376541481
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 7.696864116622725
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 1.496350323712377
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 2.0944575319761967
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 3.3964968013192394
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 2.5287017598201187
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 1.2725015068620176
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 33.660094862039365
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 25.48970449131166
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 17.783355712890607
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 7.438117935812714
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 4.71544053819444
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 5.731409761562044
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 3.345986152289643
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 3.2027300666360072
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.4444124821572877,
+        "ch2": 19.54028679108203,
+        "ch4": 23.99987342797957,
+        "ch6": 21.4221715192407
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 2.1316282072803006e-14,
+      "matrix_condition_number": 1.1243328665403307,
+      "minimum_enclosing_center_uv_um": [
+        0.9825714110018289,
+        -11.782829885305617
+      ],
+      "minimum_enclosing_radius_um": 125.00000000002132,
+      "envelope_center_uv_um": [
+        0.9825714110018289,
+        -11.782829885305617
+      ],
+      "envelope_containing_radius_um": 125.00000000002132,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 109.67479250599678,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 26,
+      "cores": {
+        "ch1": {
+          "r_um": 6.888712228948328,
+          "alpha_rad": 5.46416439799418,
+          "alpha_deg": 313.07355857070877
+        },
+        "ch2": {
+          "r_um": 107.04181423645815,
+          "alpha_rad": 1.7757974658987818,
+          "alpha_deg": 101.74570006602693
+        },
+        "ch4": {
+          "r_um": 126.28957730815242,
+          "alpha_rad": 3.62693986596335,
+          "alpha_deg": 207.80834686744447
+        },
+        "ch6": {
+          "r_um": 135.1144583568441,
+          "alpha_rad": 5.976024438781677,
+          "alpha_deg": 342.4009786092265
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 25.36828867890913,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 39.82504864391467
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 22.381626667910542
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 17.853151658204073
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 11.282184629015866
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 11.2045006818423
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 11.303055538875999
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 7.72632191973503
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 5.8514716630443
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -2.40159761772573
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -12.189896223188532
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -8.28254948113226
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -10.337595258112305
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -7.376650308571935
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -5.666719539859339
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -5.198576153330668
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -5.658768335102273
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 37.15266524251114
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 34.16154656188891
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 18.94607551807594
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 9.32734459358364
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 6.048107272965476
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 7.221336764674017
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 3.7874271223538787
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 3.6816751518791664
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 6.625658909140878,
+        "ch2": 20.79029628759991,
+        "ch4": 29.809885251785825,
+        "ch6": 34.77693556877561
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.3577056447026625,
+      "minimum_enclosing_center_uv_um": [
+        -17.053631706403294,
+        6.0769644182691485
+      ],
+      "minimum_enclosing_radius_um": 125.0000000000002,
+      "envelope_center_uv_um": [
+        -17.053631706403294,
+        6.0769644182691485
+      ],
+      "envelope_containing_radius_um": 125.0000000000002,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 112.98298019853098,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 27,
+      "cores": {
+        "ch1": {
+          "r_um": 5.600852893051331,
+          "alpha_rad": 5.508497124407204,
+          "alpha_deg": 315.61363668848315
+        },
+        "ch2": {
+          "r_um": 118.38924530605367,
+          "alpha_rad": 0.6634484622776983,
+          "alpha_deg": 38.012796812956516
+        },
+        "ch4": {
+          "r_um": 137.50103825097457,
+          "alpha_rad": 2.825112367996999,
+          "alpha_deg": 161.86701533643793
+        },
+        "ch6": {
+          "r_um": 116.66574595040724,
+          "alpha_rad": 5.0026855231342235,
+          "alpha_deg": 286.6327667067874
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 7.84048901534792,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 59.500880495330755
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 33.172826972796784
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 24.785895096628252
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 13.524749575281978
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 7.761160292170981
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 7.8552884727671906
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 4.7618724681713
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.4077736513457975
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 25.875986780642716
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 11.370831362691506
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 9.77008314017789
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 4.866753095461995
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 3.5027499677895344
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 6.728669126590576
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 4.281109825279922
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 3.341176743323436
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 26.43739556990601
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 12.977041292974599
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 11.335081212660825
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 4.7345133222771905
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 2.1227575231481373
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 3.6530856037565007
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.108079904994805
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.9243576947380268
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.3609415445604562,
+        "ch2": 9.214655217004507,
+        "ch4": 8.072643634645278,
+        "ch6": 9.499556884512389
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 7.105427357601002e-15,
+      "matrix_condition_number": 1.2121930844990843,
+      "minimum_enclosing_center_uv_um": [
+        4.848268108630465,
+        -11.570839923098049
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000121,
+      "envelope_center_uv_um": [
+        4.848268108630465,
+        -11.570839923098049
+      ],
+      "envelope_containing_radius_um": 125.00000000000121,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 111.79916324366887,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 28,
+      "cores": {
+        "ch1": {
+          "r_um": 4.161719061534758,
+          "alpha_rad": 4.928842478199826,
+          "alpha_deg": 282.4018718856515
+        },
+        "ch2": {
+          "r_um": 105.5178017970753,
+          "alpha_rad": 1.9052547714522088,
+          "alpha_deg": 109.16305730137381
+        },
+        "ch4": {
+          "r_um": 120.56512386328748,
+          "alpha_rad": 3.6878993301740683,
+          "alpha_deg": 211.3010668880974
+        },
+        "ch6": {
+          "r_um": 140.6777018053458,
+          "alpha_rad": 6.046630717003632,
+          "alpha_deg": 346.44642035847096
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 12.699573026575157,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 59.02561020987564
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 32.910713496589445
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 27.97330193865104
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 15.145474629588312
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 10.000291960262988
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 9.956079392583735
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 6.495132753654541
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 3.460001498272236
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 24.61180069364398
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 9.534113735656717
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 8.84904859861429
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 4.709532057933176
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": 3.9171391019206974
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 6.477900580367809
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 5.011025428416141
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 4.084788606611901
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 17.98954067748833
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 7.478623264319085
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 6.556224620714921
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 0.8517514804176528
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -0.55304206870065
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 1.4637639604035142
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 1.1954918535144883
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 2.6642299168976074
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 6.988059911421441,
+        "ch2": 9.96754727020522,
+        "ch4": 16.800730812993866,
+        "ch6": 14.651521575221754
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 7.105427357601002e-15,
+      "matrix_condition_number": 1.4385980371137232,
+      "minimum_enclosing_center_uv_um": [
+        -15.926021801324055,
+        12.92722404894001
+      ],
+      "minimum_enclosing_radius_um": 125.00000000001381,
+      "envelope_center_uv_um": [
+        -15.926021801324055,
+        12.92722404894001
+      ],
+      "envelope_containing_radius_um": 125.00000000001381,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 109.6516728276785,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 29,
+      "cores": {
+        "ch1": {
+          "r_um": 2.5487054652190353,
+          "alpha_rad": 5.007772415994741,
+          "alpha_deg": 286.9242241985302
+        },
+        "ch2": {
+          "r_um": 120.80839145165163,
+          "alpha_rad": 0.6200928042494125,
+          "alpha_deg": 35.528700589923254
+        },
+        "ch4": {
+          "r_um": 135.34064861026567,
+          "alpha_rad": 2.7976911665249666,
+          "alpha_deg": 160.29589622291257
+        },
+        "ch6": {
+          "r_um": 116.88843367608825,
+          "alpha_rad": 4.95743448033053,
+          "alpha_deg": 284.0400729355699
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 12.088581376916123,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 27.98258764503957
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 16.57161575427158
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 14.490605876910793
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 7.962063219420281
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 6.000236014915859
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 5.414201539728137
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 4.749529803240746
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 2.4094184819799196
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 9.410362072589662
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 0.721701948453841
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 1.2040655296968998
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": 0.33757716049382325
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -1.0238716091173163
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": 2.552100998198922
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 1.794487369218062
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 1.5586151213603423
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": -1.7879243530979445
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": -4.614586252802714
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": -1.5588199391084718
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": -4.28907405695267
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": -3.9981192129629877
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": -1.4366841422501881
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": -0.9957099555271846
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": -0.6697710822610395
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.9024857552403682,
+        "ch2": 9.023840356829838,
+        "ch4": 15.497306137997661,
+        "ch6": 16.103401952880326
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.5888218580782548e-14,
+      "matrix_condition_number": 1.190714287202459,
+      "minimum_enclosing_center_uv_um": [
+        5.925024357131847,
+        -8.890143621356955
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000078,
+      "envelope_center_uv_um": [
+        5.925024357131847,
+        -8.890143621356955
+      ],
+      "envelope_containing_radius_um": 125.00000000000078,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 114.34302853706016,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 30,
+      "cores": {
+        "ch1": {
+          "r_um": 5.20870609430406,
+          "alpha_rad": 4.364046427052058,
+          "alpha_deg": 250.0414418692294
+        },
+        "ch2": {
+          "r_um": 108.80724211857515,
+          "alpha_rad": 1.9061857951311478,
+          "alpha_deg": 109.21640102880376
+        },
+        "ch4": {
+          "r_um": 118.29324934883631,
+          "alpha_rad": 3.7123091254550125,
+          "alpha_deg": 212.69964513647386
+        },
+        "ch6": {
+          "r_um": 141.27403639599353,
+          "alpha_rad": 6.040550125617491,
+          "alpha_deg": 346.0980281351015
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 12.432570356727947,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 54.269003992682514
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 32.71599390943949
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 25.083846876571545
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 12.79294261307824
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 7.696714147405875
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 7.251151557020716
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 5.21444110138178
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.8567447951811462
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -9.913281896051203
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -12.990170391330917
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -10.021261861831885
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -7.4578078462001285
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -7.2995643640946115
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -1.7806515760542303
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -2.0861474323941596
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.7575997748840395
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 24.457081332358495
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 11.10173325633672
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 10.858222345571635
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 3.3570526559013403
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 1.2198799127890576
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 2.289321343609737
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 0.9622341858873509
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 0.6155457875787712
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 3.3681940251812366,
+        "ch2": 12.818695249044284,
+        "ch4": 13.21374768559613,
+        "ch6": 16.370962583862557
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 2.842170943040401e-14,
+      "matrix_condition_number": 1.3951884601658309,
+      "minimum_enclosing_center_uv_um": [
+        -11.856716449675005,
+        14.102501605585495
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000827,
+      "envelope_center_uv_um": [
+        -11.856716449675005,
+        14.102501605585495
+      ],
+      "envelope_containing_radius_um": 125.00000000000827,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 112.89309684293025,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 31,
+      "cores": {
+        "ch1": {
+          "r_um": 2.325533316581355,
+          "alpha_rad": 0.22320354070341364,
+          "alpha_deg": 12.788620854682083
+        },
+        "ch2": {
+          "r_um": 117.3849776769915,
+          "alpha_rad": 0.5782812466698845,
+          "alpha_deg": 33.13307480574807
+        },
+        "ch4": {
+          "r_um": 130.32875570852056,
+          "alpha_rad": 2.7810545030242886,
+          "alpha_deg": 159.34268561914436
+        },
+        "ch6": {
+          "r_um": 112.69994300917222,
+          "alpha_rad": 4.903281252056974,
+          "alpha_deg": 280.9373215084866
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 17.092922243956366,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 34.2269536306165
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 20.971591867131284
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 22.535719738656123
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 6.874039328309888
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 4.517848120154144
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 5.027006916222911
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 4.883807146990747
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.9515211564780977
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 13.27701676943196
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 1.6349484567684782
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -0.9723801210702346
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -2.6585614239728046
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -6.428731435063718
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -3.4098825054968236
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": 0.27161092660150726
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -4.066535202614981
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 45.42122548715223
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 26.946291617035676
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 19.511727725758263
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 8.389083591438629
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 4.005759910300932
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 5.151983887444283
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.2971874458968173
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 0.9748571059282899
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.8524142205224674,
+        "ch2": 5.480663988301688,
+        "ch4": 21.12850519648433,
+        "ch6": 26.24479215609885
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.1853872950019935,
+      "minimum_enclosing_center_uv_um": [
+        6.522728845604015,
+        -7.817474172946362
+      ],
+      "minimum_enclosing_radius_um": 120.7591668522266,
+      "envelope_center_uv_um": [
+        6.522728845604015,
+        -7.817474172946362
+      ],
+      "envelope_containing_radius_um": 120.7591668522266,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 112.79902069714461,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 32,
+      "cores": {
+        "ch1": {
+          "r_um": 3.0915968642860925,
+          "alpha_rad": 5.288550275830106,
+          "alpha_deg": 303.01161054781244
+        },
+        "ch2": {
+          "r_um": 113.88330363851617,
+          "alpha_rad": 1.852632779364173,
+          "alpha_deg": 106.14803924515854
+        },
+        "ch4": {
+          "r_um": 121.4009710427492,
+          "alpha_rad": 3.734230087766312,
+          "alpha_deg": 213.95562375977667
+        },
+        "ch6": {
+          "r_um": 136.37944461115566,
+          "alpha_rad": 5.993253401324765,
+          "alpha_deg": 343.3881254483344
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 20.44728916348987,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 42.603320606996704
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 28.624753689197707
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 25.998090076185733
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 11.212904581333126
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 8.977887957066294
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 8.045708955467084
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 7.663036221425802
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 4.511622436892026
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -21.38542062668027
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -21.133520005565916
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -17.7736419776676
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -14.148406245389852
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -13.650061219218442
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -9.365778784770963
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -4.572969762435397
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -6.818096589616781
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 41.902100983011515
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 27.78541167530363
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 21.160462045689275
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 10.840670477118968
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 6.736801508185103
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 7.843553619306367
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 4.948503328545088
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 3.7992555390534766
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 12.206239004919597,
+        "ch2": 21.02546370345748,
+        "ch4": 18.142367345863732,
+        "ch6": 27.425510916637265
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.2656133584003295,
+      "minimum_enclosing_center_uv_um": [
+        -8.661306395552941,
+        9.422322565154364
+      ],
+      "minimum_enclosing_radius_um": 125.00000000000003,
+      "envelope_center_uv_um": [
+        -8.661306395552941,
+        9.422322565154364
+      ],
+      "envelope_containing_radius_um": 125.00000000000003,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 116.84539830480195,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 33,
+      "cores": {
+        "ch1": {
+          "r_um": 3.694469963537217,
+          "alpha_rad": 2.2188885660366493,
+          "alpha_deg": 127.13295004373526
+        },
+        "ch2": {
+          "r_um": 116.42387189161624,
+          "alpha_rad": 0.5027412547424528,
+          "alpha_deg": 28.804952083853927
+        },
+        "ch4": {
+          "r_um": 121.83099044211038,
+          "alpha_rad": 2.772871034879655,
+          "alpha_deg": 158.87380743267713
+        },
+        "ch6": {
+          "r_um": 103.88058643458228,
+          "alpha_rad": 4.846158509107947,
+          "alpha_deg": 277.66442942329667
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 13.91314001021171,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 50.65276919031966
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 27.585387744491936
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 23.016536937040453
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 5.999638484074496
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 2.5132910747211095
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 2.4415431001261148
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 2.757749204282413
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 0.5538160783531025
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 27.851053417530846
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 7.925036420380229
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 2.19951767519296
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -3.6979015962577164
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -6.037859366215311
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -3.1141178336686046
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -3.7417418806213223
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -3.1499211795252187
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 52.4430467903269
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 29.1560106035127
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 20.347370820886972
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 9.88119452662723
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 6.71201352719907
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 7.319004007824115
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 5.993956674168973
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 4.629022934857515
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.685982094041927,
+        "ch2": 4.306354617900234,
+        "ch4": 19.387940450033597,
+        "ch6": 19.304155899089245
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 1.7763568394002505e-15,
+      "matrix_condition_number": 1.2286631099346985,
+      "minimum_enclosing_center_uv_um": [
+        10.677132840782498,
+        -3.590104738752586
+      ],
+      "minimum_enclosing_radius_um": 114.96095589359781,
+      "envelope_center_uv_um": [
+        10.677132840782498,
+        -3.590104738752586
+      ],
+      "envelope_containing_radius_um": 114.96095589359781,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 107.11250897097635,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 34,
+      "cores": {
+        "ch1": {
+          "r_um": 6.753660576589932,
+          "alpha_rad": 2.840136231247416,
+          "alpha_deg": 162.72781929266853
+        },
+        "ch2": {
+          "r_um": 105.79524601219403,
+          "alpha_rad": 1.7368264120022665,
+          "alpha_deg": 99.51282315457973
+        },
+        "ch4": {
+          "r_um": 118.58995391090059,
+          "alpha_rad": 3.694203227497413,
+          "alpha_deg": 211.66225359920887
+        },
+        "ch6": {
+          "r_um": 132.42965572903987,
+          "alpha_rad": 5.943722704219695,
+          "alpha_deg": 340.5502255478731
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 16.197422488671716,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 55.841364875233644
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 32.592754216828176
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 28.06679078588194
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 8.35319333604748
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 4.713706221256878
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 4.711684295008737
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 4.829924528789069
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.3721014361043786
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 8.852542499937378
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -3.053588591632271
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -4.114359420465672
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -5.439007592841801
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -6.112425200168814
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -2.079679374146722
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -0.11631002711144264
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 0.25100627689514937
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 66.81360123612589
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 38.052278330794586
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 27.042530138492644
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 13.528439273666907
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 8.122002497815053
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 7.59498324980268
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 4.642219724591577
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 3.064411923116183
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.7974944975222185,
+        "ch2": 22.532628028062312,
+        "ch4": 6.143696223299555,
+        "ch6": 22.274103270552597
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.257718301682261,
+      "minimum_enclosing_center_uv_um": [
+        -12.99361466905195,
+        8.736893836005404
+      ],
+      "minimum_enclosing_radius_um": 120.2282913287136,
+      "envelope_center_uv_um": [
+        -12.99361466905195,
+        8.736893836005404
+      ],
+      "envelope_containing_radius_um": 120.2282913287136,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 102.92847611927355,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 35,
+      "cores": {
+        "ch1": {
+          "r_um": 3.7095181096254364,
+          "alpha_rad": 1.8384872773249237,
+          "alpha_deg": 105.33756167921587
+        },
+        "ch2": {
+          "r_um": 117.95847317527982,
+          "alpha_rad": 0.40702313571894466,
+          "alpha_deg": 23.320707840876036
+        },
+        "ch4": {
+          "r_um": 123.57365648048736,
+          "alpha_rad": 2.6819828110627535,
+          "alpha_deg": 153.66629580052825
+        },
+        "ch6": {
+          "r_um": 105.14687186928235,
+          "alpha_rad": 4.744819822840947,
+          "alpha_deg": 271.85815039879725
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 16.70603961900374,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 41.41226322693208
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 21.626643997302153
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 14.324318144712601
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 2.47056949773483
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 0.08439657006430587
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 0.10113224320347669
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.425437644675924
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -2.4430546447308403
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -6.060499068689271
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -7.208489160010267
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -9.34384817100433
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -10.404563244478213
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -7.806323278790284
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -5.280454715568872
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -4.195696456841956
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.2816477246383473
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 51.650604071644665
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 27.920664515017766
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 17.074540082146143
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 5.688909948224861
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 1.0430682146990817
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 2.65806745101226
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 0.9243191114092906
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.2371736414292176
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 1.136264590218018,
+        "ch2": 16.4197986778701,
+        "ch4": 25.817018407493993,
+        "ch6": 13.377133987264932
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 1.3322676295501878e-15,
+      "matrix_condition_number": 1.2307963438036407,
+      "minimum_enclosing_center_uv_um": [
+        11.2663717689693,
+        -2.677850221832556
+      ],
+      "minimum_enclosing_radius_um": 116.51707210589208,
+      "envelope_center_uv_um": [
+        11.2663717689693,
+        -2.677850221832556
+      ],
+      "envelope_containing_radius_um": 116.51707210589208,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 108.7576439757092,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 36,
+      "cores": {
+        "ch1": {
+          "r_um": 4.625252451140895,
+          "alpha_rad": 2.3009651659221855,
+          "alpha_deg": 131.83559281396043
+        },
+        "ch2": {
+          "r_um": 110.44159084753328,
+          "alpha_rad": 1.5674671593742608,
+          "alpha_deg": 89.80925275750512
+        },
+        "ch4": {
+          "r_um": 128.36008958173005,
+          "alpha_rad": 3.618510086311313,
+          "alpha_deg": 207.32535607115747
+        },
+        "ch6": {
+          "r_um": 129.04508502179328,
+          "alpha_rad": 5.8431946183611885,
+          "alpha_deg": 334.7903905056519
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 14.73665991920656,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 45.3621649500898
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 24.842935738673194
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 19.113987848225875
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 5.9179760191809105
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 2.7883492922955444
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 2.5786997151200737
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 1.5922592888610478
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -0.03088313059243397
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": -9.75920372643622
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -13.39010876755898
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -13.049503633419377
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -12.09926545444468
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -10.362933516157852
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -6.82797044822321
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -5.510839812856318
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.414294821631276
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 69.94599677214389
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 38.25325177496778
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 25.067075368300177
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 10.38148972814991
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 4.477244194547081
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 5.348987108840983
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.685115618429276
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 2.195465365669489
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 2.490632439960327,
+        "ch2": 17.84127385419002,
+        "ch4": 9.418218233056123,
+        "ch6": 21.341495845435446
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.194378984360677,
+      "minimum_enclosing_center_uv_um": [
+        -13.041611927875152,
+        0.6056792018459546
+      ],
+      "minimum_enclosing_radius_um": 123.48282010688222,
+      "envelope_center_uv_um": [
+        -13.041611927875152,
+        0.6056792018459546
+      ],
+      "envelope_containing_radius_um": 123.48282010688222,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 107.0505743333135,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 37,
+      "cores": {
+        "ch1": {
+          "r_um": 4.472658150102091,
+          "alpha_rad": 1.8616156591210937,
+          "alpha_deg": 106.6627203431036
+        },
+        "ch2": {
+          "r_um": 100.46951999513749,
+          "alpha_rad": 0.4181522396733799,
+          "alpha_deg": 23.958358527227528
+        },
+        "ch4": {
+          "r_um": 105.790838603789,
+          "alpha_rad": 2.6432509992465802,
+          "alpha_deg": 151.4471264505666
+        },
+        "ch6": {
+          "r_um": 95.67750806975432,
+          "alpha_rad": 4.737407976696362,
+          "alpha_deg": 271.4334828963122
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 19.96812809736447,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 76.80543075651785
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 41.75753147482021
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 29.06076531661184
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 12.41049681894876
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 6.913085568149622
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 6.357828776041671
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 3.2600459346064716
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 1.3349324247262686
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 39.785707299841164
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 18.439733394058276
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 4.305184605609939
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -6.125132242838537
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -4.3186262093562595
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -4.2758873122894965
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -4.329776623875734
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -1.6584537857010382
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 79.05825576341216
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 44.75583018030643
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 28.856569177964143
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 10.593211157082116
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 3.510109230324087
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 4.368774958209502
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.6422643265235566
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 2.5657653808593617
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 8.254530463854168,
+        "ch2": 20.940149705998493,
+        "ch4": 28.216640364308773,
+        "ch6": 17.090892970057507
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 3.1977506913340456e-14,
+      "matrix_condition_number": 1.1559189987760332,
+      "minimum_enclosing_center_uv_um": [
+        5.210650596869243,
+        -2.695160471905879
+      ],
+      "minimum_enclosing_radius_um": 100.98650486934017,
+      "envelope_center_uv_um": [
+        5.210650596869243,
+        -2.695160471905879
+      ],
+      "envelope_containing_radius_um": 100.98650486934017,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000603,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 38,
+      "cores": {
+        "ch1": {
+          "r_um": 3.4543398336339886,
+          "alpha_rad": 3.292584271785171,
+          "alpha_deg": 188.65118246444587
+        },
+        "ch2": {
+          "r_um": 101.78252136815401,
+          "alpha_rad": 1.5398214189908068,
+          "alpha_deg": 88.22526851201881
+        },
+        "ch4": {
+          "r_um": 120.87470571681858,
+          "alpha_rad": 3.540200360216973,
+          "alpha_deg": 202.8385392711263
+        },
+        "ch6": {
+          "r_um": 124.1633661019928,
+          "alpha_rad": 5.830576004384426,
+          "alpha_deg": 334.06739718147855
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 19.328893037909197,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 53.065059796942364
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 26.444227729842165
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 17.203244214808326
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 4.844129846207461
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 2.2940980233711024
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 1.8775085246089382
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": -0.03284191956587173
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": -1.9330365182182097
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 1.4011763431800144
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": -1.1811513615599372
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": -9.092961628953788
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -13.1164990442584
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -7.583677577634647
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -7.450857325501872
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -6.0288833973463465
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": -2.609478442209334
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 66.10912015339095
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 37.465051861524856
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 24.10001331426875
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 8.992821845386521
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 2.6306400960257807
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 3.478369602241692
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.067111711476337
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.929820070029114
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 12.170862506723541,
+        "ch2": 12.686359757347207,
+        "ch4": 17.921410980276804,
+        "ch6": 29.396833753133095
+      },
+      "constraint_solver": "unconstrained_feasible",
+      "centroid_error_um": 0.0,
+      "matrix_condition_number": 1.2693309197741747,
+      "minimum_enclosing_center_uv_um": [
+        -15.300535489848102,
+        1.2999503934181218
+      ],
+      "minimum_enclosing_radius_um": 117.04888985649333,
+      "envelope_center_uv_um": [
+        -15.300535489848102,
+        1.2999503934181218
+      ],
+      "envelope_containing_radius_um": 117.04888985649333,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 102.46396871356738,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 39,
+      "cores": {
+        "ch1": {
+          "r_um": 1.152328995715554,
+          "alpha_rad": 6.26627038929701,
+          "alpha_deg": 359.03084659451804
+        },
+        "ch2": {
+          "r_um": 109.42515921057301,
+          "alpha_rad": 0.2601850421322829,
+          "alpha_deg": 14.907504806613314
+        },
+        "ch4": {
+          "r_um": 111.03558809996831,
+          "alpha_rad": 2.4646825548370015,
+          "alpha_deg": 141.21590823168128
+        },
+        "ch6": {
+          "r_um": 99.7777936612154,
+          "alpha_rad": 4.5070891563898146,
+          "alpha_deg": 258.237186550315
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 24.507440824012576,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 63.073739497619094
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 35.89837602574206
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 26.833926930147037
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 6.5528373041096275
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 4.8190533844317684
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 3.359989913233381
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 3.420952690972228
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 2.4973180172217067
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 32.62005222930676
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 17.92654542110425
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 5.970552743199359
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -0.29156531816647296
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -1.7915694252483025
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -0.6906657875654926
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -0.49778158269088896
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 0.14108720094584914
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 64.2145410438493
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 34.74314508594915
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 24.387898164636947
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 7.872271114552525
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 2.440275969328702
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 2.7272194668229894
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 2.0586262119113594
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 1.8335230210248001
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 5.029269751235594,
+        "ch2": 32.010123936665856,
+        "ch4": 32.35286089623816,
+        "ch6": 17.48740764456456
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 1.7763568394002505e-14,
+      "matrix_condition_number": 1.1395358595766027,
+      "minimum_enclosing_center_uv_um": [
+        7.357396815308526,
+        0.6608716764838936
+      ],
+      "minimum_enclosing_radius_um": 107.11880566847402,
+      "envelope_center_uv_um": [
+        7.357396815308526,
+        0.6608716764838936
+      ],
+      "envelope_containing_radius_um": 107.11880566847402,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000797,
+      "source_region": "full"
+    },
+    {
+      "wl_id": 40,
+      "cores": {
+        "ch1": {
+          "r_um": 6.579501738619804,
+          "alpha_rad": 4.6750419914104455,
+          "alpha_deg": 267.8601751542542
+        },
+        "ch2": {
+          "r_um": 93.42662826724252,
+          "alpha_rad": 1.4887854672596037,
+          "alpha_deg": 85.3011238743875
+        },
+        "ch4": {
+          "r_um": 102.26575056391782,
+          "alpha_rad": 3.486183016512034,
+          "alpha_deg": 199.74357345632572
+        },
+        "ch6": {
+          "r_um": 102.94043023307952,
+          "alpha_rad": 5.75373267014193,
+          "alpha_deg": 329.66459844567044
+        }
+      },
+      "outer_channels": [
+        2,
+        4,
+        6
+      ],
+      "response_channels": [
+        1,
+        2,
+        4,
+        6
+      ],
+      "fit_rmse_pm": 24.137909551630376,
+      "response_model": "four_core_common",
+      "calibration_common_response_pm": [
+        {
+          "direction_deg": 0,
+          "radius_mm": 200,
+          "b_pm": 62.16562571142522
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 300,
+          "b_pm": 33.40799400492663
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 400,
+          "b_pm": 24.117763537589106
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 600,
+          "b_pm": 5.064538339059721
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 800,
+          "b_pm": 2.631467701982426
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1000,
+          "b_pm": 2.04602115839657
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 1500,
+          "b_pm": 2.535750465475254
+        },
+        {
+          "direction_deg": 0,
+          "radius_mm": 2000,
+          "b_pm": 0.8306740993495971
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 200,
+          "b_pm": 31.110463559052867
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 300,
+          "b_pm": 18.014141266490796
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 400,
+          "b_pm": 6.122371974526731
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 600,
+          "b_pm": -1.2820813895708032
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 800,
+          "b_pm": -2.446837577574851
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1000,
+          "b_pm": -0.9517186999402171
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 1500,
+          "b_pm": -0.559588181782716
+        },
+        {
+          "direction_deg": 120,
+          "radius_mm": 2000,
+          "b_pm": 0.2593761593646161
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 200,
+          "b_pm": 92.87064299978708
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 300,
+          "b_pm": 52.282135889432254
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 400,
+          "b_pm": 35.46813524833858
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 600,
+          "b_pm": 13.868117133864475
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 800,
+          "b_pm": 5.930873285347825
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1000,
+          "b_pm": 5.652969124445532
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 1500,
+          "b_pm": 3.123503692386866
+        },
+        {
+          "direction_deg": 240,
+          "radius_mm": 2000,
+          "b_pm": 2.0841252555339365
+        }
+      ],
+      "fit_rmse_by_channel_pm": {
+        "ch1": 13.928666854754821,
+        "ch2": 23.00794848567702,
+        "ch4": 28.526755164557574,
+        "ch6": 28.16745455311556
+      },
+      "constraint_solver": "joint_centroid_both",
+      "centroid_error_um": 7.105427357601002e-15,
+      "matrix_condition_number": 1.174279707899664,
+      "minimum_enclosing_center_uv_um": [
+        -6.574913735367446,
+        -0.245667460197827
+      ],
+      "minimum_enclosing_radius_um": 100.00000000000182,
+      "envelope_center_uv_um": [
+        -6.574913735367446,
+        -0.245667460197827
+      ],
+      "envelope_containing_radius_um": 100.00000000000182,
+      "envelope_center_identified_from_measurements": false,
+      "minimum_pairwise_distance_um": 100.00000000000009,
+      "source_region": "full"
+    }
+  ],
+  "hardware_geometry": {
+    "sensor_id": "11B8_NeTi",
+    "start_value": 177.0,
+    "end_value": 8.0,
+    "interlaced_grating": true,
+    "samp_dist_preset": [
+      510,
+      524,
+      538,
+      552,
+      566,
+      580,
+      594,
+      608,
+      622,
+      636,
+      650,
+      664,
+      678,
+      692,
+      706,
+      720,
+      820,
+      920,
+      1020,
+      1220
+    ],
+    "samp_dist_preset_sub": [
+      517,
+      531,
+      545,
+      559,
+      573,
+      587,
+      601,
+      615,
+      629,
+      643,
+      657,
+      671,
+      685,
+      699,
+      713,
+      727,
+      827,
+      927,
+      1027,
+      1227
+    ],
+    "interlaced_offset": 1.0471975511965976
+  },
+  "acquisition_channels": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "interlaced_response_mapping": {
+    "center_interpolation": "CubicSpline",
+    "extrapolate": true,
+    "section_sources": {
+      "1": "measured",
+      "2": "interpolated",
+      "3": "measured",
+      "4": "interpolated",
+      "5": "measured",
+      "6": "interpolated",
+      "7": "measured",
+      "8": "interpolated",
+      "9": "measured",
+      "10": "interpolated",
+      "11": "measured",
+      "12": "interpolated",
+      "13": "measured",
+      "14": "interpolated",
+      "15": "measured",
+      "16": "interpolated",
+      "17": "measured",
+      "18": "interpolated",
+      "19": "measured",
+      "20": "interpolated",
+      "21": "measured",
+      "22": "interpolated",
+      "23": "measured",
+      "24": "interpolated",
+      "25": "measured",
+      "26": "interpolated",
+      "27": "measured",
+      "28": "interpolated",
+      "29": "measured",
+      "30": "interpolated",
+      "31": "measured",
+      "32": "interpolated",
+      "33": "measured",
+      "34": "interpolated",
+      "35": "measured",
+      "36": "interpolated",
+      "37": "measured",
+      "38": "interpolated",
+      "39": "measured",
+      "40": "extrapolated"
+    }
+  },
+  "scope": {
+    "name": "full",
+    "length_m": 0.902,
+    "full_length_m": 0.902,
+    "crop_origin_m": 0.0,
+    "boundary_margin_mm": 0.0,
+    "global_wl_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40
+    ],
+    "global_sample_dist_m": [
+      0.177,
+      0.184,
+      0.377,
+      0.384,
+      0.477,
+      0.484,
+      0.577,
+      0.584,
+      0.677,
+      0.684,
+      0.691,
+      0.698,
+      0.705,
+      0.712,
+      0.719,
+      0.726,
+      0.733,
+      0.74,
+      0.747,
+      0.754,
+      0.761,
+      0.768,
+      0.775,
+      0.782,
+      0.789,
+      0.796,
+      0.803,
+      0.81,
+      0.817,
+      0.824,
+      0.831,
+      0.838,
+      0.845,
+      0.852,
+      0.859,
+      0.866,
+      0.873,
+      0.88,
+      0.887,
+      0.894
+    ],
+    "local_sample_dist_m": [
+      0.177,
+      0.184,
+      0.377,
+      0.384,
+      0.477,
+      0.484,
+      0.577,
+      0.584,
+      0.677,
+      0.684,
+      0.691,
+      0.698,
+      0.705,
+      0.712,
+      0.719,
+      0.726,
+      0.733,
+      0.74,
+      0.747,
+      0.754,
+      0.761,
+      0.768,
+      0.775,
+      0.782,
+      0.789,
+      0.796,
+      0.803,
+      0.81,
+      0.817,
+      0.824,
+      0.831,
+      0.838,
+      0.845,
+      0.852,
+      0.859,
+      0.866,
+      0.873,
+      0.88,
+      0.887,
+      0.894
+    ],
+    "source_data_dir": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_NeTi_20261125\\prepared_data\\full"
+  }
+}

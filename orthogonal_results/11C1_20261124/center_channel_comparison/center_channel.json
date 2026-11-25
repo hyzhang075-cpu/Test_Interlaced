@@ -1,0 +1,577 @@
+{
+  "schema_version": 4,
+  "method": "相对芯位校准法",
+  "channel_configuration": {
+    "centre_fibre": true,
+    "active_channels": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "center_channel": 1,
+    "outer_channels": [
+      2,
+      3,
+      4
+    ],
+    "reference_up_channel": 2,
+    "nominal_outer_angles_deg": [
+      0.0,
+      120.0,
+      240.0
+    ],
+    "physical_center_core_present": true
+  },
+  "coordinate_frame": {
+    "origin": "ch1_center",
+    "alpha_definition": "clockwise from fixture-zero reference-up (internal +Y = project +Z) toward project +Y, in [0, 360) degrees; no channel is required to point up",
+    "nominal_ch2_alpha_deg": 0.0,
+    "internal_xy_nominal_ch2_azimuth_deg": 90.0,
+    "project_yz_mapping": "internal +X -> project +Y; internal +Y -> project +Z; axial -> project +X",
+    "relative_positions_only": true
+  },
+  "calibration": {
+    "directions_deg": [
+      0,
+      120,
+      240
+    ],
+    "radii_mm": [
+      200,
+      300,
+      400,
+      600,
+      800,
+      1000,
+      1500,
+      2000
+    ],
+    "wl_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "nominal_wl_ids": [],
+    "csv_file_count": 96,
+    "wavelength_shift_unit": "pm",
+    "input_already_straight_referenced": true,
+    "second_straight_rezero": false,
+    "center_channel_subtracted": true,
+    "csv_sample_aggregation": "arithmetic_mean",
+    "strain_sensitivity_pm_per_ue": 1.0,
+    "sensitivity_source": "explicit_effective_pm_per_ue_assumption",
+    "core2_azimuth_deg": 90.0,
+    "bend_side_offset_deg": -90.0,
+    "direction_sign": -1,
+    "strain_projection_sign": 1,
+    "physical_strain_from_csv_sign": -1,
+    "bend_direction_definition": "curvature-center/compression side; d=0 points right +X in internal section coordinates"
+  },
+  "physical_constraints": {
+    "fiber_diameter_um": 350.0,
+    "core_radius_um": 50.0,
+    "ch1_assumed_at_section_center": true,
+    "outer_center_min_radius_um": 100.0,
+    "outer_center_max_radius_um": 125.0,
+    "minimum_pairwise_core_center_distance_um": 100.0
+  },
+  "diagnostics": {
+    "section_count": 12,
+    "calibrated_section_count": 12,
+    "nominal_section_count": 0,
+    "radial_projection_sections": 3,
+    "coupled_fit_sections": 9,
+    "outer_cores_below_min_radius_before_constraint": 24,
+    "outer_cores_above_max_radius_before_constraint": 12,
+    "minimum_outer_pairwise_distance_um": 99.99999999636788,
+    "mean_fit_rmse_pm": 2629.142744165682
+  },
+  "sections": [
+    {
+      "wl_id": 1,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999999999,
+          "alpha_deg": 196.1956968009921,
+          "alpha_rad": 3.424260887421818
+        },
+        "ch3": {
+          "r_um": 125.0,
+          "alpha_deg": 325.34214842642433,
+          "alpha_rad": 5.678291685553193
+        },
+        "ch4": {
+          "r_um": 99.99999999999999,
+          "alpha_deg": 94.70716368434653,
+          "alpha_rad": 1.6529518315170504
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 10707.777460571768,
+      "constraint_solver": "exact_radial_projection",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 2,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 100.0,
+          "alpha_deg": 142.7410193503438,
+          "alpha_rad": 2.4913007653164367
+        },
+        "ch3": {
+          "r_um": 125.0,
+          "alpha_deg": 323.5810936516162,
+          "alpha_rad": 5.647555481424824
+        },
+        "ch4": {
+          "r_um": 100.00000000000001,
+          "alpha_deg": 75.45105582896645,
+          "alpha_rad": 1.3168693483215241
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1212.8605143803525,
+      "constraint_solver": "exact_radial_projection",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 3,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 100.00000000023817,
+          "alpha_deg": 123.4416318365517,
+          "alpha_rad": 2.154462909582482
+        },
+        "ch3": {
+          "r_um": 125.00000000030285,
+          "alpha_deg": 323.6810190350807,
+          "alpha_rad": 5.6492995083725965
+        },
+        "ch4": {
+          "r_um": 99.99999999968277,
+          "alpha_deg": 14.998831581426304,
+          "alpha_rad": 0.26177899504799695
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1367.960549285248,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 4,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999940148,
+          "alpha_deg": 110.03318566347914,
+          "alpha_rad": 1.9204413762859325
+        },
+        "ch3": {
+          "r_um": 125.00000000007722,
+          "alpha_deg": 325.4296338689656,
+          "alpha_rad": 5.679818594573103
+        },
+        "ch4": {
+          "r_um": 99.9999999984047,
+          "alpha_deg": 274.11182132201975,
+          "alpha_rad": 4.7841538007076405
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1223.3911244093076,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 5,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 100.00000000007005,
+          "alpha_deg": 101.139798667889,
+          "alpha_rad": 1.765222491558838
+        },
+        "ch3": {
+          "r_um": 125.00000000014448,
+          "alpha_deg": 325.5573330465263,
+          "alpha_rad": 5.6820473656736254
+        },
+        "ch4": {
+          "r_um": 99.99999999991175,
+          "alpha_deg": 274.23952049998496,
+          "alpha_rad": 4.786382571815223
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1319.0845682620197,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 6,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999507044,
+          "alpha_deg": 106.34272139743086,
+          "alpha_rad": 1.856030623916194
+        },
+        "ch3": {
+          "r_um": 125.00000000012993,
+          "alpha_deg": 326.0613606822899,
+          "alpha_rad": 5.690844307438743
+        },
+        "ch4": {
+          "r_um": 99.99999998696147,
+          "alpha_deg": 274.74354813628497,
+          "alpha_rad": 4.795179513589703
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1521.6663177961136,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 7,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999993427,
+          "alpha_deg": 101.45021310356128,
+          "alpha_rad": 1.7706402455070394
+        },
+        "ch3": {
+          "r_um": 125.00000000055978,
+          "alpha_deg": 325.86147766357095,
+          "alpha_rad": 5.6873556906432725
+        },
+        "ch4": {
+          "r_um": 99.99999999814297,
+          "alpha_deg": 274.54366511679325,
+          "alpha_rad": 4.791690896780745
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1859.3191875068924,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 8,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 100.00000000032405,
+          "alpha_deg": 72.56621313937377,
+          "alpha_rad": 1.266519344986043
+        },
+        "ch3": {
+          "r_um": 125.00000000034237,
+          "alpha_deg": 325.8575122767429,
+          "alpha_rad": 5.687286481587007
+        },
+        "ch4": {
+          "r_um": 99.99999999927365,
+          "alpha_deg": 274.53969973002364,
+          "alpha_rad": 4.7916216877255
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 2036.0256880488073,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 9,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999999592,
+          "alpha_deg": 52.721214934688845,
+          "alpha_rad": 0.9201587862619276
+        },
+        "ch3": {
+          "r_um": 125.00000000022503,
+          "alpha_deg": 325.73973850398187,
+          "alpha_rad": 5.685230941479832
+        },
+        "ch4": {
+          "r_um": 99.9999999999854,
+          "alpha_deg": 274.42192595747383,
+          "alpha_rad": 4.78956614762201
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 1883.888763010009,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 10,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999997891,
+          "alpha_deg": 34.25077894358517,
+          "alpha_rad": 0.5977888639383063
+        },
+        "ch3": {
+          "r_um": 125.00000000078032,
+          "alpha_deg": 325.50568182472637,
+          "alpha_rad": 5.681145881790539
+        },
+        "ch4": {
+          "r_um": 100.00000000059063,
+          "alpha_deg": 274.18786927823345,
+          "alpha_rad": 4.785481087932982
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 2245.461583168118,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 11,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999999999,
+          "alpha_deg": 184.6789702377061,
+          "alpha_rad": 3.223256089840586
+        },
+        "ch3": {
+          "r_um": 125.00000000000001,
+          "alpha_deg": 325.2057031002526,
+          "alpha_rad": 5.675910265362539
+        },
+        "ch4": {
+          "r_um": 100.0,
+          "alpha_deg": 245.45842506167176,
+          "alpha_rad": 4.284057694085938
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 2975.4325727025594,
+      "constraint_solver": "exact_radial_projection",
+      "source_region": "full"
+    },
+    {
+      "wl_id": 12,
+      "cores": {
+        "ch1": {
+          "r_um": 0.0,
+          "alpha_deg": null,
+          "alpha_rad": null
+        },
+        "ch2": {
+          "r_um": 99.99999999986379,
+          "alpha_deg": 273.9396327559646,
+          "alpha_rad": 4.781148543295691
+        },
+        "ch3": {
+          "r_um": 125.00000000227028,
+          "alpha_deg": 325.25744530247437,
+          "alpha_rad": 5.676813337153542
+        },
+        "ch4": {
+          "r_um": 99.99999999988758,
+          "alpha_deg": 16.57525784897687,
+          "alpha_rad": 0.2892928238316794
+        }
+      },
+      "outer_channels": [
+        2,
+        3,
+        4
+      ],
+      "fit_rmse_pm": 3196.844600846992,
+      "constraint_solver": "coupled_nonoverlap",
+      "source_region": "full"
+    }
+  ],
+  "hardware_geometry": {
+    "sensor_id": "11C1",
+    "start_value": 19.25,
+    "end_value": 6.0,
+    "R": 4.15e-05,
+    "ideal_len": 0.47525,
+    "samp_dist_preset": [
+      534,
+      546,
+      558,
+      592,
+      626,
+      660,
+      694,
+      728,
+      792,
+      856,
+      920,
+      984
+    ],
+    "interrogator": "FiberTecc",
+    "active_channels": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "channel_change": false,
+    "interlaced_grating": false
+  },
+  "scope": {
+    "name": "full",
+    "length_m": 0.47525,
+    "full_length_m": 0.47525,
+    "crop_origin_m": 0.0,
+    "boundary_margin_mm": 0.0,
+    "global_wl_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "global_sample_dist_m": [
+      0.01925,
+      0.08325,
+      0.14725,
+      0.21125,
+      0.27525,
+      0.30925,
+      0.34325,
+      0.37725,
+      0.41125,
+      0.44525,
+      0.45725,
+      0.46925
+    ],
+    "local_sample_dist_m": [
+      0.01925,
+      0.08325,
+      0.14725,
+      0.21125,
+      0.27525,
+      0.30925,
+      0.34325,
+      0.37725,
+      0.41125,
+      0.44525,
+      0.45725,
+      0.46925
+    ],
+    "source_data_dir": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11C1_20261124\\prepared_data"
+  }
+}

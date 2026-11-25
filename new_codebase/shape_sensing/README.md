@@ -105,7 +105,7 @@ python -m shape_sensing --task demo --core_position_calib True --sensor_params p
 
 启用 `multi_region_calib` 时，全长实时网格按 `end5cm > end15cm > full` 分配 WL。每个区域先按自身的芯位和完整标定范围计算分档权重，再把其负责的 WL 写回全长曲率场。`False` 时由所选区域同时提供芯位和权重，默认 `full`。两种模式沿用原有 VTK、记录和 UDP 结构。
 
-`use_stored_zero: false` 用首个完整有效的实时绝对波长快照归零。`True` 从 `zero_reference_path` 读取现有绝对波长零状态。两种方式都在采集层计算逐通道差分，静态任务直接使用 CSV 中的相对波长变化。当前四芯实时入口使用非交错采集，七通道交错可用于静态重建。
+`use_stored_zero: false` 用首个完整有效的实时绝对波长快照归零。`True` 从 `zero_reference_path` 读取现有绝对波长零状态。两种方式都在采集层计算逐通道差分，静态任务直接使用 CSV 中的相对波长变化。FiberTecc 四芯实时入口支持七通道交错采集：11B8 的 `20×7` 原始差分帧先合并为 `40×4` 响应，再进入 `ht`/`TNN` 重构。交错输入在合并后统一裁剪；存储零点必须保留每个物理通道全部原始 WL（11B8 为每通道 20 点）。每次输出前要求全部必需点自上次输出后均已更新；协议未提供帧号时，此检查不保证硬件同步。Hippo 交错实时入口暂不支持。
 
 ### 3.1 选择批量或单区域初始化
 
@@ -409,3 +409,23 @@ python tools/build_zero_reference.py "实际零状态CSV目录" --sensor-id my_s
 `end5cm` 的三组权重对应 18–20、21、22 号点，分组索引为 `[0, 0, 0, 1, 2]`。当前布局的初值应由这套配置重新初始化生成。
 
 已在 `dc_ss` 使用真实 09B7 数据完成批量初始化，三个区域各写出 6 张 PNG 和 3 段重构 MP4。也已验证九组区域/方向的限迭代优化，以及从批量快照恢复 `end5cm` 的 240° 单区域初值。优化验收详情见 [数据契约清理台账](../docs/data-contract-cleanup.md)。
+
+## 重构积分算法切换
+
+静态 `--task recon` 与动态 `--task demo` 共用模块5积分入口。保持其他参数不变，使用 `--frame_rule TNN`（CLI默认）、`--frame_rule ht`（齐次变换）或原有 `--frame_rule TNB` 选择算法。显式命令参数优先于 YAML 或参数包内保存的设置。切换在启动时生效。
+
+```powershell
+python -m shape_sensing --sensor_params packages/my_sensor-v1.json --task recon --frame_rule ht
+python -m shape_sensing --sensor_params packages/my_sensor-v1.json --task demo --frame_rule ht
+```
+
+HT 复用现有曲率预处理、插值和动态时间滤波，输出位置单位 m、曲率单位 1/m、方向单位 rad；`ShapeResult.normal/binormal` 与 TNN 一样表示横截面 Y/Z 轴。旧参数包可用于切换对比，精度需按相同数据评估，必要时针对 HT 重新优化。
+
+11B8 交错动态调试示例（在 `new_codebase` 目录运行）：
+
+```powershell
+python main.py --task demo --sensor_params packages/11B8_CoreCalib-full-v1.json --frame_rule ht
+# 平行传递标架：将 --frame_rule ht 改为 --frame_rule TNN
+```
+
+设备地址沿用参数包/CLI 的 `IP`、`PORT` 配置；首次归零时保持传感器处于参考直态。

@@ -1,0 +1,66 @@
+{
+  "core_json": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_NeTi_20261125\\11B8_NeTi_end5cm.json",
+  "data_dir": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_NeTi_20261125\\prepared_data\\end5cm",
+  "weight_json": null,
+  "integrator": "TNN",
+  "interp_num": 256,
+  "curvature_interp": "vector_pchip",
+  "move_filter": 3,
+  "move_filter_for_vector": true,
+  "nonnegative_curvature": false,
+  "rot_ang": 0.0,
+  "local_rot_ang": 0.0,
+  "local_rot_region": "end15",
+  "kalman_params": {
+    "angle": {
+      "Rk": 0.001,
+      "Bk": 0.001
+    },
+    "magnitude": {
+      "Rk": 0.0001,
+      "Bk": 0.01
+    }
+  },
+  "TNB_threshold": 0.0,
+  "discont": 3.141592653589793,
+  "unwrap_threshold": 0.65,
+  "align_threshold": 0.15,
+  "csv_preprocessing": "project_complete_rows_outlier_mask_arithmetic_mean",
+  "reconstruction_function": "Reconstructor._reconstruct_frame",
+  "error_function": "shape_evaluation.point_errors_relative",
+  "scope": {
+    "name": "end5cm",
+    "length_m": 0.05,
+    "full_length_m": 0.902,
+    "crop_origin_m": 0.852,
+    "boundary_margin_mm": 0.0,
+    "global_wl_ids": [
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40
+    ],
+    "global_sample_dist_m": [
+      0.852,
+      0.859,
+      0.866,
+      0.873,
+      0.88,
+      0.887,
+      0.894
+    ],
+    "local_sample_dist_m": [
+      0.0,
+      0.007000000000000006,
+      0.014000000000000012,
+      0.02100000000000002,
+      0.028000000000000025,
+      0.03500000000000003,
+      0.04200000000000004
+    ]
+  },
+  "eval_scope": "local"
+}

@@ -1,0 +1,81 @@
+{
+  "core_json": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11C1_20261124\\factory_direct\\11C1_factory_direct.json",
+  "data_dir": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11C1_20261124\\prepared_data",
+  "weight_json": null,
+  "integrator": "TNN",
+  "interp_num": 256,
+  "curvature_interp": "vector_pchip",
+  "move_filter": 3,
+  "move_filter_for_vector": true,
+  "nonnegative_curvature": false,
+  "rot_ang": 0.0,
+  "local_rot_ang": 0.0,
+  "local_rot_region": "end15",
+  "kalman_params": {
+    "angle": {
+      "Rk": 0.001,
+      "Bk": 0.001
+    },
+    "magnitude": {
+      "Rk": 0.0001,
+      "Bk": 0.01
+    }
+  },
+  "TNB_threshold": 0.0,
+  "discont": 3.141592653589793,
+  "unwrap_threshold": 0.65,
+  "align_threshold": 0.15,
+  "csv_preprocessing": "project_complete_rows_outlier_mask_arithmetic_mean",
+  "reconstruction_function": "Reconstructor._reconstruct_frame",
+  "error_function": "shape_evaluation.point_errors_relative",
+  "scope": {
+    "name": "full",
+    "length_m": 0.47525,
+    "full_length_m": 0.47525,
+    "crop_origin_m": 0.0,
+    "boundary_margin_mm": 0.0,
+    "global_wl_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "global_sample_dist_m": [
+      0.01925,
+      0.08325,
+      0.14725,
+      0.21125,
+      0.27525,
+      0.30925,
+      0.34325,
+      0.37725,
+      0.41125,
+      0.44525,
+      0.45725,
+      0.46925
+    ],
+    "local_sample_dist_m": [
+      0.01925,
+      0.08325,
+      0.14725,
+      0.21125,
+      0.27525,
+      0.30925,
+      0.34325,
+      0.37725,
+      0.41125,
+      0.44525,
+      0.45725,
+      0.46925
+    ]
+  },
+  "eval_scope": "local"
+}

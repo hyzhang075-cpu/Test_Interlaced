@@ -1,0 +1,11 @@
+{
+  "core_json": "C:\\Users\\win11\\Desktop\\project\\1.\u7b97\u6cd5\u5f00\u53d1\\\u8054\u7f51git\u4ee3\u7801\\params\\11B1_NeTi_four_core_b_merged.json",
+  "interp_num": 256,
+  "curvature_interp": "vector_pchip",
+  "move_filter": 3,
+  "move_filter_for_vector": true,
+  "weight_json": null,
+  "rot_ang": 0.0,
+  "envelope_center_mode": "free",
+  "center_order_reference": "envelope_center"
+}

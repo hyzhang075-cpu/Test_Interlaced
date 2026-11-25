@@ -1,0 +1,13 @@
+{
+  "sensor_id": "08B5",
+  "task": "optim",
+  "status": "failed",
+  "started_at": "2026-11-25T10:28:04.302509+00:00",
+  "code": {
+    "commit": "eb6ddb87319a74531679d761532424456104e1a2",
+    "branch": "LDQ-test-AlgorithmPackage",
+    "working_tree_dirty": true
+  },
+  "finished_at": "2026-11-25T10:28:04.798693+00:00",
+  "error": "end15cm 分段 [3, 2, 2] 与全长对应分段 [2, 2, 3] 不一致；请同步修改全长与局部分段，不允许仅按相同点数拼接"
+}

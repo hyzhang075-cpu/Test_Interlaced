@@ -2,12 +2,38 @@
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass, replace
 import numpy as np
 from .service import RuntimeService, FrameRejected
 from .source import InterrogatorSource
 from ..contracts import ReconstructionState
 from ..reconstruction.temporal import TemporalCurvatureState, filter_curvature_vectors
+
+
+class _DemoStatusPrinter:
+    """按单调时钟每秒报告有效帧吞吐量；与采集时间戳无关。"""
+
+    def __init__(self, transport, *, clock=time.monotonic):
+        self.transport = transport
+        self.clock = clock
+        self.last_time = clock()
+        self.last_count = 0
+
+    def __call__(self, frame):
+        now = self.clock()
+        elapsed = now - self.last_time
+        if elapsed < 1.0:
+            return
+        count = frame.frame_index + 1
+        fps = (count - self.last_count) / elapsed
+        insertion = '--' if frame.insert_value_mm is None else f'{frame.insert_value_mm:.1f} mm'
+        print(f'算法 {frame.shape.frame_rule} | 已处理 {count} 帧 | '
+              f'处理帧率 {fps:.1f} FPS | 当前推进量 {insertion} | '
+              f'发送ip：{self.transport.receiver[0]}', flush=True)
+        self.last_time = now
+        self.last_count = count
+
 
 @dataclass(frozen=True)
 class LiveProcessingState:
@@ -108,7 +134,13 @@ def run_demo(session, args, app_factory):
         transport = UdpTransport(runtime)
         runtime.resources.append(transport)
         transport.open()
-        runtime.publisher = transport.publish
+        status = _DemoStatusPrinter(transport)
+
+        def publish_frame(frame):
+            transport.publish(frame)
+            status(frame)
+
+        runtime.publisher = publish_frame
         if args.demo_recorder:
             from .protocol import DataRecorder
             recorder = DataRecorder(filename_prefix='VTK_ShapeData')

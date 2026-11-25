@@ -1,0 +1,4 @@
+region,schema,sections,section_count,calibrated_section_count,nominal_section_count,coupled_fit_sections,mean_fit_rmse_pm
+full,6,40,40,40,0,27,21.582942116981307
+end15cm,6,21,21,21,0,21,360.5097493064993
+end5cm,6,7,7,7,0,7,1012.3923093956222

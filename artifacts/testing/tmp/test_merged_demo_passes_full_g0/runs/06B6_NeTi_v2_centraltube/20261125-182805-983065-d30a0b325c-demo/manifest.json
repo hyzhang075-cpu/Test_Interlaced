@@ -1,0 +1,13 @@
+{
+  "sensor_id": "06B6_NeTi_v2_centraltube",
+  "task": "demo",
+  "status": "failed",
+  "started_at": "2026-11-25T10:28:05.987334+00:00",
+  "code": {
+    "commit": "eb6ddb87319a74531679d761532424456104e1a2",
+    "branch": "LDQ-test-AlgorithmPackage",
+    "working_tree_dirty": true
+  },
+  "finished_at": "2026-11-25T10:28:06.580883+00:00",
+  "error": ""
+}

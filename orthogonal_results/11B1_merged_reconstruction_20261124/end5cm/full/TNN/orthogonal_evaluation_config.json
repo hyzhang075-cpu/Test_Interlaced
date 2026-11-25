@@ -1,0 +1,55 @@
+{
+  "core_json": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\params\\11B1_NeTi_four_core_b_merged.json",
+  "data_dir": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\1113-11B1-自研（1+3）18点79.7cmFBG+镍钛管\\末端测试\\5cm",
+  "weight_json": null,
+  "integrator": "TNN",
+  "interp_num": 256,
+  "curvature_interp": "vector_pchip",
+  "move_filter": 3,
+  "move_filter_for_vector": true,
+  "nonnegative_curvature": false,
+  "rot_ang": 0.0,
+  "kalman_params": {
+    "angle": {
+      "Rk": 0.001,
+      "Bk": 0.001
+    },
+    "magnitude": {
+      "Rk": 0.0001,
+      "Bk": 0.01
+    }
+  },
+  "TNB_threshold": 0.0,
+  "discont": 3.141592653589793,
+  "unwrap_threshold": 0.65,
+  "align_threshold": 0.15,
+  "csv_preprocessing": "project_complete_rows_outlier_mask_arithmetic_mean",
+  "reconstruction_function": "Reconstructor._reconstruct_frame",
+  "error_function": "shape_evaluation.point_errors_relative",
+  "scope": {
+    "name": "end5cm",
+    "length_m": 0.05,
+    "full_length_m": 0.919,
+    "crop_origin_m": 0.869,
+    "boundary_margin_mm": 0.0,
+    "global_wl_ids": [
+      15,
+      16,
+      17,
+      18
+    ],
+    "global_sample_dist_m": [
+      0.878,
+      0.889,
+      0.9,
+      0.911
+    ],
+    "local_sample_dist_m": [
+      0.009000000000000008,
+      0.020000000000000018,
+      0.031000000000000028,
+      0.04200000000000004
+    ]
+  },
+  "eval_scope": "full"
+}

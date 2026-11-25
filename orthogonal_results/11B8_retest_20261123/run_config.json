@@ -1,0 +1,70 @@
+{
+  "calibration_data": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_interlaced_20261120\\prepared_data",
+  "evaluation_data": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\1123-11B8重测",
+  "calibration_json": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_retest_20261123\\11B8_1118_full_orthogonal.json",
+  "calibration_directions": [
+    0,
+    120,
+    240
+  ],
+  "evaluation_directions": [
+    120,
+    240
+  ],
+  "missing_direction": 0,
+  "hardware_geometry": {
+    "sensor_id": "11B8",
+    "start_value": 175.0,
+    "end_value": 8.0,
+    "interlaced_grating": true,
+    "samp_dist_preset": [
+      510,
+      524,
+      538,
+      552,
+      566,
+      580,
+      594,
+      608,
+      622,
+      636,
+      650,
+      664,
+      678,
+      692,
+      706,
+      720,
+      820,
+      920,
+      1020,
+      1220
+    ],
+    "samp_dist_preset_sub": [
+      517,
+      531,
+      545,
+      559,
+      573,
+      587,
+      601,
+      615,
+      629,
+      643,
+      657,
+      671,
+      685,
+      699,
+      713,
+      727,
+      827,
+      927,
+      1027,
+      1227
+    ],
+    "interlaced_offset": 1.0471975511965976
+  },
+  "interp_num": 256,
+  "move_filter_for_vector": true,
+  "move_filter": 3,
+  "validation": "1118 calibration, 1123 retest; original geometry assumed unchanged; no zero subtraction (CSV already delta wavelengths)"
+}

@@ -1,0 +1,13 @@
+{
+  "sensor_id": "08B5",
+  "task": "init",
+  "status": "failed",
+  "started_at": "2026-11-25T10:28:02.082539+00:00",
+  "code": {
+    "commit": "eb6ddb87319a74531679d761532424456104e1a2",
+    "branch": "LDQ-test-AlgorithmPackage",
+    "working_tree_dirty": true
+  },
+  "finished_at": "2026-11-25T10:28:02.630841+00:00",
+  "error": ""
+}

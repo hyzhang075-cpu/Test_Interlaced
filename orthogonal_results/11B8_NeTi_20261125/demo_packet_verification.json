@@ -1,0 +1,23 @@
+{
+  "core_json": "C:\\Users\\win11\\Desktop\\project\\1.算法开发\\联网git代码\\orthogonal_results\\11B8_NeTi_20261125\\11B8_NeTi_full.json",
+  "raw_frame_shape": [
+    20,
+    7
+  ],
+  "merged_frame_shape": [
+    40,
+    4
+  ],
+  "response_shape": [
+    40,
+    4
+  ],
+  "partial_zero_rejected": true,
+  "packet_parser": "Sensor._parse_packet, actual binary packets",
+  "max_static_live_vector_difference": 1.3010426069826053e-18,
+  "integrators": [
+    "ht",
+    "TNN"
+  ],
+  "hardware_connected": false
+}
