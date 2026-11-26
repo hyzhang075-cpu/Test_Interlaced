@@ -17,7 +17,7 @@ optimization_regions:
 - end5cm
 full_segmentation:
 - 40
-calibration_data_root: ../../1124-11B8+镍钛管全段+末段
+calibration_data_root: ../data/1124-11B8+镍钛管全段+末段
 calibration_regions:
   full:
     length_m: null
