@@ -4447,7 +4447,7 @@
           "sensitivity_source": "explicit_effective_pm_per_ue_assumption",
           "core2_azimuth_deg": 90.0,
           "bend_side_offset_deg": -90.0,
-          "direction_sign": 1,
+          "direction_sign": -1,
           "strain_projection_sign": 1,
           "physical_strain_from_csv_sign": -1
         },
