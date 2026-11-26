@@ -55,6 +55,9 @@ def _type_ok(value, kind, name=None):
 def _validate_nested(name, value, template, path):
     if not isinstance(value,dict) or not isinstance(template,dict): return
     unknown=set(value)-set(template)
+    if path in ('calibration_regions.full', 'calibration_regions.end15cm', 'calibration_regions.end5cm'):
+        # Region resolution validates explicit per-real-point four-core gains.
+        unknown.discard('weight_group_ids')
     if unknown: raise ValueError(f"未知配置字段 {path}.{sorted(unknown)[0]}")
     for key, child in value.items():
         if isinstance(child,dict) and isinstance(template.get(key),dict): _validate_nested(name,child,template[key],f'{path}.{key}')

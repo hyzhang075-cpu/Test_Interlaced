@@ -89,9 +89,8 @@ class InputKernel:
                 IP='192.168.1.75', PORT=26546, data_freq=100, maxsize=100, samp_dist_preset_sub=None, interlaced_grating=False, channel_change=False, channel_layout=None, interlaced_offset=0.0,
                 use_stored_zero=False, zero_reference_path=None,
                 wavelength_jump_threshold_pm=12000.0, wavelength_jump_guard_enabled=True,
-                core_position_calib=False, print_geometry=True):
+                core_position_calib=False):
 
-        self.print_geometry = print_geometry
         # 实验参数
         self.exp_directs = exp_directs
         self.interrogator = interrogator
@@ -138,13 +137,6 @@ class InputKernel:
         self.ideal_len = ideal_len
         self.generate_samp_dist(reverse=reverse, start_value=start_value, end_value=end_value, straight_trim=straight_trim, samp_dist_preset=samp_dist_preset, samp_dist_preset_sub=samp_dist_preset_sub, interlaced_grating=interlaced_grating)  # 生成传感点在传感器上所处的实际位置（单位：米）
         self.total_points = len(self.samp_dist)
-        # Physical WL rows precede interlaced merging and geometry trimming.
-        self.acquisition_points = self.total_points
-        if interlaced_grating:
-            if (len(active_channels) != 7 or samp_dist_preset_sub is None
-                    or len(samp_dist_preset) != len(samp_dist_preset_sub)):
-                raise ValueError('交错实时输入需要七通道和等长的 A/B 点位')
-            self.acquisition_points = len(samp_dist_preset)
         self.R = R
         # print(self.samp_dist)
 
@@ -155,14 +147,13 @@ class InputKernel:
         self.data_freq = data_freq
 
         # 动态数据处理相关参数
-        self.zero_points = {ch: [None] * self.acquisition_points for ch in active_channels}
+        self.zero_points = {ch: [None] * self.total_points for ch in active_channels}
         self.is_zero_set = {ch: False for ch in active_channels}
         self.use_stored_zero = use_stored_zero
         self.zero_reference_path = zero_reference_path
-        self.current_snapshot = np.zeros((self.acquisition_points, self.num_channels))
-        if self.core_position_calib or interlaced_grating:
+        self.current_snapshot = np.zeros((self.total_points, self.num_channels))
+        if self.core_position_calib:
             self.current_snapshot.fill(np.nan)
-        self.snapshot_updated = np.zeros_like(self.current_snapshot, dtype=bool)
         self.buffer = bytearray()
         self.wavelength_jump_guard_enabled = bool(wavelength_jump_guard_enabled)
         self.wavelength_jump_threshold_pm = float(wavelength_jump_threshold_pm)
@@ -387,10 +378,9 @@ class InputKernel:
         if not np.all(np.diff(self.ad_samp_dist) > 0):
             raise ValueError("ad_samp_dist 必须是递增的数组")
 
-        if getattr(self, 'print_geometry', True):
-            print(f"初始采样距离（m）：{raw_samp_dist}")
-            print(f"生成的采样距离（m）：{self.samp_dist}")
-            print(f"重构长度（m）：{self.ad_samp_dist}")
+        print(f"初始采样距离（m）：{raw_samp_dist}")
+        print(f"生成的采样距离（m）：{self.samp_dist}")
+        print(f"重构长度（m）：{self.ad_samp_dist}")
 
 
     def _configure_zero_reference(self, use_stored_zero, zero_reference_path):
@@ -405,8 +395,8 @@ class InputKernel:
             zero_reference_path,
             sensor_id=self.sensor_id,
             active_channels=list(self.active_channels),
-            total_points=getattr(self, "acquisition_points", self.total_points),
-            raw_trim_idx=0 if getattr(self, "interlaced_grating", False) else self.raw_trim_idx,
+            total_points=self.total_points,
+            raw_trim_idx=self.raw_trim_idx,
         )
         if getattr(self, 'core_position_calib', False) and any(np.any(values <= 0) for values in loaded.values()):
             raise ValueError('四芯存储零状态需要正的绝对波长')
@@ -1578,9 +1568,7 @@ class InputKernel:
         - 该方法可处理粘包情况，即一次接收中包含多个完整包
         - 对不完整数据包会保留在缓存中，等待后续字节到达
         """
-        interlaced = getattr(self, 'interlaced_grating', False)
-        point_count = getattr(self, 'acquisition_points', self.total_points)
-        core_mode = getattr(self, 'core_position_calib', False) or interlaced
+        core_mode = getattr(self, 'core_position_calib', False)
         # 处理粘包
         while len(self.buffer) >= 4:
             N = struct.unpack('<I', self.buffer[0:4])[0]
@@ -1603,9 +1591,10 @@ class InputKernel:
                 except:
                     continue
 
-                # 非交错沿用预裁剪；交错必须先按原始WL收齐，合并后再裁剪。
-                effective_idx = idx if interlaced else idx - self.raw_trim_idx
-                if phy_ch in self.active_channels and 0 <= effective_idx < point_count:
+                # 静态数据与几何都使用 raw_trim_idx 裁掉了固定件内部/区域外点；
+                # 动态包仍携带原始点号，因此必须应用相同偏移。
+                effective_idx = idx - self.raw_trim_idx
+                if phy_ch in self.active_channels and 0 <= effective_idx < self.total_points:
                     # 找到对应的列
                     col = self.active_channels[phy_ch]
                     if core_mode and (not np.isfinite(wavelength) or wavelength <= 0):
@@ -1622,8 +1611,6 @@ class InputKernel:
                     else:
                         safe_wavelength = wavelength
                     self.current_snapshot[effective_idx, col] = safe_wavelength
-                    if hasattr(self, "snapshot_updated"):
-                        self.snapshot_updated[effective_idx, col] = True
 
                     # 4. 归零基准设置 (首次收到有效数据时)
                     if not core_mode and not self.is_zero_set[phy_ch]:
@@ -1694,7 +1681,7 @@ class InputKernel:
         根据当前快照与归零基准，生成可供下游使用的单帧动态数据。
 
         处理流程：
-        1. 初始化形状为 (self.acquisition_points, self.num_channels) 的零矩阵。
+        1. 初始化形状为 (self.total_points, self.num_channels) 的零矩阵。
         2. 遍历所有激活物理通道 phy_ch：
         - 若该通道已完成归零：
             1) 读取当数据 raw_vals；
@@ -1702,21 +1689,21 @@ class InputKernel:
             3) 计算差值 (raw_vals - base_vals) * 1000.0；
             4) 写入对应列。
         - 若尚未归零，则该通道整列保持为 0。
-        3. 将结果 reshape 为 (1, self.acquisition_points, self.num_channels) 并返回。
+        3. 将结果 reshape 为 (1, self.total_points, self.num_channels) 并返回。
 
         输入：
         - 无（使用 self.current_snapshot、self.zero_points、self.is_zero_set）
 
         输出：
-        - frame_to_send: numpy 数组，形状为 (1, self.acquisition_points, self.num_channels)
+        - frame_to_send: numpy 数组，形状为 (1, self.total_points, self.num_channels)
 
         说明：
         - 返回结果中的数值表示相对于归零基准的变化量
         - 当前实现中使用乘以 1000.0 的缩放方式，具体物理意义取决于解调仪输出单位与后续处理约定
         - 该方法不会修改内部状态，仅根据当前缓存状态生成一帧数据
         """
-        # 准备发送的数据帧 (1, self.acquisition_points, self.num_channels)
-        frame_to_send = np.zeros((self.acquisition_points, self.num_channels))
+        # 准备发送的数据帧 (1, self.total_points, self.num_channels)
+        frame_to_send = np.zeros((self.total_points, self.num_channels))
 
         # 遍历白名单列表，按顺序填充数据
         for phy_ch in self.active_channels:
@@ -1730,8 +1717,8 @@ class InputKernel:
                 # 未归零前发送0
                 frame_to_send[:, i] = 0.0
 
-        # 构造成 (1, self.acquisition_points, self.num_channels) 的形状
-        return frame_to_send.reshape(1, self.acquisition_points, self.num_channels)
+        # 构造成 (1, self.total_points, self.num_channels) 的形状
+        return frame_to_send.reshape(1, self.total_points, self.num_channels)
 
     # -------------------- Hippo动态数据接收 --------------------
     def receive_data_Hippo(self):

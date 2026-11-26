@@ -1,0 +1,135 @@
+{
+  "metrics": {
+    "single_full": {
+      "0": {
+        "point": 0.0012426088083116273,
+        "end": 0.002606808994045759
+      },
+      "120": {
+        "point": 0.0005399632497982503,
+        "end": 0.001081936899119013
+      },
+      "240": {
+        "point": 0.002251970760609986,
+        "end": 0.005059205956316162
+      }
+    },
+    "fusion": {
+      "0": {
+        "point": 0.0013070557866887772,
+        "end": 0.0038732579122497546
+      },
+      "120": {
+        "point": 0.0005903986251490796,
+        "end": 0.002086428568360451
+      },
+      "240": {
+        "point": 0.0025111871539678175,
+        "end": 0.009663716852468245
+      }
+    },
+    "end15cm": {
+      "0": {
+        "point": 0.026533749035920543,
+        "end": 0.03789475795302304
+      },
+      "120": {
+        "point": 0.011601857902852519,
+        "end": 0.020239198646759583
+      },
+      "240": {
+        "point": 0.009736916832939611,
+        "end": 0.004866391178785578
+      }
+    },
+    "end5cm": {
+      "0": {
+        "point": 0.04762608153096716,
+        "end": 0.08740736164518821
+      },
+      "120": {
+        "point": 0.020566375002788347,
+        "end": 0.04586072642569413
+      },
+      "240": {
+        "point": 0.024272496073646545,
+        "end": 0.05304986882367165
+      }
+    }
+  },
+  "all_gates_passed": true,
+  "temporal_subsets": {
+    "first_quarter": {
+      "single_full": {
+        "0": {
+          "point": 0.0013038767319264405,
+          "end": 0.0027410924221251904
+        },
+        "120": {
+          "point": 0.0007143865122782283,
+          "end": 0.001421230245193206
+        },
+        "240": {
+          "point": 0.0023541433423360327,
+          "end": 0.005255023880108775
+        }
+      },
+      "fusion": {
+        "0": {
+          "point": 0.0013718051592006338,
+          "end": 0.003924774444989624
+        },
+        "120": {
+          "point": 0.0007474414359144906,
+          "end": 0.0020666359077165563
+        },
+        "240": {
+          "point": 0.002605833947800337,
+          "end": 0.009799772636490454
+        }
+      }
+    },
+    "last_quarter": {
+      "single_full": {
+        "0": {
+          "point": 0.001252238375189395,
+          "end": 0.0026814126254132782
+        },
+        "120": {
+          "point": 0.0007956883599213536,
+          "end": 0.0016542532404264104
+        },
+        "240": {
+          "point": 0.0023821114302629365,
+          "end": 0.005292553315534395
+        }
+      },
+      "fusion": {
+        "0": {
+          "point": 0.001313335964921965,
+          "end": 0.00388796552507617
+        },
+        "120": {
+          "point": 0.0008455400075354636,
+          "end": 0.0026218361329944295
+        },
+        "240": {
+          "point": 0.002613831983119122,
+          "end": 0.009723666784996723
+        }
+      }
+    }
+  },
+  "temporal_subset_full_gates_passed": true,
+  "all_18_measurements_retained": true,
+  "measurement_imputation": false,
+  "parameter_file": "C:\\Users\\hyzha\\Desktop\\shape-sensing-AlgorithmPackage-08B5\\new_codebase\\runs\\11B1_Cube\\all18_affine_core_candidate\\algorithm_package_candidate.json",
+  "legacy_scalar_equivalence_verified": true,
+  "channel_order_invariance_verified": true,
+  "invalid_parameter_rejection_verified": true,
+  "raw_frame_immutability_verified": true,
+  "final_parameter_file": "C:\\Users\\hyzha\\Desktop\\shape-sensing-AlgorithmPackage-08B5\\new_codebase\\params\\11B1_Cube_core_optimized.json",
+  "parameter_sha256": "f986070929e9d083d4f6c67cd3c66b522c0433545510fdba57ccc883198c01d8",
+  "package_recon_and_demo_preflight_passed": true,
+  "legacy_reference_package_loading_passed": true
+}

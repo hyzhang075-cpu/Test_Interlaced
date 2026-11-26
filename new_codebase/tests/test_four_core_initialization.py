@@ -33,7 +33,6 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
         thresholds=[5.0, 15.0], soft=False, min_consecutive=1, hyper_params=[1, 1e-6, 1e-6],
         start_value=-10.0, end_value=6.0, samp_dist_preset=[100, 150, 300],
         active_channels=list(channels), folder_path=str(root), radii={'circ': [100]},
-        rot_dir={'0': -1, '120': -1, '240': -1},
         interp_num=20, curvature_interp='vector_pchip', move_filter=1, frame_rule='TNN',
     )), encoding='utf-8')
 
@@ -41,7 +40,7 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     for direction, common_pm in [(0, 73), (120, -19), (240, 42)]:
         folder = root / f'{direction}-100'
         folder.mkdir(parents=True)
-        angle = np.deg2rad(direction)
+        angle = np.deg2rad(-direction)
         responses = positions_um @ (10 * np.array([np.cos(angle), np.sin(angle)]))
         for channel, response in zip(channels, responses):
             with (folder / f'Channel_{channel}_fixture.csv').open('w', encoding='utf-8', newline='') as file:
@@ -60,7 +59,6 @@ def test_schema6_init_optim_recon_use_standard_tasks(tmp_path):
     initial = initialized['core_position_parameters']['full']
     calibration = initial['core_position_metadata']
     assert calibration['schema_version'] == 6
-    assert calibration['calibration']['direction_sign'] == 1
     assert calibration['calibration']['wl_ids'] == [2, 3]
     assert calibration['channel_configuration']['response_channels'] == list(channels)
     assert 'slopes' not in initial

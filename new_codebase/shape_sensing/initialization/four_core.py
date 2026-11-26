@@ -36,10 +36,10 @@ class FourCoreFitSettings:
     size_constraint_mode: str = "both"
     envelope_center_mode: str = "free"
     center_order_reference: str = "envelope_center"
-    direction_sign: int = -1
 
     # Fixture reference-up, not an assumed measured core angle.
     core2_azimuth_deg = 90.0
+    direction_sign = -1
     strain_projection_sign = 1
     sensitivity_source = "explicit_effective_pm_per_ue_assumption"
 
@@ -53,8 +53,6 @@ class FourCoreFitSettings:
             )
         if not np.isfinite(self.bend_side_offset_deg):
             raise ValueError("Bend offset must be finite")
-        if self.direction_sign not in (-1, 1):
-            raise ValueError("Bend direction sign must be -1 or +1")
         if self.size_constraint_mode not in ("none", "pairwise", "envelope", "both"):
             raise ValueError("Unknown size constraint mode")
         if self.envelope_center_mode not in ("centroid", "free"):

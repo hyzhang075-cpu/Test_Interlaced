@@ -6,7 +6,7 @@ import numpy as np
 
 class InterrogatorSource:
     def __init__(self, config):
-        """输入InputConfig，输出无设备I/O的采集源；read输出(P,C)历史尺度；交错模式保留未裁剪原始WL。"""
+        """输入InputConfig，输出无设备I/O的采集源；read输出已裁剪(P,C)历史尺度。"""
         self.config = config
         self.kernel = None
         self.socket = None
@@ -16,10 +16,18 @@ class InterrogatorSource:
     def open(self):
         """输入无，输出None；显式建立TCP/UDP设备连接并加载可选零点文件。"""
         from ..input_preprocessing._kernel import InputKernel
-        self.kernel = InputKernel(**asdict(self.config))
+        values = asdict(self.config)
+        self._interlaced_input = None
+        if self.config.core_position_calib and self.config.interlaced_grating:
+            from ..input_preprocessing import InputService
+            # Wire packets carry raw WL IDs, not indices on the merged grid.
+            # Keep all raw rows through zeroing and spline interpolation; crop
+            # only after merging, exactly as in static preprocessing.
+            InputKernel(**values).core_calibration_channel_ids()
+            self._interlaced_input = InputService(self.config)
+            values.update(interlaced_grating=False, straight_trim=0, reverse=False)
+        self.kernel = InputKernel(**values)
         self.kernel._configure_zero_reference(self.config.use_stored_zero, self.config.zero_reference_path)
-        if self.config.interlaced_grating and self.config.interrogator != 'FiberTecc':
-            raise ValueError('交错实时采集当前支持 FiberTecc；Hippo 每通道最多 16 点')
         protocol = socket.SOCK_STREAM if self.config.interrogator == 'FiberTecc' else socket.SOCK_DGRAM
         if self.config.interrogator not in ('FiberTecc', 'Hippo'):
             raise ValueError('live acquisition supports FiberTecc and Hippo')
@@ -60,16 +68,11 @@ class InterrogatorSource:
                     self.kernel._process_buffer()
                     if self.config.core_position_calib and not np.isfinite(self.kernel.current_snapshot).all():
                         continue
-                    if self.config.interlaced_grating and not self.kernel.snapshot_updated.all():
-                        continue
                     now = time.monotonic()
                     if now - self.last_push < 1 / self.config.data_freq:
                         continue
                     self.last_push = now
-                    values = self.kernel._prep_frame()[0] * 1e-6
-                    if self.config.interlaced_grating:
-                        self.kernel.snapshot_updated.fill(False)
-                    return values
+                    return self._response_frame(self.kernel._prep_frame()[0] * 1e-6)
                 wave = self.kernel._recv_010c_once(connection)
                 if self.config.core_position_calib:
                     start = self.kernel.raw_trim_idx
@@ -80,7 +83,7 @@ class InterrogatorSource:
                     if not self.kernel._complete_core_snapshot(absolute):
                         continue
                     zero = np.column_stack([self.kernel.zero_points[physical] for physical in columns])
-                    return (absolute - zero) * 1000 * 1e-6
+                    return self._response_frame((absolute - zero) * 1000 * 1e-6)
                 values = np.empty((16, self.kernel.num_channels))
                 for physical, column in self.kernel.active_channels.items():
                     current = wave[physical - 1]
@@ -95,6 +98,13 @@ class InterrogatorSource:
                     return None
                 raise
         return None
+
+    def _response_frame(self, values):
+        """Return merged four-core responses once, in calibration channel order."""
+        if self._interlaced_input is None:
+            return values
+        return self._interlaced_input.preprocess(
+            values, channel_ids=tuple(self.config.active_channels)).signals
 
     def close(self):
         """输入无，输出None；关闭socket使采集线程退出，重复关闭安全。"""

@@ -43,62 +43,6 @@ def _visualization(session, output_root=None):
             static_reconstruction=config.input.core_position_calib))
 
 
-def _print_reconstruction_summary(metrics, *, frame_rule, region, direct, output_root=None):
-    """将既有归一化误差以百分比展示，不改变评估口径或结果文件。"""
-    import math
-    import unicodedata
-    from collections.abc import Mapping
-
-    def percent(value):
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return '--'
-        return f'{value * 100:.3f}' if math.isfinite(value) else '--'
-
-    def leaves(tree, path=()):
-        if isinstance(tree, Mapping):
-            for key, value in tree.items():
-                yield from leaves(value, path + (key,))
-        else:
-            yield path, tree
-
-    def lookup(tree, path):
-        for key in path:
-            if not isinstance(tree, Mapping):
-                return None
-            tree = tree.get(key)
-        return tree
-
-    rows = [['形状', '半径(mm)/工况', '平均点误差(%)', '末端误差(%)']]
-    for path, value in leaves(metrics.get('point_errors_avg', {})):
-        if not path:
-            continue
-        case = '/'.join(str(key) for key in path[1:]) or '--'
-        if str(path[0]) == 'circ' and case == '0':
-            case = '直线'
-        rows.append([str(path[0]), case, percent(value),
-                     percent(lookup(metrics.get('end_errors', {}), path))])
-    rows.append(['总体', 'calib', percent(lookup(metrics.get('avg_point_err', {}), ('calib',))),
-                 percent(lookup(metrics.get('avg_end_err', {}), ('calib',)))])
-
-    def width(text):
-        return sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text)
-
-    widths = [max(width(row[i]) for row in rows) for i in range(4)]
-    print(f'\n静态重建结果 | 算法 {frame_rule} | 区域 {region} | 方向 {direct}°')
-    for i, row in enumerate(rows):
-        print(' | '.join(cell + ' ' * (size - width(cell)) for cell, size in zip(row, widths)))
-        if i == 0:
-            print('-+-'.join('-' * size for size in widths))
-    print('误差按有效评估长度归一化；总体沿用评估模块的 calib 均值。')
-    if len(rows) == 2:
-        print('未发现可展示的逐工况结果，请检查数据目录及加载提示。')
-    if output_root is not None:
-        for path in sorted(Path(output_root).rglob('reconstruction_*.png')):
-            print(f'结果图: {path.resolve()}')
-
-
 def _initialize_session(session, output_root=None, *, core_mode=False):
     """拟合单个区域并重构各方向，返回相位 rad、分段斜率 rad/m、权重与误差。"""
     session.initialize(verbose=True)
@@ -262,9 +206,6 @@ def _execute_task_body(args, *, parameter_builder, configure_args, prepare_jobs,
         _visualization(session, output_root=output_root).show_reconstruction(
             args.direct, rs, distance, showanime=not core_mode,
             ideals=result.details.get('ideals'))
-        _print_reconstruction_summary(result.metrics,
-            frame_rule=session.config.reconstruction.frame_rule,
-            region=session.region, direct=args.direct, output_root=output_root)
         if core_mode:
             report = dict(metrics=result.metrics, distance_m=distance, curves_m=rs['circ'],
                 point_curvature={str(path[0]): values for path, values in session.point_curvature.items()})

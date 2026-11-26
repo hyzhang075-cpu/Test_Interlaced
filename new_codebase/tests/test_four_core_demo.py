@@ -82,6 +82,21 @@ def test_demo_rejects_missing_region_or_weight_before_frames():
         TaskSession(parameters, task='demo')
 
 
+def test_region_probe_uses_merged_responses_for_seven_channel_acquisition():
+    from dataclasses import replace
+    from shape_sensing.curvature.core_regions import CoreDemoCurvature
+
+    session = TaskSession(_parameters(), task='demo')
+    design = replace(session.design, active_channels=(1, 2, 7, 4, 3, 6, 5),
+                     interlaced_grating=True)
+    assembler = CoreDemoCurvature(session.curvature, design, session.parameters,
+                                 ('full', 'end15cm', 'end5cm'), 240)
+    signals = np.tile(POSITIONS @ np.array([1.2, .5]), (6, 1))
+    result = assembler.compute(session.frame(signals), session.parameters, direct=240)
+    np.testing.assert_allclose(result.curvature_per_m,
+                               np.linalg.norm([1.2, .5]) * np.repeat([1, 2, 3], 2))
+
+
 def test_spliced_region_scores_the_entire_overlap_before_selecting_owned_points():
     parameters = _parameters()
     middle = parameters['core_position_parameters']['end15cm']
@@ -105,6 +120,12 @@ class Socket:
         self.read_count = 0
 
     def connect(self, address):
+        pass
+
+    def shutdown(self, how):
+        pass
+
+    def close(self):
         pass
 
     def settimeout(self, value):
@@ -203,3 +224,46 @@ def test_udp_schema_is_identical_for_slope_and_spliced_core_demo(enabled):
             return [signature(item) for item in value]
         return type(value)
     assert signature(packets[0]) == signature(packets[1])
+
+@pytest.mark.parametrize('stored', [False, True])
+@pytest.mark.parametrize('trim', [0., -.03])
+@pytest.mark.parametrize('interrogator', ['FiberTecc', 'Hippo'])
+def test_interlaced_live_zero_merge_and_crop_match_static(tmp_path, monkeypatch, stored, trim, interrogator):
+    from shape_sensing.input_preprocessing import InputService
+    channels = [1, 2, 7, 4, 3, 6, 5]
+    absolute = 1550. + np.arange(21).reshape(3, 7) * .001
+    delta = (np.arange(21).reshape(3, 7) + 1) * .00001
+    packets = [_packet([[100*ch+wl+1, values[wl, col]]
+                        for col, ch in enumerate(channels) for wl in range(3)])
+               for values in (absolute, absolute+delta)]
+    connection = Socket(packets if interrogator == 'FiberTecc' else [b'ack'])
+    monkeypatch.setattr('shape_sensing.runtime.source.socket.socket', lambda *args: connection)
+    monkeypatch.setattr(InputKernel, '_parse_packet', lambda self, data: json.loads(data))
+    monkeypatch.setattr('shape_sensing.runtime.source.time.monotonic', iter([1., 2.]).__next__)
+    waves = []
+    for values in (absolute, absolute+delta):
+        wave = np.zeros((8, 16))
+        wave[np.asarray(channels)-1, :3] = values.T
+        waves.append(wave)
+    iterator = iter(waves)
+    monkeypatch.setattr(InputKernel, '_recv_010c_once', lambda self, sock: next(iterator))
+    zero = tmp_path / 'interlaced_zero.json'
+    zero.write_text(json.dumps(dict(format_version=1, sensor_id='interlaced',
+        active_channels=channels, point_count=3, channels={
+            str(ch): {'wavelengths_nm': absolute[:, col].tolist()}
+            for col, ch in enumerate(channels)})), encoding='utf-8')
+    config = InputConfig(sensor_id='interlaced', interrogator=interrogator,
+        start_value=10., end_value=10., samp_dist_preset=[0, 20, 40],
+        samp_dist_preset_sub=[-10, 10, 30], interlaced_grating=True,
+        core_position_calib=True, active_channels=channels, straight_trim=trim,
+        use_stored_zero=stored, zero_reference_path=str(zero) if stored else None)
+    source = InterrogatorSource(config)
+    source.open()
+    service = InputService(config)
+    expected = service.preprocess((absolute+delta-absolute)*1000e-6,
+                                  channel_ids=tuple(channels))
+    np.testing.assert_allclose(source.read(), np.zeros_like(expected.signals), atol=1e-13)
+    assert source.kernel.current_snapshot.shape == (3, 7)
+    np.testing.assert_allclose(source.read(), expected.signals, atol=1e-13)
+    assert expected.channel_ids == (1, 2, 4, 6)
+    source.close()

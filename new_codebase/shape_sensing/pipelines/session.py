@@ -103,8 +103,7 @@ class TaskSession:
             self.require_seed()
         if task == 'demo' and self.config.input.core_position_calib:
             self._core_demo_curvature = CoreDemoCurvature(self.curvature, self.design, self.parameters,
-                regions, self.config.runtime.direction_reference_direct,
-                response_channels=self.input.response_channel_ids())
+                regions, self.config.runtime.direction_reference_direct)
 
     def require_seed(self):
         """任务开始校验参数，缺少初值明确指导init+resume，不偷偷执行模块2。"""
@@ -282,6 +281,8 @@ class TaskSession:
 
     def optim_coeff(self, verbose=True):
         """模块4通过独立参数候选回调3+5、6，禁止模块2隐式初始化。"""
+        if 'channel_weights' in self.parameters.parameters_by_region.get(self.region, {}):
+            raise ValueError('逐通道分级参数须使用通道校准优化器；普通weights优化只适用于标量权重')
         from ..optimization.service import OptimizationService
         dataset = self.load_data()
         def real_curvature(values, parameters, direct, kind):

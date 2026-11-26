@@ -333,8 +333,8 @@ soft: true
 reverse: false
 # discont: np.unwrap跳变判断阈值
 discont: 3.141592653589793
-# frame_rule: 选择FS标架(TNB)、平行传递标架(TNN)或齐次变换(ht)
-# choices: TNB, TNN, ht
+# frame_rule: 选择使用FS标架还是平行传递标架
+# choices: TNB, TNN
 frame_rule: TNN
 # straight_threshold: 零螺距形状中判断直线段的曲率阈值
 straight_threshold: 2.0

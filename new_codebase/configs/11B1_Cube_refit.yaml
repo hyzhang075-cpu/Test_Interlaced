@@ -1,0 +1,302 @@
+schema_version: 1
+use_full_transported_phase: true
+end15cm_point_calib: true
+end5cm_point_calib: true
+end5cm_independent_weights: false
+end5cm_independent_weight_score: false
+end5cm_coverage_aware_weights: false
+end5cm_min_weight_effective_samples: 1.0
+end5cm_min_weight_max_mass: 0.05
+end5cm_uncovered_weight_policy: interpolate_neutral_edges
+optim_weights_only: false
+multi_region_calib: true
+optimization_region: full
+optimization_regions:
+- full
+- end15cm
+- end5cm
+full_segmentation:
+- 3
+- 2
+- 2
+- 3
+- 4
+- 2
+- 2
+calibration_data_root: C:\Users\hyzha\Desktop\shape-sensing-AlgorithmPackage-08B5\new_codebase\1124-11B1+导管0状态＋定标测试
+calibration_regions:
+  full:
+    length_m: null
+    folder_path: 全段测试
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    end_weights: true
+    end_start: -5
+    weights: null
+    slopes: null
+  end15cm:
+    length_m: 0.15
+    folder_path: 末端测试/15cm
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+      - 200
+      - 100
+      - 75
+      - 50
+      - 30
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    - 10.0
+    - 20.0
+    end_weights: true
+    end_start: -5
+    segmentation:
+    - 3
+    - 4
+    - 2
+    - 2
+    weights: null
+    slopes: null
+  end5cm:
+    length_m: 0.05
+    folder_path: 末端测试/5cm
+    radii:
+      circ:
+      - 0
+      - 2000
+      - 1500
+      - 1000
+      - 800
+      - 600
+      - 400
+      - 300
+      - 200
+      - 100
+      - 75
+      - 50
+      - 30
+      - 20
+      - 15
+    thresholds:
+    - 0.8
+    - 1.2
+    - 2.0
+    - 3.0
+    - 4.0
+    - 10.0
+    - 20.0
+    - 35.0
+    - 45.0
+    - 70.0
+    end_weights: true
+    end_start: -1
+    segmentation:
+    - 2
+    - 2
+    weights: null
+    slopes: null
+calibration_output_dir: calibration_results
+sensor_id: 11B1_Cube
+start_value: 114.0
+end_value: 8.0
+R: 0.0001
+ideal_len: null
+samp_dist_preset:
+- 510
+- 521
+- 532
+- 543
+- 554
+- 565
+- 576
+- 587
+- 607
+- 627
+- 647
+- 667
+- 687
+- 707
+- 807
+- 907
+- 1107
+- 1307
+samp_dist_preset_sub:
+- 120
+- 160
+- 200
+- 295
+- 445
+- 595
+- 745
+- 895
+centre_fibre: true
+core_position_calib: false
+core_diameter_um: 350.0
+core_radius_um: 50.0
+core_sensitivity_pm_per_ue: 1.0
+core_bend_offset_deg: -90.0
+interlaced_grating: false
+interlaced_offset: 1.0471975511965976
+global_phases_set: null
+interrogator: FiberTecc
+active_channels:
+- 1
+- 2
+- 3
+- 4
+channel_change: false
+channel_layout:
+- - 5
+  - - 2
+    - 1
+    - 4
+    - 3
+    - 7
+    - 5
+    - 6
+- - 7
+  - - 5
+    - 1
+    - 4
+    - 3
+    - 2
+    - 7
+    - 6
+- - 4
+  - - 7
+    - 1
+    - 4
+    - 3
+    - 2
+    - 5
+    - 6
+active_angles: null
+folder_path: null
+rot_dir:
+  '0': -1
+  '120': -1
+  '240': -1
+exp_directs:
+- 0
+- 120
+- 240
+radii: null
+end_len: 0.05
+direct: 0
+freeze: null
+weight_bounds:
+- 0.6
+- 5.0
+slope_upper_bound: 250.0
+thresholds: null
+max_iter: 20
+k_point: 1.0
+k_end: 1.0
+k_pitch: 1.0
+k_radius: 1.0
+method: Powell
+hyper_params:
+- 20000
+- 1.0e-06
+- 1.0e-06
+min_loss_diff: 0.0001
+ss: 0.0026
+IP: 192.168.1.75
+PORT: 26546
+maxsize: 10
+data_freq: 100
+use_stored_zero: false
+zero_reference_path: null
+wavelength_jump_guard_enabled: true
+wavelength_jump_threshold_pm: 12000.0
+total_scale: 1.0
+imu: false
+imu_com: COM6
+imu_maxlen: 10
+demo_recorder: true
+unwrap_threshold: 0.65
+align_threshold: 0.2
+direction_blend_enabled: false
+direction_reference_direct: 240
+direction_min_curvature: 0.5
+direction_min_consecutive: 3
+direction_consistency_threshold: 0.6
+direction_smooth_alpha: 0.15
+demo_kalman_enabled: true
+demo_kalman_Rk: 0.0001
+demo_kalman_Bk: 1.0e-05
+anchor_translation_enabled: false
+anchor_rotation_enabled: false
+anchor_constraint_enabled: null
+anchor_offset_m: 0.06
+soft: true
+reverse: false
+discont: 3.141592653589793
+frame_rule: TNN
+straight_threshold: 2.0
+rot_threshold: 4.0
+min_consecutive: 3
+move_filter: 3
+move_filter_for_vector: true
+kalman_params:
+  angle:
+    Rk: 0.001
+    Bk: 0.001
+  magnitude:
+    Rk: 0.0001
+    Bk: 0.01
+smoothing_params:
+  window_length: 21
+  polyorder: 3
+interp_num: 256
+curvature_interp: vector_pchip
+nonnegative_curvature: false
+sharpness: 4.8
+end_weights: null
+end_start: null
+TNB_threshold: 0.0
+straight_trim: null
+segmentation: null
+connect: false
+turn_threshold: 2.0
+sensing_ranges:
+  '1':
+  - 583
+  - 1048
+  '3':
+  - 678
+  - 1146
+  '4':
+  - 749
+  - 1215
+rot_ang: 0.0
+weights: null
+slopes: null
+ang_step: 0.1
+ang_range: 1.0

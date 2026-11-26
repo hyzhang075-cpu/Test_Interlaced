@@ -274,7 +274,7 @@
     "maxsize": 10,
     "data_freq": 100,
     "use_stored_zero": false,
-    "zero_reference_path": null,
+    "zero_reference_path": "C://Users//FiberTeamMember//Desktop//DC_dynamics//动态代码-联网git//new_codebase//params//11B1_CoreCalib_zero_reference.json",
     "wavelength_jump_guard_enabled": true,
     "wavelength_jump_threshold_pm": 12000.0,
     "total_scale": 1.0,

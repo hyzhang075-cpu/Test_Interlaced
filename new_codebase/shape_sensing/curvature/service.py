@@ -56,6 +56,24 @@ class CurvatureService:
         """保存模块3分级与物理配置，不读取数据或执行曲率计算。"""
         self.config = config
 
+    @staticmethod
+    def _core_corrected_frame(frame, block, calibration, direct):
+        """Apply optional calibrated channel offsets in metadata channel order."""
+        mapping = block.get('signal_bias_pm')
+        if mapping is None:
+            return frame
+        bias = mapping.get(direct, mapping.get(str(direct))) if isinstance(mapping, dict) else mapping
+        if bias is None:
+            return frame
+        bias = np.asarray(bias, dtype=float)
+        channels = calibration['channel_configuration']['response_channels']
+        if bias.shape != (len(frame.distance_m), len(channels)) or not np.isfinite(bias).all():
+            raise ValueError('signal_bias_pm必须为有限的真实点×物理响应通道数组')
+        columns = [frame.channel_ids.index(channel) for channel in channels]
+        signals = np.array(frame.signals, dtype=float, copy=True)
+        signals[:, columns] -= bias * 1e-6
+        return replace(frame, signals=signals)
+
     def compute(self, frame: PreparedFrame, design: DesignGeometry,
                 parameters: CalibrationParameters, *, direct=0, region='full',
                 shape_kind='circ', magnitude_ratio=1.0) -> CurvatureResult:
@@ -79,10 +97,26 @@ class CurvatureService:
         if 'core_position' in block:
             from .four_core import compute_four_core
             calibration = {**block['core_position_metadata'], 'sections': block['core_position']}
-            base = compute_four_core(frame, design, calibration, None, 1.0)
+            corrected = self._core_corrected_frame(frame, block, calibration, direct)
+            if 'channel_weights' in block:
+                grading = block.get('channel_grading_signal', 'raw_unit_gain_core_curvature_before_input_bias')
+                if grading != 'raw_unit_gain_core_curvature_before_input_bias':
+                    raise ValueError('不支持的逐通道分级依据')
+                # Grading uses measured raw signals; the physical inverse then uses
+                # calibrated offsets. Neither path reads reference curvature/radii.
+                base = compute_four_core(frame, design, calibration, None, 1.0)
+                weights = direction_value('channel_weights')
+                expected = (len(frame.distance_m), len(self.config.thresholds) + 1, 4)
+                if weights.shape != expected or not np.isfinite(weights).all() or np.any(weights <= 0):
+                    raise ValueError('channel_weights必须为有限正的[真实点,曲率等级,四通道]数组')
+                masses = self.allocate(self.scores(base.curvature_per_m))
+                gains = np.einsum('lp,plc->pc', masses, weights)
+                result = compute_four_core(corrected, design, calibration, gains, magnitude_ratio)
+                return replace(result, diagnostics={**result.diagnostics, 'calibrated_channel_gains': gains})
+            base = compute_four_core(corrected, design, calibration, None, 1.0)
             effective = self._effective_core_weights(base.curvature_per_m, direction_value('weights'))
             gains = np.broadcast_to(effective[:, None], frame.signals.shape)
-            result = compute_four_core(frame, design, calibration, gains, magnitude_ratio)
+            result = compute_four_core(corrected, design, calibration, gains, magnitude_ratio)
             return replace(result, diagnostics={**result.diagnostics, 'effective_weights': effective})
         kernel = CurvatureKernel(self.config, design, float(block.get('global_phases_set', 0.0)),
                                  frame.signals.shape[1], block.get('multi_region_parameters'))
@@ -104,9 +138,11 @@ class CurvatureService:
         if 'core_position' in block:
             from .four_core import compute_four_core
             calibration = {**block['core_position_metadata'], 'sections': block['core_position']}
-            result = compute_four_core(frame, design, calibration, None, 1.)
+            grading_frame = (frame if 'channel_weights' in block else
+                             self._core_corrected_frame(frame, block, calibration, direct))
+            result = compute_four_core(grading_frame, design, calibration, None, 1.)
             settings = calibration['calibration']
-            strain = frame.signals.T / (settings['strain_sensitivity_pm_per_ue'] *
+            strain = grading_frame.signals.T / (settings['strain_sensitivity_pm_per_ue'] *
                                         settings['strain_projection_sign'])
             return strain, result.curvature_per_m, result.direction_rad, ()
         slopes = block['slopes']

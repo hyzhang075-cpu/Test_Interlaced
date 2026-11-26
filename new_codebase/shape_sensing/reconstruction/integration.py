@@ -2,65 +2,6 @@
 import numpy as np
 
 
-_KAPPA_EPS = 1e-12
-
-
-def _homogeneous(kappa, theta_abs, ds):
-    """构造单段 4×4 齐次变换矩阵（论文 A 矩阵，来源：新算法参考/ht_algorithm.py）。
-
-    其中 θ 为相对当前局部 x 轴的方位角，φ = kappa·ds，R = 1/kappa；
-    κ≈0 的直线段退化为沿局部 z 轴平移 ds。
-
-    Args:
-        kappa: 本段曲率大小，单位 1/m。
-        theta_abs: 本段曲率方向角，单位 rad。
-        ds: 本段弧长，单位 m。
-    Returns:
-        A: (4, 4) 齐次矩阵；若 ds 极短返回单位矩阵。
-    计算:
-        转弯角 phi = kappa * ds，半径 R = 1/kappa；曲率为零时 A 表示
-        沿局部 z 轴平移 ds。位移项用 sinc 形式避免小角度相减造成精度损失。
-    """
-    A = np.eye(4)
-    if ds <= 1e-15:
-        return A
-
-    if kappa <= _KAPPA_EPS:
-        # 直段：无旋转，沿 z 平移 ds
-        A[:3, 3] = [0.0, 0.0, ds]
-        return A
-
-    phi = kappa * ds
-
-    cth, sth = np.cos(theta_abs), np.sin(theta_abs)
-    cphi, sphi = np.cos(phi), np.sin(phi)
-
-    # ---- 旋转块：Rz(θ) · Ry(φ) ----
-    A[0, 0] = cth * cphi
-    A[0, 1] = -sth
-    A[0, 2] = cth * sphi
-
-    A[1, 0] = sth * cphi
-    A[1, 1] = cth
-    A[1, 2] = sth * sphi
-
-    A[2, 0] = -sphi
-    A[2, 1] = 0.0
-    A[2, 2] = cphi
-
-    # ---- 平移列：R(1-cosφ) 与 R sinφ 的数值稳定形式 ----
-    half = phi / 2.0
-    lateral = ds * np.sin(half) * np.sinc(half / np.pi)  # = R(1 - cosφ)
-    z_comp = ds * np.sinc(phi / np.pi)                   # = R sinφ
-
-    A[0, 3] = lateral * cth
-    A[1, 3] = lateral * sth
-    A[2, 3] = z_comp
-
-    return A
-
-
-
 class ShapeIntegrationMixin:
     """复用重构器原有标架积分方法，不构造传感器或读取数据。"""
 
@@ -110,120 +51,7 @@ class ShapeIntegrationMixin:
                 return_principal_frame=True,
             )
             return r, T, Y, Z
-        if self.frame_rule == 'ht':
-            return self._ht_frame(cur_interp, ang_interp, interp_dist, init_T, init_N)
         raise ValueError(f"unsupported frame_rule: {self.frame_rule}")
-
-    @staticmethod
-    def _principal_frame_from_transport(T, N1, N2, initial_angle):
-        """由平行输运标架恢复光纤的局部横截面 Y/Z 轴。
-
-        输入: T/N1/N2 是全局坐标系下等长 (N,3) 方向数组；
-        initial_angle 是首点曲率角，单位 rad。
-        返回: Y/Z 两个 (N,3) 数组；每点 Y 与 T 正交归一，Z=T×Y。
-        计算: 先抵消 N1/N2 的固定初始角旋转，再去除 Y 在 T 上的投影并归一化。
-        若任一构造轴退化则抛 ValueError。
-        """
-        Y = np.cos(initial_angle) * N1 - np.sin(initial_angle) * N2
-        Y = Y - np.sum(Y * T, axis=1, keepdims=True) * T
-        Y_norm = np.linalg.norm(Y, axis=1, keepdims=True)
-        eps = np.finfo(float).eps
-        if np.any(Y_norm <= eps):
-            raise ValueError("local y axis is numerically degenerate")
-        Y = Y / Y_norm
-
-        Z = np.cross(T, Y)
-        Z_norm = np.linalg.norm(Z, axis=1, keepdims=True)
-        if np.any(Z_norm <= eps):
-            raise ValueError("local z axis is numerically degenerate")
-        Z = Z / Z_norm
-        return Y, Z
-
-
-    @staticmethod
-    def _local_to_global_frame(r_local, T_local, N1_local, N2_local, init_T, init_N):
-        """把 HT 的参考局部系点列和标架映射到项目全局系。
-
-        输入: 四个 *_local 数组均为 (N,3)；参考系 z 为切向、x 为 Core1 方位；
-        init_T/init_N 是项目全局系入口切向/法向。
-        返回: 全局系的 r,T,N1,N2 四个 (N,3) 数组。
-        计算: 将 init_T 归一化为 t，将 init_N 去除沿 t 的投影后归一化为 n，
-        再令 b=t×n，旋转基 R=[n,b,t]；行向量坐标乘 R.T。
-        """
-        norm = lambda v: v / (np.linalg.norm(v) + 1e-300)
-        t = norm(np.asarray(init_T, dtype=float))
-        n = norm(np.asarray(init_N, dtype=float) - np.dot(init_N, t) * t)
-        b = np.cross(t, n)
-        R = np.column_stack([n, b, t])
-        return r_local @ R.T, T_local @ R.T, N1_local @ R.T, N2_local @ R.T
-
-
-    def _ht_frame(self, kappa, angles, s, init_T, init_N):
-        """逐段 4×4 齐次变换递推（无扭转标架，段中点线性插值）。
-        返回 (r, T, Y, Z)，均已映射到项目全局系。来源：新算法参考/ht_algorithm.py。
-        输入: kappa (1/m)、angles (rad)、s (m) 为同长度曲率网格；
-        init_T/init_N 是入口初始切向、法向。
-        流程: 将角度相对首点归一成 kx/ky；每段中点插值并得到曲率模长/方向；
-        单段使用 Rz(theta)*Ry(kappa*ds)*Rz(-theta)，消除弯曲平面基的额外滚转；
-        按 H_(i+1)=H_i*A_i 累乘单段刚体变换，每段将旋转块投影到 SO(3)，
-        保留平移列，修正后的旋转参与下一段递推；提取位置和标架后映射到全局系。
-        输出: 全局系 r(m)、T、Y、Z，形状均为 (N,3)。
-        """
-        kappa = np.asarray(kappa, dtype=float)
-        angles = np.asarray(angles, dtype=float)
-        s = np.asarray(s, dtype=float)
-        n = len(s)
-        kx = kappa * np.cos(angles - angles[0])
-        ky = kappa * np.sin(angles - angles[0])
-
-        # ---- 预计算每段在平行输运基中的 (κ, θ) ----
-        s_mid = 0.5 * (s[:-1] + s[1:])
-        kx_seg = np.interp(s_mid, s, kx)
-        ky_seg = np.interp(s_mid, s, ky)
-        kappa_seg = np.hypot(kx_seg, ky_seg)
-
-        theta_seg = np.arctan2(ky_seg, kx_seg)
-
-        # ---- 主递推 H_{i+1} = H_i · A_i ----
-        H = np.eye(4)
-        pts_local = np.zeros((n, 3))
-        T_local = np.zeros((n, 3))
-        N1_local = np.zeros((n, 3))
-        N2_local = np.zeros((n, 3))
-        T_local[0] = [0.0, 0.0, 1.0]
-        N1_local[0] = [1.0, 0.0, 0.0]
-        N2_local[0] = [0.0, 1.0, 0.0]
-        for i in range(n - 1):
-            ds = s[i + 1] - s[i]
-            A = _homogeneous(kappa_seg[i], theta_seg[i], ds)
-            if kappa_seg[i] > _KAPPA_EPS:
-                # 论文 A 的 Rz(theta)*Ry(phi) 输出的是弯曲平面基。
-                # 右乘 Rz(-theta) 恢复无扭转的横截面基；位移及 T 不变。
-                # 此时每段使用绝对方向，而非上一弯曲平面基的角度差。
-                c, sn = np.cos(theta_seg[i]), np.sin(theta_seg[i])
-                undo_plane_rotation = np.array([[c, sn, 0.0],
-                                                [-sn, c, 0.0],
-                                                [0.0, 0.0, 1.0]])
-                A[:3, :3] = A[:3, :3] @ undo_plane_rotation
-            H = H @ A
-            # SVD 极分解给出最近的正交旋转；仅修正旋转块，保留该段位移。
-            U, _, Vt = np.linalg.svd(H[:3, :3])
-            rotation = U @ Vt
-            if np.linalg.det(rotation) < 0.0:
-                U[:, -1] *= -1.0
-                rotation = U @ Vt
-            H[:3, :3] = rotation
-            pts_local[i + 1] = H[:3, 3]
-            T_local[i + 1] = H[:3, 2]
-            N1_local[i + 1] = H[:3, 0]
-            N2_local[i + 1] = H[:3, 1]
-
-        r, T, N1, N2 = self._local_to_global_frame(
-            pts_local, T_local, N1_local, N2_local, init_T, init_N,
-        )
-        Y, Z = self._principal_frame_from_transport(T, N1, N2, float(angles[0]))
-        return r, T, Y, Z
-
 
     def _F_S_frame(self, kappa, tau, ss, init_T, init_N):
         """
@@ -346,18 +174,19 @@ class ShapeIntegrationMixin:
 
         # 迭代计算
         for i in range(1, num_points):
-            numerator = T[i - 1] + ss[i] * (kappa1[i] * N1[i - 1] + kappa2[i] * N2[i - 1])
-            denominator = 1.0 + ss[i]**2 * (kappa1[i]**2 + kappa2[i]**2)
-            T[i] = numerator / denominator
-            T[i] = cal_norm(np.array(T[i]))
-
-            N1[i] = N1[i - 1] - ss[i] * kappa1[i] * T[i]
-            N1[i] = cal_norm(N1[i])
-
-            N2[i] = N2[i - 1] - ss[i] * kappa2[i] * T[i]
-            N2[i] = cal_norm(N2[i])
-
-            r[i] = ss[i] * T[i] + r[i-1]
+            step = float(ss[i])
+            a, b = step * float(kappa1[i]), step * float(kappa2[i])
+            denominator = 1.0 + a*a + b*b
+            t = [(float(T[i-1,j]) + a*float(N1[i-1,j]) + b*float(N2[i-1,j])) / denominator for j in range(3)]
+            norm = sum(v*v for v in t)**0.5
+            t = [v/norm for v in t]
+            n = [float(N1[i-1,j])-a*t[j] for j in range(3)]
+            norm = sum(v*v for v in n)**0.5
+            n = [v/norm for v in n]
+            m = [float(N2[i-1,j])-b*t[j] for j in range(3)]
+            norm = sum(v*v for v in m)**0.5
+            T[i], N1[i], N2[i] = t, n, [v/norm for v in m]
+            r[i] = [step*t[j]+float(r[i-1,j]) for j in range(3)]
 
         if not return_principal_frame:
             return r, T, N1, N2
@@ -454,7 +283,7 @@ class ShapeIntegrator(ShapeIntegrationMixin):
 
     输入数组长度一致且至少有两个样本；曲率单位为 1/m，角度为 rad，弧长为 m，
     init_T 为全局单位切向量。返回 position、T、Y、Z 四个 (N, 3) 数组。
-    不创建 Sensor、不读取外部文件；TNB 返回 position/T/N/B，TNN/ht 返回 position/T/Y/Z，
+    不创建 Sensor、不读取外部文件；TNB 返回 position/T/N/B，TNN 返回 position/T/Y/Z，
     保留旧实现的分支返回顺序。
     """
     def __init__(self, frame_rule='TNB', TNB_threshold=0.15, rot_ang=0.0):

@@ -66,3 +66,19 @@ python -m pip wheel . --no-deps --wheel-dir dist
 
 在本目录运行 `python -m pytest -q`。pytest 缓存写入 `artifacts/testing/cache/`，运行临时文件写入 `artifacts/testing/tmp/`（下次测试会重建此临时目录）。
 原顶层 pytest 目录完整归档在 `artifacts/testing/history/`，原顶层日志保存在 `artifacts/logs/`；移动清单为 `artifacts/testing/move-manifest.json`。这些目录不纳入版本管理，历史文档中的原路径保留用于追溯。
+
+### 11B8 交错刻栅实时 demo
+
+使用已验收的芯位算法包（包含三方向和三个区域参数），在 PowerShell 中运行：
+
+```powershell
+Set-Location 'C:\Users\hyzha\Desktop\shape-sensing-AlgorithmPackage-08B5\new_codebase'
+$env:PYTHONPATH = (Resolve-Path '..\.codex_deps').Path
+python main.py --task demo --sensor_params runs/11B8_core_point_refine_k1_end05/11B8_validated_algorithm.json
+```
+
+包内使用 FiberTecc，地址为 `192.168.1.75:26546`。启动采集时保持传感器直线：当前包未启用存储零点，首个完整的七通道原始快照作为零点。实时链路先对 20×7 原始 WL 信号归零，再按静态标定相同的中心芯样条插值与 A/B 通道合并得到 40×4 响应，最终输出 256 点形状。区域裁剪在交错合并之后执行；四芯模式保留中心通道。
+
+若启用存储零点，零点文件必须描述完整原始 WL 网格和七个物理通道，不应使用四通道合并后的零点。Hippo 仍受单通道 16 个原始 WL 的协议限制，不能承载本套每通道 20 个 WL 的 11B8 数据。
+
+验证：协议模拟覆盖 FiberTecc/Hippo、首帧/存储零点与裁剪；`smoke_11B8_demo.py` 验证最终包从模拟七通道数据包到 256 点形状的链路，不连接硬件。实际设备通信与 VTK/OpenGL 窗口显示需要在有设备和可用图形上下文的机器上验证。

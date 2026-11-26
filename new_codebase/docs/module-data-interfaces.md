@@ -105,10 +105,15 @@
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
 | `weights` | `Mapping[direct,ndarray]` | 无量纲曲率等级权重。方向键为 deg。展平时按组优先，组内按等级排列，长度为组数 × 等级数。 |
+| `channel_weights`（芯位模型可选） | `Mapping[direct,ndarray(P,L,4)]` | 各真实WL、曲率等级、物理响应通道的有限正增益；存在时替代标量weights参与四芯反演。顺序与芯位元数据的response_channels一致。普通标量weights优化器不适用。 |
+| `signal_bias_pm`（芯位模型可选） | `Mapping[direct,ndarray(P,4)]` | 静态输入校准偏置，单位pm；模块3在物理反演前按物理响应通道扣除，不修改原始帧或文件。缺少某方向时不扣除。 |
+| `channel_grading_signal`（芯位模型可选） | `str` | 当前支持raw_unit_gain_core_curvature_before_input_bias：逐通道分级依据来自扣偏置前的单位增益芯位曲率，随后以校准偏置和正通道增益求解物理曲率。前向计算不读取理论半径或理想曲线。 |
 | `slopes` | `Mapping[direct,ndarray[level,segment]]` | 各曲率等级、空间分段的扭转/动态角斜率，rad/m；`direct` 为方向角 deg。 |
 | `global_phases_set` | `float` | 全局通道相位偏置，rad。 |
 | `rot_ang` | `float` | 形状坐标绕 x 轴的安装/旋转角，配置约定 deg。 |
 | `multi_region_parameters` | `Mapping[str,Any]\|None` | 软件参数包：多区域传递相位/方向等配置；无单一物理单位，子字段由多区域包定义。 |
+
+包含逐通道权重或输入偏置的算法参数包使用`schema_version=2`，并通过`required_runtime_features`声明所需能力；芯位截面元数据仍为schema 6。标量权重算法包schema 1继续兼容。区域拼接诊断支持`[P,C]`通道增益；某区域未提供的诊断值填NaN，不使用未初始化内存。零偏和权重按显式实验方向选择，静态圆弧评估仍使用原有方向夹具坐标归一化。
 
 ### `CalibrationParameters`
 
@@ -143,11 +148,11 @@
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `frame_rule` | `str` | 软件配置标签：积分所用 `TNB`、`TNN` 或 `ht` 积分规则。 |
+| `frame_rule` | `str` | 软件配置标签：积分所用 `TNB` 或 `TNN` 标架规则。 |
 | `position_m` | `ndarray[N,3]` | 中心线三维坐标，m。运行帧与锚定结果共用当前最终坐标。 |
 | `tangent` | `ndarray[N,3]\|None` | 切向单位向量 T，无量纲。 |
-| `normal` | `ndarray[N,3]\|None` | TNB 下主法向 N；TNN/ht 下平行移动标架 Y 轴；无量纲。 |
-| `binormal` | `ndarray[N,3]\|None` | TNB 下副法向 B；TNN/ht 下平行移动标架 Z 轴；无量纲。 |
+| `normal` | `ndarray[N,3]\|None` | TNB 下主法向 N；TNN 下平行移动标架 Y 轴；无量纲。 |
+| `binormal` | `ndarray[N,3]\|None` | TNB 下副法向 B；TNN 下平行移动标架 Z 轴；无量纲。 |
 | `distance_m` | `ndarray[N]\|None` | 积分点轴向弧长坐标，m；仅位置的绘图输入可省略。 |
 | `diagnostics` | `Mapping[str,Any]` | 积分阶段沿用预处理诊断，增加实际参与积分的幅角。 |
 
