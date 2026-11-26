@@ -74,11 +74,15 @@ python -m pip wheel . --no-deps --wheel-dir dist
 ```powershell
 Set-Location 'C:\Users\hyzha\Desktop\shape-sensing-AlgorithmPackage-08B5\new_codebase'
 $env:PYTHONPATH = (Resolve-Path '..\.codex_deps').Path
-python main.py --task demo --sensor_params runs/11B8_core_point_refine_k1_end05/11B8_validated_algorithm.json
+python main.py --task demo --sensor_params packages/11B8_CoreCalib-full-v1.json
 ```
 
 包内使用 FiberTecc，地址为 `192.168.1.75:26546`。启动采集时保持传感器直线：当前包未启用存储零点，首个完整的七通道原始快照作为零点。实时链路先对 20×7 原始 WL 信号归零，再按静态标定相同的中心芯样条插值与 A/B 通道合并得到 40×4 响应，最终输出 256 点形状。区域裁剪在交错合并之后执行；四芯模式保留中心通道。
 
 若启用存储零点，零点文件必须描述完整原始 WL 网格和七个物理通道，不应使用四通道合并后的零点。Hippo 仍受单通道 16 个原始 WL 的协议限制，不能承载本套每通道 20 个 WL 的 11B8 数据。
 
-验证：协议模拟覆盖 FiberTecc/Hippo、首帧/存储零点与裁剪；`smoke_11B8_demo.py` 验证最终包从模拟七通道数据包到 256 点形状的链路，不连接硬件。实际设备通信与 VTK/OpenGL 窗口显示需要在有设备和可用图形上下文的机器上验证。
+验证：协议模拟覆盖 FiberTecc/Hippo、首帧/存储零点与裁剪；`tests/test_interlaced_runtime.py` 验证参数包从七通道原始帧到形状重构的链路，不连接硬件。实际设备通信与 VTK/OpenGL 窗口显示需要在有设备和可用图形上下文的机器上验证。
+
+### 实验脚本清理
+
+根目录的单次优化过程脚本及工具目录中的传感器专项优化实验脚本已移除。算法主体、测试和正式打包/校准/回放工具保留；最终 YAML 配置及参数 JSON 保留在 `configs/`、`params/` 和 `packages/`。历史脚本仍可从 Git 提交历史中查阅。
