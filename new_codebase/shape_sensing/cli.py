@@ -573,7 +573,7 @@ def build_argument_parser():
     parser.add_argument('--soft', type=bool, default=True, help='是否使用软化判定')
     parser.add_argument('--reverse', type=bool, default=False, help='是否反向重构')
     parser.add_argument('--discont', type=float, default=np.pi, help='np.unwrap跳变判断阈值')
-    parser.add_argument('--frame_rule', type=str, default='TNN', choices=['TNB', 'TNN'], help="选择使用FS标架还是平行传递标架")
+    parser.add_argument('--frame_rule', type=str, default='TNN', choices=['TNB', 'TNN', 'ht'], help="选择FS标架(TNB)、平行传递标架(TNN)或齐次变换(ht)")
     parser.add_argument('--straight_threshold', type=float, default=2.0, help='零螺距形状中判断直线段的曲率阈值')
     parser.add_argument('--rot_threshold', type=float, default=4.0, help='零螺距形状中判断螺旋段的曲率阈值')
     parser.add_argument('--min_consecutive', type=int, default=3, help='曲率分级判定前平滑滤波窗口大小')

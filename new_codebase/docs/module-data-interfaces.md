@@ -143,11 +143,11 @@
 
 | 字段 | 类型/形状 | 物理含义、单位；来源与约束 |
 |---|---|---|
-| `frame_rule` | `str` | 软件配置标签：积分所用 `TNB` 或 `TNN` 标架规则。 |
+| `frame_rule` | `str` | 软件配置标签：积分所用 `TNB`、`TNN` 或 `ht` 积分规则。 |
 | `position_m` | `ndarray[N,3]` | 中心线三维坐标，m。运行帧与锚定结果共用当前最终坐标。 |
 | `tangent` | `ndarray[N,3]\|None` | 切向单位向量 T，无量纲。 |
-| `normal` | `ndarray[N,3]\|None` | TNB 下主法向 N；TNN 下平行移动标架 Y 轴；无量纲。 |
-| `binormal` | `ndarray[N,3]\|None` | TNB 下副法向 B；TNN 下平行移动标架 Z 轴；无量纲。 |
+| `normal` | `ndarray[N,3]\|None` | TNB 下主法向 N；TNN/ht 下平行移动标架 Y 轴；无量纲。 |
+| `binormal` | `ndarray[N,3]\|None` | TNB 下副法向 B；TNN/ht 下平行移动标架 Z 轴；无量纲。 |
 | `distance_m` | `ndarray[N]\|None` | 积分点轴向弧长坐标，m；仅位置的绘图输入可省略。 |
 | `diagnostics` | `Mapping[str,Any]` | 积分阶段沿用预处理诊断，增加实际参与积分的幅角。 |
 

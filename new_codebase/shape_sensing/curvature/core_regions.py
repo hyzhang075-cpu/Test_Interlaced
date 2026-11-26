@@ -13,7 +13,8 @@ CORE_REGION_ORDER = ('full', 'end15cm', 'end5cm')
 class CoreDemoCurvature:
     """Grade each region on its calibration support and place only its owned points."""
 
-    def __init__(self, service, design, parameters, regions, direct):
+    def __init__(self, service, design, parameters, regions, direct, *, response_channels=None):
+        response_channels = tuple(design.active_channels if response_channels is None else response_channels)
         self.design = design
         self.order = tuple(regions)
         base_region = self.order[0]
@@ -72,8 +73,8 @@ class CoreDemoCurvature:
                 local = replace(design, source_indices=design.source_indices[indices],
                                 sampling_distance_m=distance)
                 regional = CurvatureService(replace(service.config, **layout))
-                probe = PreparedFrame.from_design(local, np.zeros((len(indices), len(design.active_channels))),
-                                                  design.active_channels)
+                probe = PreparedFrame.from_design(local, np.zeros((len(indices), len(response_channels))),
+                                                  response_channels)
                 # Reuse module 3 validation for geometry rank, physical channels and the selected weights.
                 regional.compute(probe, local, parameters, region=region, direct=direct)
             except (KeyError, TypeError, ValueError) as exc:

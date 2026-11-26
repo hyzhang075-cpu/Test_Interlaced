@@ -1,0 +1,78 @@
+{
+  "structure_checked": true,
+  "finite_values_checked": true,
+  "successful_optim_runs": 3,
+  "region_direction_combinations": 9,
+  "sections_by_region": {
+    "full": 40,
+    "end15cm": 21,
+    "end5cm": 7
+  },
+  "sha256": "93510f166b3beb2f2a9c920c33b1ea67f27c7b19e0a2d9f4a48c70e19e9a418b",
+  "independent_accuracy_validated": false,
+  "errors": [
+    {
+      "region": "full",
+      "direct": 0,
+      "stage_status": "no_improvement",
+      "point_mm": 11.388855350796804,
+      "end_mm": 33.56411705744337
+    },
+    {
+      "region": "full",
+      "direct": 120,
+      "stage_status": "no_improvement",
+      "point_mm": 6.466296922184098,
+      "end_mm": 17.201429427082545
+    },
+    {
+      "region": "full",
+      "direct": 240,
+      "stage_status": "no_improvement",
+      "point_mm": 5.543907258517189,
+      "end_mm": 16.155305567133475
+    },
+    {
+      "region": "end15cm",
+      "direct": 0,
+      "stage_status": "converge",
+      "point_mm": 20.567660545201075,
+      "end_mm": 45.33172524407349
+    },
+    {
+      "region": "end15cm",
+      "direct": 120,
+      "stage_status": "converge",
+      "point_mm": 33.258297902961296,
+      "end_mm": 75.00157010190473
+    },
+    {
+      "region": "end15cm",
+      "direct": 240,
+      "stage_status": "converge",
+      "point_mm": 46.12458020716555,
+      "end_mm": 109.10652961295406
+    },
+    {
+      "region": "end5cm",
+      "direct": 0,
+      "stage_status": "converge",
+      "point_mm": 58.79602987541121,
+      "end_mm": 138.2797871307922
+    },
+    {
+      "region": "end5cm",
+      "direct": 120,
+      "stage_status": "converge",
+      "point_mm": 11.79932046276586,
+      "end_mm": 25.747842559050934
+    },
+    {
+      "region": "end5cm",
+      "direct": 240,
+      "stage_status": "converge",
+      "point_mm": 79.90951184396762,
+      "end_mm": 192.19524126495529
+    }
+  ]
+}

@@ -103,7 +103,8 @@ class TaskSession:
             self.require_seed()
         if task == 'demo' and self.config.input.core_position_calib:
             self._core_demo_curvature = CoreDemoCurvature(self.curvature, self.design, self.parameters,
-                regions, self.config.runtime.direction_reference_direct)
+                regions, self.config.runtime.direction_reference_direct,
+                response_channels=self.input.response_channel_ids())
 
     def require_seed(self):
         """任务开始校验参数，缺少初值明确指导init+resume，不偷偷执行模块2。"""

@@ -193,8 +193,8 @@ def configure_core_position_region(args):
         raise ValueError('core_position_calib 需要有中心芯的 FiberTecc/Hippo FBG')
     if args.reverse:
         raise ValueError('core_position_calib 需要按夹具校准的正向 WL 顺序')
-    if args.task == 'demo' and args.interlaced_grating:
-        raise ValueError('四芯交错实时采集尚未接入，请使用静态 recon')
+    if args.task == 'demo' and args.interlaced_grating and args.interrogator != 'FiberTecc':
+        raise ValueError('交错实时采集当前仅支持 FiberTecc')
     if args.task != 'demo':
         args.use_stored_zero = False
     elif args.use_stored_zero and not args.zero_reference_path:

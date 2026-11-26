@@ -8,7 +8,8 @@ class Engine:
         from types import SimpleNamespace
         self.parameters=SimpleNamespace(parameters_by_region={region:{'rot_ang':0.}})
         self.region=region
-        self.config=SimpleNamespace(optimization=SimpleNamespace(k_end=0.,k_pitch=0.))
+        self.config=SimpleNamespace(optimization=SimpleNamespace(k_end=0.,k_pitch=0.),
+            reconstruction=SimpleNamespace(frame_rule="TNN"))
         self.dataset=SimpleNamespace(radii=[0])
         self.initialization_result=None
         self.weights=None; self.slopes=None; self.global_phases_set=0.
@@ -62,7 +63,7 @@ def test_optim_and_score_use_batch_path(tmp_path,monkeypatch):
     assert len(d['prepare_jobs'](None,None)[0])==2
     assert execute_task(args('score'),**d)=='batch-result'
 
-def test_init_ang_recon_use_adapters_and_preserve_results(tmp_path,monkeypatch):
+def test_init_ang_recon_use_adapters_and_preserve_results(tmp_path,monkeypatch,capsys):
     d=deps(monkeypatch,artifact_root=tmp_path)
     init=execute_task(args('init'),**d)
     assert init['errors']=={0:.2}
@@ -70,6 +71,7 @@ def test_init_ang_recon_use_adapters_and_preserve_results(tmp_path,monkeypatch):
     assert ang['rot_ang']==0. and ang['errors']=={0:.2}
     metrics=execute_task(args('recon'),**d)
     assert metrics['avg_point_err']=={'calib':.2}
+    assert '算法 TNN' in capsys.readouterr().out
 
 
 def test_batch_resume_restores_each_region_not_last_engine(tmp_path,monkeypatch):
