@@ -134,7 +134,8 @@ def _save_report(path, report):
     """以临时文件原子写入 JSON 报告，避免中断时留下半写文件。"""
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(_native(report), ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
-    temporary.replace(path)
+    from ..artifacts.file_io import atomic_replace
+    atomic_replace(temporary, path)
 
 
 def _report_relative_folder(value, calibration_data_root):

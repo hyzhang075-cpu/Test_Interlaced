@@ -997,10 +997,11 @@
     "type": "float"
   },
   "frame_rule": {
-    "help": "选择使用FS标架还是平行传递标架",
+    "help": "选择FS标架(TNB)、平行传递标架(TNN)或齐次变换(ht)",
     "choices": [
       "TNB",
-      "TNN"
+      "TNN",
+      "ht"
     ],
     "default": "TNN",
     "options": [

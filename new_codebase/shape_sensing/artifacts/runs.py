@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 import json, math, os, tempfile, subprocess
 import numpy as np
+from .file_io import atomic_replace
 
 def _native(value):
     if isinstance(value,dict): return {str(k):_native(v) for k,v in value.items()}
@@ -21,7 +22,7 @@ class RunStore:
         fd,tmp=tempfile.mkstemp(dir=self.path,prefix='.tmp-')
         try:
             with os.fdopen(fd,'w',encoding='utf-8') as f: f.write(payload)
-            os.replace(tmp,target)
+            atomic_replace(tmp,target)
         finally:
             if os.path.exists(tmp): os.unlink(tmp)
         return target

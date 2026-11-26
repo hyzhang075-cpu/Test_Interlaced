@@ -86,3 +86,17 @@ python main.py --task demo --sensor_params packages/11B8_CoreCalib-full-v1.json
 ### 实验脚本清理
 
 根目录的单次优化过程脚本及工具目录中的传感器专项优化实验脚本已移除。算法主体、测试和正式打包/校准/回放工具保留；最终 YAML 配置及参数 JSON 保留在 `configs/`、`params/` 和 `packages/`。历史脚本仍可从 Git 提交历史中查阅。
+
+## 测试
+
+从 `new_codebase` 目录安装测试依赖并运行完整测试：
+
+```powershell
+python -m pip install -e ".[test]"
+python -m pytest tests
+```
+
+测试包含离线 wheel 构建与安装验收，需要 setuptools 和 wheel。
+交错实时采集源返回原始七通道差分帧，随后由 `InputService.preprocess(acquired=True)`
+统一合并、裁剪和重排；不要在采集源重复执行几何预处理。
+Hippo 每通道最多接收 16 个原始 WL，超过该点数请使用 FiberTecc。

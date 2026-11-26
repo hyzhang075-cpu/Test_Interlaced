@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 
-PROJECT_ROOT = Path.cwd()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 import numpy as np
 from ..configuration.regions import (
@@ -90,7 +90,7 @@ def _project_relative_path(value, *, require_relative=False):
     path = Path(value)
     if path.is_absolute():
         try:
-            path = Path(os.path.relpath(path.resolve(), Path.cwd()))
+            path = Path(os.path.relpath(path.resolve(), PROJECT_ROOT))
         except ValueError as exc:
             if require_relative:
                 raise ValueError(f'路径无法转换为项目相对路径: {path}') from exc
@@ -106,7 +106,7 @@ def _calibration_relative_path(value, calibration_data_root):
     path = Path(value)
     root = Path(calibration_data_root)
     if not root.is_absolute():
-        root = Path.cwd() / root
+        root = PROJECT_ROOT / root
     root = root.resolve()
     candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
     try:

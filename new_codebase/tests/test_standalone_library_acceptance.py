@@ -56,7 +56,7 @@ def test_installed_wheel_computes_without_old_files(tmp_path):
     wheels=tmp_path/'wheels'; wheels.mkdir()
     build=subprocess.run([sys.executable,'-m','pip','wheel',str(ROOT),'--no-deps',
                           '--no-build-isolation','--wheel-dir',str(wheels)],
-                         cwd=tmp_path,capture_output=True,text=True,timeout=180)
+                         cwd=tmp_path,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=180)
     assert build.returncode==0, build.stdout+'\n'+build.stderr
     paths=list(wheels.glob('*.whl')); assert len(paths)==1
     # 重命名后的发布物只包含compat入口，防止旧build残留再次进入wheel。
@@ -72,7 +72,7 @@ def test_installed_wheel_computes_without_old_files(tmp_path):
     installed=tmp_path/'installed'
     install=subprocess.run([sys.executable,'-m','pip','install','--no-index','--no-deps',
                             '--target',str(installed),str(paths[0])],
-                           cwd=tmp_path,capture_output=True,text=True,timeout=120)
+                           cwd=tmp_path,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=120)
     assert install.returncode==0, install.stdout+'\n'+install.stderr
     script=r'''
 import sys, importlib.abc, pathlib, runpy
